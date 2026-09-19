@@ -106,7 +106,7 @@ An exact ref prevents automatic selection of later compatible releases.
 ### npm release
 
 An npm source must refer to a published package. The package must contain the
-prebuilt BB files. A Git install can build source during installation.
+prebuilt EVA files. A Git install can build source during installation.
 
 1. Run bb plugin build.
 2. Run tests and type checks.

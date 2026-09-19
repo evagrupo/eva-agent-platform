@@ -26,7 +26,6 @@ import { SIDEBAR_FOOTER_ACTION_CLASS } from "./sidebarRowClasses";
 import { useQuickCreateProjectController } from "@/hooks/useQuickCreateProject";
 import { getRootComposeRoutePath, getThreadRoutePath } from "@/lib/route-paths";
 import { usePaneContentSplitDrag } from "./usePaneContentSplitDrag";
-import { openUrlInExternalBrowser } from "@/lib/url-open-routing";
 import {
   EMPTY_SIDEBAR_THREAD_SHORTCUT_KEYS,
   getSidebarThreadNavigationTargets,
@@ -44,10 +43,9 @@ import {
 } from "@/components/commands/AppCommandProvider";
 import { useRouteState } from "@/hooks/useRouteState";
 import { SidebarNavigationRegion } from "./SidebarNavigationRegion";
+import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
 
 const NEW_THREAD_PANE_CONTENT = { kind: "new-thread" } as const;
-
-const BUG_REPORT_NEW_ISSUE_URL = "https://github.com/get-bb/bb/issues/new";
 
 interface AppSidebarProps {
   onResizeMouseDown: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -63,6 +61,7 @@ export function AppSidebar({
   mobileHosted,
 }: AppSidebarProps) {
   const quickCreateProject = useQuickCreateProjectController();
+  const coreAuth = useCoreAuth();
   const threadListReplacement = useThreadListReplacement();
   const { threadId: activeThreadId } = useRouteState();
   const navigate = useNavigate();
@@ -87,6 +86,14 @@ export function AppSidebar({
   const isAppCommandModifierHeld = useIsAppCommandModifierHeld();
   const settingsShortcut = useAppCommandShortcut("settings.open");
   const pluginSidebarFooter = usePluginSidebarFooterDisclosure();
+  const sidebarFooterAllowed = canUseCoreCapability(coreAuth, "sidebarFooter");
+  const settingsAllowed = canUseCoreCapability(coreAuth, "settings");
+  const threadReadAllowed =
+    canUseCoreCapability(coreAuth, "threadOwnRead") ||
+    canUseCoreCapability(coreAuth, "threadAllRead");
+  const threadWriteAllowed =
+    canUseCoreCapability(coreAuth, "threadOwnWrite") ||
+    canUseCoreCapability(coreAuth, "threadAllWrite");
 
   const handleNewChat = useCallback(() => {
     closeOnMobile();
@@ -211,8 +218,8 @@ export function AppSidebar({
         onNavigate={closeOnMobile}
         splitEnabled
         newThreadSplit={newThreadSplit}
-        onNewChat={handleNewChat}
-        onSearchThreads={closeOnMobile}
+        onNewChat={threadWriteAllowed ? handleNewChat : undefined}
+        onSearchThreads={threadReadAllowed ? closeOnMobile : undefined}
       />
       <div
         aria-hidden="true"
@@ -222,59 +229,60 @@ export function AppSidebar({
         )}
         data-testid="app-sidebar-navigation-divider"
       />
-      <SidebarContent
-        className={cn(isCompactCustomizeModeActive && "hidden")}
-        aria-hidden={isCompactCustomizeModeActive ? true : undefined}
-        inert={isCompactCustomizeModeActive ? true : undefined}
-      >
-        <PluginThreadList
-          replacement={threadListReplacement}
-          original={originalThreadList}
-          searchQuery=""
-          onNavigate={closeOnMobile}
-        />
-      </SidebarContent>
-      <SidebarFooter className="relative">
-        <OverflowFade placement="above" tone="sidebar" size="sm" />
-        <PluginSidebarFooterDisclosure
-          item={pluginSidebarFooter.activeItem}
-          onDismiss={pluginSidebarFooter.dismiss}
-        />
-        <SidebarMenu className="flex-row flex-wrap-reverse items-center gap-1">
-          <PluginSidebarFooterItems
-            activeDisclosureKey={pluginSidebarFooter.activeKey}
-            onDisclosureCommand={pluginSidebarFooter.handleCommand}
-            onNavigate={closeOnMobile}
-            builtInActions={[
-              {
-                id: "settings",
-                href: settingsRoutePath,
-                ariaLabel: settingsShortcut
-                  ? `Settings (${settingsShortcut.label})`
-                  : "Settings",
-                ariaKeyShortcuts: settingsShortcut?.ariaKeyshortcuts,
-                onActivate: () => {
-                  closeOnMobile();
-                  void navigate(settingsRoutePath);
-                },
-              },
-              {
-                id: "report-bug",
-                onActivate: () => {
-                  closeOnMobile();
-                  openUrlInExternalBrowser(BUG_REPORT_NEW_ISSUE_URL);
-                },
-              },
-            ]}
-          />
-          <li aria-hidden="true" className="min-w-0 flex-1" />
-          <SidebarPluginAttentionGlyph
-            className={SIDEBAR_FOOTER_ACTION_CLASS}
+      {threadReadAllowed ? (
+        <SidebarContent
+          className={cn(isCompactCustomizeModeActive && "hidden")}
+          aria-hidden={isCompactCustomizeModeActive ? true : undefined}
+          inert={isCompactCustomizeModeActive ? true : undefined}
+        >
+          <PluginThreadList
+            replacement={threadListReplacement}
+            original={originalThreadList}
+            searchQuery=""
             onNavigate={closeOnMobile}
           />
-          <SidebarUpdatesBadge onNavigate={closeOnMobile} />
-        </SidebarMenu>
-      </SidebarFooter>
+        </SidebarContent>
+      ) : null}
+      {sidebarFooterAllowed ? (
+        <SidebarFooter className="relative">
+          <OverflowFade placement="above" tone="sidebar" size="sm" />
+          <PluginSidebarFooterDisclosure
+            item={pluginSidebarFooter.activeItem}
+            onDismiss={pluginSidebarFooter.dismiss}
+          />
+          <SidebarMenu className="flex-row flex-wrap-reverse items-center gap-1">
+            <PluginSidebarFooterItems
+              activeDisclosureKey={pluginSidebarFooter.activeKey}
+              onDisclosureCommand={pluginSidebarFooter.handleCommand}
+              onNavigate={closeOnMobile}
+              builtInActions={
+                settingsAllowed
+                  ? [
+                      {
+                        id: "settings",
+                        href: settingsRoutePath,
+                        ariaLabel: settingsShortcut
+                          ? `Settings (${settingsShortcut.label})`
+                          : "Settings",
+                        ariaKeyShortcuts: settingsShortcut?.ariaKeyshortcuts,
+                        onActivate: () => {
+                          closeOnMobile();
+                          void navigate(settingsRoutePath);
+                        },
+                      },
+                    ]
+                  : []
+              }
+            />
+            <li aria-hidden="true" className="min-w-0 flex-1" />
+            <SidebarPluginAttentionGlyph
+              className={SIDEBAR_FOOTER_ACTION_CLASS}
+              onNavigate={closeOnMobile}
+            />
+            <SidebarUpdatesBadge onNavigate={closeOnMobile} />
+          </SidebarMenu>
+        </SidebarFooter>
+      ) : null}
       <SidebarResizeHandle
         testId="app-sidebar-resize-handle"
         isResizing={isResizing}

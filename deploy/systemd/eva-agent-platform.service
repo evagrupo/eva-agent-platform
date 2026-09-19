@@ -1,0 +1,46 @@
+[Unit]
+Description=EVA Agent Platform
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=eva-agent-platform
+Group=eva-agent-platform
+WorkingDirectory=/opt/eva-agent-platform
+EnvironmentFile=/etc/eva-agent-platform/eva-agent-platform.env
+Environment=NODE_ENV=production
+Environment=BB_AUTH_REQUIRED=true
+Environment=BB_DATA_DIR=/var/lib/eva-agent-platform
+Environment=BB_SERVER_BIND_HOST=0.0.0.0
+Environment=BB_SERVER_PORT=38886
+Environment=BB_HOST_DAEMON_PORT=38887
+Environment=HOME=/var/lib/eva-agent-platform
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node /opt/eva-agent-platform/packages/bb-app/dist/bb-app.js start
+Restart=always
+RestartSec=5s
+TimeoutStartSec=5min
+TimeoutStopSec=45s
+KillSignal=SIGTERM
+KillMode=control-group
+UMask=0077
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LimitNOFILE=65536
+StateDirectory=eva-agent-platform
+StateDirectoryMode=0700
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

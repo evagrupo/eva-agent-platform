@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import {
   matchPath,
   Navigate,
@@ -25,6 +25,8 @@ import { useRememberPluginNavPanelChrome } from "@/lib/plugin-nav-panel-chrome";
 import { useWebSocket } from "./hooks/useWebSocket";
 import {
   AUTH_CALLBACK_ROUTE_PATH,
+  EVA_AGENT_DETAIL_ROUTE_PATH,
+  EVA_AGENTS_ROUTE_PATH,
   LEGACY_AUTOMATION_DETAIL_ROUTE_PATH,
   LEGACY_AUTOMATIONS_ROUTE_PATH,
   LEGACY_TOOLS_AUTOMATION_BROWSE_ROUTE_PATH,
@@ -68,6 +70,15 @@ import { AppCommandProvider } from "./components/commands/AppCommandProvider";
 import { ProviderCliInstallLogDialogHost } from "./components/provider-cli/provider-cli-install";
 import { ServerMoveOverlay } from "./components/machines/ServerMoveOverlay";
 import { RouteLoadingSkeleton } from "./components/ui/route-loading-skeleton";
+import {
+  CoreAuthGate,
+  CoreAuthProvider,
+  CoreCapabilityGate,
+  canUseCorePlugin,
+  useCoreAuth,
+  type CoreCapability,
+} from "./lib/core-auth";
+import { EvaAdminDashboardView } from "./views/EvaAdminDashboardView";
 
 const SettingsView = lazy(() =>
   import("./views/SettingsView").then((m) => ({
@@ -82,6 +93,11 @@ const PluginsView = lazy(() =>
 const SkillsView = lazy(() =>
   import("./views/ToolsView").then((m) => ({
     default: m.SkillsView,
+  })),
+);
+const EvaAgentsView = lazy(() =>
+  import("./views/EvaAgentsView").then((m) => ({
+    default: m.EvaAgentsView,
   })),
 );
 const ProjectDetailSettingsView = lazy(() =>
@@ -106,6 +122,33 @@ function NavigatePreservingLocation({ pathname }: { pathname: string }) {
       replace
     />
   );
+}
+
+function CapabilityRoute({
+  capability,
+  children,
+}: {
+  capability: CoreCapability;
+  children: ReactNode;
+}) {
+  return (
+    <CoreCapabilityGate capability={capability}>{children}</CoreCapabilityGate>
+  );
+}
+
+function PluginCapabilityRoute({ children }: { children: ReactNode }) {
+  return (
+    <CapabilityRoute capability="plugins">
+      <CapabilityRoute capability="pluginData">{children}</CapabilityRoute>
+    </CapabilityRoute>
+  );
+}
+
+function AdministratorRoute({ children }: { children: ReactNode }) {
+  const auth = useCoreAuth();
+  if (auth === null || auth.status !== "ready") return null;
+  if (auth.user?.role !== "admin") return <Navigate to="/" replace />;
+  return <>{children}</>;
 }
 
 function LegacyProjectSettingsRedirect() {
@@ -267,33 +310,91 @@ export function AppRoutes() {
       <Suspense fallback={null}>
         <Routes>
           <Route
-            path="/settings/usage"
+            path="/admin"
             element={
-              <Navigate
-                to={getPluginConfigurationRoutePath({
-                  pluginId: "provider-usage",
-                })}
-                replace
-              />
+              <AdministratorRoute>
+                <CapabilityRoute capability="settings">
+                  <EvaAdminDashboardView />
+                </CapabilityRoute>
+              </AdministratorRoute>
             }
           />
-          <Route path={SETTINGS_ROUTE_PATH} element={<SettingsView />} />
+          <Route
+            path={EVA_AGENTS_ROUTE_PATH}
+            element={
+              <CapabilityRoute capability="workspaceBootstrap">
+                <EvaAgentsView />
+              </CapabilityRoute>
+            }
+          />
+          <Route
+            path={EVA_AGENT_DETAIL_ROUTE_PATH}
+            element={
+              <CapabilityRoute capability="workspaceBootstrap">
+                <EvaAgentsView />
+              </CapabilityRoute>
+            }
+          />
+          <Route
+            path="/settings/usage"
+            element={
+              <CapabilityRoute capability="settings">
+                <Navigate
+                  to={getPluginConfigurationRoutePath({
+                    pluginId: "provider-usage",
+                  })}
+                  replace
+                />
+              </CapabilityRoute>
+            }
+          />
+          <Route
+            path={SETTINGS_ROUTE_PATH}
+            element={
+              <CapabilityRoute capability="settings">
+                <SettingsView />
+              </CapabilityRoute>
+            }
+          />
           <Route
             path={SETTINGS_SECTION_ROUTE_PATH}
-            element={<SettingsView />}
+            element={
+              <CapabilityRoute capability="settings">
+                <SettingsView />
+              </CapabilityRoute>
+            }
           />
           <Route
             path={SETTINGS_PLUGINS_ROUTE_PATH}
-            element={<SettingsView />}
+            element={
+              <CapabilityRoute capability="settings">
+                <SettingsView />
+              </CapabilityRoute>
+            }
           />
-          <Route path={SETTINGS_PLUGIN_ROUTE_PATH} element={<SettingsView />} />
+          <Route
+            path={SETTINGS_PLUGIN_ROUTE_PATH}
+            element={
+              <CapabilityRoute capability="settings">
+                <SettingsView />
+              </CapabilityRoute>
+            }
+          />
           <Route
             path={SETTINGS_MACHINE_ROUTE_PATH}
-            element={<MachineSettingsView />}
+            element={
+              <CapabilityRoute capability="settings">
+                <MachineSettingsView />
+              </CapabilityRoute>
+            }
           />
           <Route
             path={SETTINGS_PROJECT_ROUTE_PATH}
-            element={<ProjectDetailSettingsView />}
+            element={
+              <CapabilityRoute capability="settings">
+                <ProjectDetailSettingsView />
+              </CapabilityRoute>
+            }
           />
           <Route
             path={LEGACY_PROJECT_SETTINGS_ROUTE_PATH}
@@ -377,15 +478,54 @@ export function AppRoutes() {
             path={LEGACY_TOOLS_SPLAT_ROUTE_PATH}
             element={<LegacyToolsPathRedirect />}
           />
-          <Route path={SKILLS_ROUTE_PATH} element={<SkillsView />} />
-          <Route path={SKILL_DETAIL_ROUTE_PATH} element={<SkillsView />} />
-          <Route path={REGISTRY_SKILLS_ROUTE_PATH} element={<SkillsView />} />
+          <Route
+            path={SKILLS_ROUTE_PATH}
+            element={
+              <PluginCapabilityRoute>
+                <SkillsView />
+              </PluginCapabilityRoute>
+            }
+          />
+          <Route
+            path={SKILL_DETAIL_ROUTE_PATH}
+            element={
+              <PluginCapabilityRoute>
+                <SkillsView />
+              </PluginCapabilityRoute>
+            }
+          />
+          <Route
+            path={REGISTRY_SKILLS_ROUTE_PATH}
+            element={
+              <PluginCapabilityRoute>
+                <SkillsView />
+              </PluginCapabilityRoute>
+            }
+          />
           <Route
             path={REGISTRY_SKILL_DETAIL_ROUTE_PATH}
-            element={<SkillsView />}
+            element={
+              <PluginCapabilityRoute>
+                <SkillsView />
+              </PluginCapabilityRoute>
+            }
           />
-          <Route path={PLUGINS_ROUTE_PATH} element={<PluginsRoute />} />
-          <Route path={PLUGIN_DETAIL_ROUTE_PATH} element={<PluginsRoute />} />
+          <Route
+            path={PLUGINS_ROUTE_PATH}
+            element={
+              <PluginCapabilityRoute>
+                <PluginsRoute />
+              </PluginCapabilityRoute>
+            }
+          />
+          <Route
+            path={PLUGIN_DETAIL_ROUTE_PATH}
+            element={
+              <PluginCapabilityRoute>
+                <PluginsRoute />
+              </PluginCapabilityRoute>
+            }
+          />
           <Route
             path="*"
             element={
@@ -412,10 +552,14 @@ function RouteContentPaintSignal() {
 
 function PluginsRoute() {
   const { pluginId } = useParams<{ pluginId?: string }>();
+  const auth = useCoreAuth();
+  if (pluginId !== undefined && !canUseCorePlugin(auth, pluginId)) {
+    return <Navigate to={PLUGINS_ROUTE_PATH} replace />;
+  }
   return <PluginsView pluginId={pluginId} />;
 }
 
-export function App() {
+function AuthenticatedApp() {
   useWebSocket();
   useDesktopThemeSync();
   useAppTheme();
@@ -434,10 +578,6 @@ export function App() {
               <NativeShellReporter />
               <UiPreferencesSync />
               <Routes>
-                <Route
-                  path={AUTH_CALLBACK_ROUTE_PATH}
-                  element={<AuthCallbackView />}
-                />
                 <Route path="*" element={<AppRoutes />} />
               </Routes>
               <ProviderCliInstallLogDialogHost />
@@ -447,5 +587,26 @@ export function App() {
         </RouteNavigationProvider>
       </AppCommandProvider>
     </QuickCreateProjectProvider>
+  );
+}
+
+function AppRoot() {
+  const location = useLocation();
+  const isAuthCallback =
+    location.pathname === AUTH_CALLBACK_ROUTE_PATH ||
+    location.pathname === `${AUTH_CALLBACK_ROUTE_PATH}/`;
+  if (isAuthCallback) return <AuthCallbackView />;
+  return (
+    <CoreAuthGate>
+      <AuthenticatedApp />
+    </CoreAuthGate>
+  );
+}
+
+export function App() {
+  return (
+    <CoreAuthProvider>
+      <AppRoot />
+    </CoreAuthProvider>
   );
 }

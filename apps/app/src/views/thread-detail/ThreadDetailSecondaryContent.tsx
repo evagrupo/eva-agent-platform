@@ -17,6 +17,7 @@ import { DETAIL_GRID_CLASS } from "@/components/ui/detail-card.js";
 import { useThreads } from "@/hooks/queries/thread-queries";
 import { ThreadTimelinePane } from "./ThreadTimelinePane";
 import { getCompactPanelPresentation } from "@/components/secondary-panel/panelToggleControlState";
+import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
 
 type ThreadTimelinePaneProps = Omit<
   ComponentProps<typeof ThreadTimelinePane>,
@@ -78,6 +79,12 @@ function ThreadDetailSecondaryContentBody({
   secondaryPanel,
   timeline,
 }: ThreadDetailSecondaryContentProps) {
+  const auth = useCoreAuth();
+  const secondaryPanelAllowed = canUseCoreCapability(
+    auth,
+    "secondaryPanelTabs",
+  );
+  const threadInfoAllowed = canUseCoreCapability(auth, "threadInfo");
   const composerHost = usePluginComposerHost();
   const { renderBrowserDeck, ...threadSecondaryPanelProps } = secondaryPanel;
 
@@ -88,12 +95,12 @@ function ThreadDetailSecondaryContentBody({
       originKind: "fork",
       archived: false,
     },
-    { enabled: isSecondaryPanelOpen },
+    { enabled: isSecondaryPanelOpen && secondaryPanelAllowed },
   );
   const hasForks = (forksQuery.data?.length ?? 0) > 0;
   const metadataContent = useMemo(
     () =>
-      hasAnyThreadMetadata(metadata, hasForks) ? (
+      threadInfoAllowed && hasAnyThreadMetadata(metadata, hasForks) ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <ThreadMetadataContent {...metadata} />
         </div>
@@ -104,8 +111,21 @@ function ThreadDetailSecondaryContentBody({
           No thread details available.
         </div>
       ),
-    [hasForks, isMetadataLoading, metadata],
+    [hasForks, isMetadataLoading, metadata, threadInfoAllowed],
   );
+
+  if (!secondaryPanelAllowed) {
+    return (
+      <div
+        className={cn(
+          "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-clip",
+          !isBoundedPane && "-mx-4 -mb-4 -mt-4 md:-mx-5 md:-mb-5 md:-mt-5",
+        )}
+      >
+        <ThreadTimelinePane {...timeline} footer={footer} />
+      </div>
+    );
+  }
 
   return (
     <div

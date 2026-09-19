@@ -117,6 +117,7 @@ const hostDaemonThreadTargetSchema = z
   .object({
     environmentId: z.string().min(1),
     threadId: z.string().min(1),
+    agentId: z.string().min(1).max(512).optional(),
   })
   .strict();
 

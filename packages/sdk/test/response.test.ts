@@ -10,10 +10,10 @@ import { createNodeTransport } from "../src/node.js";
 
 const REQUEST_TIMEOUT_ERROR_NAME = "BbRequestTimeoutError";
 const REQUEST_TIMEOUT_VALIDATION_MESSAGE =
-  "BB request timeout must be a non-negative finite number.";
+  "EVA request timeout must be a non-negative finite number.";
 
 function requestTimeoutMessage(duration: string): string {
-  return `BB request timed out after ${duration}.`;
+  return `EVA request timed out after ${duration}.`;
 }
 
 const IMMEDIATE_TIMEOUT_MS = 0;
@@ -313,7 +313,7 @@ describe("readJsonResponse()", () => {
     });
 
     await expect(readJsonResponse(Promise.reject(connError))).rejects.toThrow(
-      "Cannot connect to BB server. Ensure it is running and BB_SERVER_URL is correct.",
+      "Cannot connect to EVA server. Ensure it is running and BB_SERVER_URL is correct.",
     );
   });
 

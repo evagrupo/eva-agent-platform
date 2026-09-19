@@ -300,6 +300,26 @@ server.
 - `bb voice`
 - `bb voice transcribe`
 
+## eva
+
+- `bb eva`
+- `bb eva list`
+- `bb eva show`
+- `bb eva workspace`
+- `bb eva scaffold`
+- `bb eva sync status`
+- `bb eva sync configure`
+- `bb eva sync initialize`
+- `bb eva sync commit`
+- `bb eva sync pull`
+- `bb eva sync push`
+- `bb eva create`
+- `bb eva update`
+- `bb eva threads`
+- `bb eva start`
+- `bb eva delegate`
+- `bb eva message`
+
 ## browser
 
 - `bb browser`

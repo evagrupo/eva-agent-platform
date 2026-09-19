@@ -102,7 +102,9 @@ export function createThreadRecord(
   try {
     const thread = createThread(deps.db, deps.hub, {
       projectId: args.request.projectId,
+      ownerUserId: args.request.ownerUserId ?? null,
       environmentId: args.environmentId,
+      agentId: args.request.agentId ?? null,
       providerId: args.request.providerId,
       title: args.request.title ?? null,
       titleFallback: args.request.titleFallback,

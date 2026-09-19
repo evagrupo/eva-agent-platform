@@ -136,7 +136,7 @@ export function MachineAccessSettingsContent({
   return (
     <SettingsSection
       title="Machine access"
-      description="Choose how new machines connect to the bb server."
+      description="Choose how new machines connect to the EVA server."
       action={<MachineAccessMethodPicker machineAccess={machineAccess} />}
       bodyClassName="space-y-3"
     >
@@ -298,7 +298,7 @@ function MachineAccessDetails({
               aria-label="Server address"
               aria-invalid={error !== null}
               value={draft ?? value}
-              placeholder={access?.effectiveUrl ?? "https://bb.example.com"}
+              placeholder={access?.effectiveUrl ?? "https://eva.example.com"}
               disabled={disabled}
               onChange={(event) => machineAccess.editDraft(event.target.value)}
               onKeyDown={(event) => {

@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import {
+  authPolicies,
+  authPrincipals,
+  authUsers,
+  createThread,
   markThreadDeleted,
   setExperiments,
   setThreadExecutionOverride,
@@ -18,6 +23,7 @@ import type { DiscoveredSkill } from "@bb/host-daemon-contract";
 import { setPluginAgentContributions } from "../../src/services/plugins/plugin-agent-contributions.js";
 import { readSkillTreeManifest } from "../../src/services/skills/injected-skills.js";
 import type { PluginAgentToolContribution } from "../../src/services/plugins/plugin-service.js";
+import { defaultUserPolicy } from "../../src/access-policy.js";
 import {
   resolvePermissionEscalation,
   resolveThreadRuntimeCommandConfig,
@@ -1572,6 +1578,254 @@ describe("thread runtime config", () => {
     });
   });
 
+  it("filters owned-thread plugin runtime contributions by current policy", async () => {
+    await withTestHarness(async (harness) => {
+      const ownerPolicy = {
+        ...defaultUserPolicy,
+        allowedAgentIds: ["creative"],
+        allowedProviderIds: ["codex"],
+        allowedModelPatterns: ["test-model"],
+        allowedToolIds: ["allowed-tool"],
+        allowedPluginIds: ["allowed"],
+        allowPluginData: true,
+        capabilities: {
+          ...defaultUserPolicy.capabilities!,
+          plugins: true,
+          pluginData: true,
+        },
+      };
+      const now = new Date();
+      harness.db
+        .insert(authUsers)
+        .values({
+          id: "runtime-owner",
+          name: "Runtime Owner",
+          email: "runtime-owner@eva.test",
+          emailVerified: true,
+          image: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      harness.db
+        .insert(authPolicies)
+        .values({
+          id: "owner-plugin-policy",
+          role: "user",
+          policyJson: JSON.stringify(ownerPolicy),
+          revision: 1,
+          updatedAt: Date.now(),
+        })
+        .run();
+      harness.db
+        .insert(authPrincipals)
+        .values({
+          userId: "runtime-owner",
+          role: "user",
+          status: "active",
+          policyId: "owner-plugin-policy",
+          revision: 1,
+          updatedAt: Date.now(),
+        })
+        .run();
+
+      const host = seedHostSession(harness.deps, {
+        id: "host-runtime-plugin-policy",
+      }).host;
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/runtime-plugin-policy",
+      });
+      const environment = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: project.id,
+        path: "/tmp/runtime-plugin-policy",
+      });
+      const thread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        environmentId: environment.id,
+        ownerUserId: "runtime-owner",
+        agentId: "creative",
+        providerId: "codex",
+        status: "idle",
+        title: "Policy runtime thread",
+        titleFallback: "Policy runtime thread",
+        visibility: "visible",
+      });
+      const allowedRoot = await writeRuntimeSkill({
+        name: "allowed-skill",
+        rootPath: path.join(harness.config.dataDir, "allowed-plugin-skills"),
+      });
+      const blockedRoot = await writeRuntimeSkill({
+        name: "blocked-skill",
+        rootPath: path.join(harness.config.dataDir, "blocked-plugin-skills"),
+      });
+      await writeRuntimeSkill({
+        name: "blocked-generated",
+        rootPath: path.join(harness.config.dataDir, "skills-generated"),
+      });
+
+      let configuredAllowedPluginIds: string[] | undefined;
+      let environmentAllowedPluginIds: string[] | undefined;
+      setPluginAgentContributions({
+        listSkillRootContributions: () => [
+          { pluginId: "allowed", rootPath: path.dirname(allowedRoot) },
+          { pluginId: "blocked", rootPath: path.dirname(blockedRoot) },
+        ],
+        listAgentTools: () => [],
+        listInstructionContributions: () => [
+          {
+            pluginId: "allowed",
+            provider: () => "allowed instruction",
+          },
+          {
+            pluginId: "blocked",
+            provider: () => "blocked instruction",
+          },
+        ],
+        findAgentTool: () => undefined,
+        invokeAgentTool: async () => ({
+          success: false,
+          contentItems: [{ type: "inputText", text: "unused" }],
+        }),
+        resolveMention: async () => ({ ok: false, error: "unused" }),
+        resolveAgentConfiguration: async ({ allowedPluginIds }) => {
+          configuredAllowedPluginIds =
+            allowedPluginIds === undefined ? undefined : [...allowedPluginIds];
+          return {
+            tools: [
+              {
+                pluginId: "allowed",
+                tool: {
+                  name: "allowed-tool",
+                  description: "Allowed tool",
+                  inputSchema: { type: "object" },
+                },
+                instructions: "allowed tool instruction",
+              },
+              {
+                pluginId: "blocked",
+                tool: {
+                  name: "blocked-tool",
+                  description: "Blocked tool",
+                  inputSchema: { type: "object" },
+                },
+                instructions: "blocked tool instruction",
+              },
+            ],
+            selectedSkillIdsByPlugin: new Map([
+              ["allowed", new Set(["allowed-skill"])],
+              ["blocked", new Set(["blocked-skill"])],
+            ]),
+            dynamicInstructions: [
+              { pluginId: "allowed", text: "allowed dynamic instruction" },
+              { pluginId: "blocked", text: "blocked dynamic instruction" },
+            ],
+          };
+        },
+        resolveProviderEnv: async ({ allowedPluginIds }) => {
+          environmentAllowedPluginIds =
+            allowedPluginIds === undefined ? undefined : [...allowedPluginIds];
+          return {
+            entries: [
+              {
+                name: "ALLOWED_PLUGIN_ENV",
+                value: "allowed",
+                source: { plugin: "allowed" },
+                reason: "allowed test contribution",
+              },
+              {
+                name: "BLOCKED_PLUGIN_ENV",
+                value: "blocked",
+                source: { plugin: "blocked" },
+                reason: "blocked test contribution",
+              },
+            ],
+          };
+        },
+      });
+
+      try {
+        const resolve = () =>
+          resolveThreadRuntimeCommandConfig(harness.deps, {
+            thread,
+            model: "test-model",
+            environment: {
+              hostId: environment.hostId,
+              id: environment.id,
+              path: environment.path,
+              status: environment.status,
+            },
+          });
+        const restricted = await resolve();
+        expect(configuredAllowedPluginIds).toEqual(["allowed"]);
+        expect(environmentAllowedPluginIds).toEqual(["allowed"]);
+        expect(restricted.dynamicTools.map((tool) => tool.name)).toEqual([
+          "allowed-tool",
+        ]);
+        expect(restricted.instructions).toContain("allowed instruction");
+        expect(restricted.instructions).toContain(
+          "allowed dynamic instruction",
+        );
+        expect(restricted.instructions).toContain("allowed tool instruction");
+        expect(restricted.instructions).not.toContain("blocked");
+        expect(
+          restricted.injectedSkillSources.map((source) => source.name),
+        ).toContain("allowed-skill");
+        expect(
+          restricted.injectedSkillSources.map((source) => source.name),
+        ).not.toContain("blocked-skill");
+        expect(
+          restricted.injectedSkillSources.map((source) => source.name),
+        ).not.toContain("blocked-generated");
+        expect(restricted.contributedEnv.map((entry) => entry.name)).toContain(
+          "ALLOWED_PLUGIN_ENV",
+        );
+        expect(
+          restricted.contributedEnv.map((entry) => entry.name),
+        ).not.toContain("BLOCKED_PLUGIN_ENV");
+
+        harness.db
+          .update(authPolicies)
+          .set({
+            policyJson: JSON.stringify({
+              ...ownerPolicy,
+              allowPluginData: false,
+              capabilities: {
+                ...ownerPolicy.capabilities,
+                plugins: false,
+                pluginData: false,
+              },
+            }),
+            revision: 2,
+            updatedAt: Date.now(),
+          })
+          .where(eq(authPolicies.id, "owner-plugin-policy"))
+          .run();
+        const downgraded = await resolve();
+        expect(configuredAllowedPluginIds).toEqual([]);
+        expect(environmentAllowedPluginIds).toEqual([]);
+        expect(downgraded.dynamicTools).toEqual([]);
+        expect(downgraded.instructions).not.toContain("allowed");
+        expect(downgraded.instructions).not.toContain("blocked");
+        expect(
+          downgraded.injectedSkillSources.filter((source) =>
+            ["allowed-skill", "blocked-skill", "blocked-generated"].includes(
+              source.name,
+            ),
+          ),
+        ).toEqual([]);
+        expect(
+          downgraded.contributedEnv.filter((entry) =>
+            entry.name.endsWith("_PLUGIN_ENV"),
+          ),
+        ).toEqual([]);
+      } finally {
+        setPluginAgentContributions(undefined);
+      }
+    });
+  });
+
   describe("plugin contributeInstructions assembly", () => {
     afterEach(() => {
       setPluginAgentContributions(undefined);
@@ -1666,9 +1920,9 @@ describe("thread runtime config", () => {
         );
 
         const toolHeader =
-          'The following instructions come from the BB plugin "tooldemo" for its tool "demo_lookup":';
+          'The following instructions come from an approved EVA integration "tooldemo" for its tool "demo_lookup":';
         const pluginHeader =
-          'The following instructions come from the BB plugin "connect":';
+          'The following instructions come from an approved EVA integration "connect":';
         const dataDirHeader =
           "The following user instructions come from <dataDir>/AGENTS.md:";
         const instructions = runtimeConfig.instructions;
@@ -1750,19 +2004,19 @@ describe("thread runtime config", () => {
 
         const instructions = runtimeConfig.instructions;
         expect(instructions).not.toContain(
-          'The following instructions come from the BB plugin "nuller":',
+          'The following instructions come from an approved EVA integration "nuller":',
         );
         expect(instructions).not.toContain(
-          'The following instructions come from the BB plugin "blank":',
+          'The following instructions come from an approved EVA integration "blank":',
         );
         expect(instructions).not.toContain(
-          'The following instructions come from the BB plugin "boom":',
+          'The following instructions come from an approved EVA integration "boom":',
         );
         expect(instructions).toContain(
-          'The following instructions come from the BB plugin "verbose":',
+          'The following instructions come from an approved EVA integration "verbose":',
         );
         expect(instructions).toContain(
-          'The following instructions come from the BB plugin "ok":',
+          'The following instructions come from an approved EVA integration "ok":',
         );
         expect(instructions).toContain("still contributes");
         expect(instructions).not.toContain(longBody);

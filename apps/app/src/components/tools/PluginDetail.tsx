@@ -76,12 +76,12 @@ export function pluginIsLocalSource(plugin: PluginListItem): boolean {
 }
 
 export function pluginRemovalLabel(plugin: PluginListItem): string {
-  return pluginIsLocalSource(plugin) ? "Remove from bb" : "Uninstall";
+  return pluginIsLocalSource(plugin) ? "Remove from EVA" : "Uninstall";
 }
 
 export function pluginRemovalDescription(plugin: PluginListItem): string {
   return pluginIsLocalSource(plugin)
-    ? `Remove "${plugin.id}" from bb and delete its settings, secrets, and schedules? Its source files stay on disk. To move it to another directory, install the new path instead; that keeps its settings.`
+    ? `Remove "${plugin.id}" from EVA and delete its settings, secrets, and schedules? Its source files stay on disk. To move it to another directory, install the new path instead; that keeps its settings.`
     : `Uninstall "${plugin.id}" and delete its managed files, settings, secrets, and schedules?`;
 }
 
@@ -168,7 +168,7 @@ export function CatalogPluginDetailBanner({
     <PluginBannerBar
       tone="warning"
       icon="AlertTriangle"
-      title="Update bb to install this plugin"
+      title="Update EVA to install this integration"
       detail={entry.incompatibleReason}
     />
   );
@@ -269,10 +269,10 @@ export function PluginDetail({
 
   const hasUpdateManagement = pluginHasUpdateSurfaces(plugin);
   const canEditSource = pluginIsLocalSource(plugin);
-  const updatesWithBb = plugin.source.startsWith("builtin:");
+  const updatesWithEVA = plugin.source.startsWith("builtin:");
   const installedAt = sourceQuery.data?.installedAt ?? null;
-  const installedValue = updatesWithBb
-    ? "Updates with bb"
+  const installedValue = updatesWithEVA
+    ? "Updates with EVA"
     : installedAt !== null
       ? formatAbsoluteDate(installedAt)
       : sourceQuery.isPending
@@ -317,7 +317,7 @@ export function PluginDetail({
       disabled: pending || plugin.provenance === "builtin",
       disabledReason:
         plugin.provenance === "builtin"
-          ? "Included with BB; disable this plugin instead."
+          ? "Included with EVA; disable this integration instead."
           : undefined,
       onSelect: () => onDelete(plugin),
     },
@@ -414,7 +414,7 @@ export function PluginDetail({
         >
           <PluginDetailTable>
             <PluginDetailFieldRow
-              label={updatesWithBb ? "Delivery" : "Installed"}
+              label={updatesWithEVA ? "Delivery" : "Installed"}
               labelClassName="font-medium"
             >
               {installedValue}

@@ -40,11 +40,24 @@ import {
   pluginSettingsUpdateRequestSchema,
   pluginTokenRequestSchema,
   pluginUpdateCheckRequestSchema,
+  type InstalledPlugin,
 } from "@bb/server-contract";
+import {
+  allowedPluginIdsForContext,
+  assertAllPluginsAllowed,
+  assertPluginAllowed,
+  assertResourceAccess,
+  getCoreAuthContext,
+  isPluginAllowedByPolicy,
+  requireAuthorizedThread,
+  isPluginAllowed,
+} from "../access-policy.js";
+import type { CoreAuthService } from "../core-auth.js";
 
 interface PluginRoutesDeps {
   config: Pick<ServerRuntimeConfig, "serverPort" | "appUrl" | "devAppPort">;
   db: import("@bb/db").DbConnection;
+  coreAuth?: Pick<CoreAuthService, "resolveSessionId">;
 }
 
 type WireAuthProblem = BrowserRequestProblem | { status: 401; error: string };
@@ -168,16 +181,63 @@ async function tokenAuthProblem(
       status: 401,
       error:
         'missing or invalid plugin token — send it as the "x-bb-plugin-token" header ' +
-        "or ?token=; print it with `bb plugin token " +
+        "or ?token=; obtain it from the platform plugin token command for " +
         `${id}\``,
     };
   }
   return null;
 }
 
+function filterInstalledPlugins(
+  context: Context,
+  entries: readonly InstalledPlugin[],
+): InstalledPlugin[] {
+  return entries.filter((entry) => isPluginAllowed(context, entry.id));
+}
+
+function filterPluginContributions<T extends { pluginId: string }>(
+  context: Context,
+  entries: readonly T[],
+): T[] {
+  return entries.filter((entry) => isPluginAllowed(context, entry.pluginId));
+}
+
+function filterPluginUpdates<T extends { id: string }>(
+  context: Context,
+  entries: readonly T[],
+): T[] {
+  return entries.filter((entry) => isPluginAllowed(context, entry.id));
+}
+
+const PLUGIN_AGGREGATE_ROUTE_PATHS = new Set([
+  "/plugins/contributions",
+  "/plugins/install",
+  "/plugins/mentions/search",
+  "/plugins/reload",
+  "/plugins/rpc",
+  "/plugins/updates",
+  "/plugins/updates/check",
+]);
+
+function canonicalPluginRoutePath(path: string): string {
+  const withoutApiPrefix =
+    path === "/api/v1"
+      ? "/"
+      : path.startsWith("/api/v1/")
+        ? path.slice("/api/v1".length)
+        : path;
+  return withoutApiPrefix.length > 1
+    ? withoutApiPrefix.replace(/\/+$/u, "")
+    : withoutApiPrefix;
+}
+
+export function isPluginAggregateRoutePath(path: string): boolean {
+  return PLUGIN_AGGREGATE_ROUTE_PATHS.has(canonicalPluginRoutePath(path));
+}
+
 function pluginHttpSubPath(context: Context, id: string): string {
-  const prefix = `/api/v1/plugins/${id}/http`;
-  const requestPath = context.req.path;
+  const prefix = `/plugins/${id}/http`;
+  const requestPath = canonicalPluginRoutePath(context.req.path);
   return requestPath.startsWith(prefix)
     ? requestPath.slice(prefix.length) || "/"
     : "/";
@@ -225,6 +285,7 @@ function pluginWebSocketError(event: Event): Error {
 }
 
 function pluginWebSocketEvents(args: {
+  authorize?: () => "ok" | "unauthorized" | "forbidden";
   handlers: ExperimentalPluginWebSocketHandlers;
   id: string;
   plugins: PluginService;
@@ -266,6 +327,14 @@ function pluginWebSocketEvents(args: {
         exposed.close(1012, "Plugin reloaded or disabled");
         return;
       }
+      const authorization = args.authorize?.();
+      if (authorization !== undefined && authorization !== "ok") {
+        exposed.close(
+          authorization === "unauthorized" ? 4401 : 4403,
+          authorization,
+        );
+        return;
+      }
       args.route.sockets.add(exposed);
       if (args.handlers.onOpen !== undefined) {
         invoke(socket, "open", () => args.handlers.onOpen?.(exposed));
@@ -278,6 +347,14 @@ function pluginWebSocketEvents(args: {
         !args.route.sockets.has(exposed) ||
         args.handlers.onMessage === undefined
       ) {
+        return;
+      }
+      const authorization = args.authorize?.();
+      if (authorization !== undefined && authorization !== "ok") {
+        exposed.close(
+          authorization === "unauthorized" ? 4401 : 4403,
+          authorization,
+        );
         return;
       }
       invoke(socket, "message", async () =>
@@ -315,11 +392,38 @@ export function registerPluginRoutes(
   plugins: PluginService,
   upgradeWebSocket?: UpgradeWebSocket,
 ): void {
+  const assertPluginRouteAccess = (context: Context): void => {
+    if (isPluginAggregateRoutePath(context.req.path)) return;
+    assertPluginAllowed(context, context.req.param("id"));
+  };
+  app.use("/plugins/:id", (context, next) => {
+    assertPluginRouteAccess(context);
+    return next();
+  });
+  app.use("/plugins/:id/*", (context, next) => {
+    assertPluginRouteAccess(context);
+    return next();
+  });
   const appAssetCompressionCache = createAppAssetCompressionCache(
     MAX_CACHED_APP_ASSETS,
   );
   const upgradePluginWebSocket = upgradeWebSocket?.(async (context) => {
     const id = context.req.param("id");
+    assertPluginAllowed(context, id);
+    const authContext = getCoreAuthContext(context);
+    const authorize =
+      authContext === null
+        ? undefined
+        : (): "ok" | "unauthorized" | "forbidden" => {
+            const current =
+              deps.coreAuth === undefined
+                ? authContext
+                : deps.coreAuth.resolveSessionId(authContext.sessionId);
+            if (current === null) return "unauthorized";
+            return isPluginAllowedByPolicy(current.policy, id)
+              ? "ok"
+              : "forbidden";
+          };
     const subPath = pluginHttpSubPath(context, id);
     const lookup = plugins.getWebSocketRoute(id, subPath);
     if (lookup.outcome === "unknown-plugin") {
@@ -374,6 +478,7 @@ export function registerPluginRoutes(
       );
     }
     return pluginWebSocketEvents({
+      authorize,
       handlers: result.handlers,
       id,
       plugins,
@@ -385,15 +490,28 @@ export function registerPluginRoutes(
     const query = pluginRpcDiscoveryQuerySchema.safeParse(context.req.query());
     if (!query.success)
       return context.json({ error: "Invalid RPC discovery query" }, 400);
-    return context.json(plugins.discoverRpc(query.data));
+    if (query.data.pluginId !== undefined) {
+      assertPluginAllowed(context, query.data.pluginId);
+    }
+    return context.json(
+      filterPluginContributions(context, plugins.discoverRpc(query.data)),
+    );
   });
 
-  app.get("/plugins", (context) => context.json({ plugins: plugins.list() }));
+  app.get("/plugins", (context) =>
+    context.json({ plugins: filterInstalledPlugins(context, plugins.list()) }),
+  );
 
   app.get("/plugins/contributions", (context) =>
     context.json({
-      cliCommands: plugins.listCliContributions(),
-      mentionProviders: plugins.listMentionProviderContributions(),
+      cliCommands: filterPluginContributions(
+        context,
+        plugins.listCliContributions(),
+      ),
+      mentionProviders: filterPluginContributions(
+        context,
+        plugins.listMentionProviderContributions(),
+      ),
     }),
   );
 
@@ -408,6 +526,31 @@ export function registerPluginRoutes(
     }
     const projectId = context.req.query("projectId") ?? null;
     const threadId = context.req.query("threadId") ?? null;
+    const authContext = getCoreAuthContext(context);
+    const thread =
+      authContext === null || threadId === null || threadId.length === 0
+        ? null
+        : requireAuthorizedThread(deps.db, context, threadId, "read");
+    if (projectId !== null && projectId.length > 0) {
+      if (thread !== null && thread.projectId !== projectId) {
+        throw new ApiError(
+          403,
+          "policy_denied",
+          "The project does not contain the requested thread",
+        );
+      }
+      if (thread === null && authContext !== null) {
+        assertResourceAccess(deps.db, context, "project", projectId, "read");
+      }
+    }
+    const policy = getCoreAuthContext(context)?.policy;
+    if (policy?.agentExecutionTuples !== undefined && thread === null) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "An agent must be selected before plugin mentions can be searched",
+      );
+    }
     const trigger = parsePluginMentionTrigger(context.req.query("trigger"));
     if (trigger === null) {
       return context.json(
@@ -423,11 +566,19 @@ export function registerPluginRoutes(
       query,
       projectId: projectId !== null && projectId.length > 0 ? projectId : null,
       threadId: threadId !== null && threadId.length > 0 ? threadId : null,
+      allowedPluginIds: allowedPluginIdsForContext(
+        context,
+        thread?.agentId ?? thread?.providerId,
+      ),
     });
-    return context.json({ ok: true, groups });
+    return context.json({
+      ok: true,
+      groups: filterPluginContributions(context, groups),
+    });
   });
 
   app.post("/plugins/:id/cli", async (context) => {
+    assertPluginRouteAccess(context);
     const authProblem = localAuthProblem(context, deps);
     if (authProblem) {
       return context.json(
@@ -472,6 +623,7 @@ export function registerPluginRoutes(
   } as const;
 
   app.get("/plugins/:id/assets/icons/:file", (context) => {
+    assertPluginRouteAccess(context);
     const file = context.req.param("file");
     const name = file.endsWith(".svg") ? file.slice(0, -".svg".length) : null;
     const asset =
@@ -489,6 +641,7 @@ export function registerPluginRoutes(
   });
 
   app.get("/plugins/:id/assets/:file", async (context) => {
+    assertPluginRouteAccess(context);
     const file = context.req.param("file");
     if (file === "icon" || file === "logo" || file === "logo-dark") {
       const asset = plugins.getBrandingAsset(context.req.param("id"), file);
@@ -538,6 +691,7 @@ export function registerPluginRoutes(
   });
 
   app.get("/plugins/:id/logs", async (context) => {
+    assertPluginRouteAccess(context);
     const rawTail = Number(context.req.query("tail") ?? "100");
     const tail = Number.isFinite(rawTail)
       ? Math.min(Math.max(Math.trunc(rawTail), 1), 10_000)
@@ -555,6 +709,11 @@ export function registerPluginRoutes(
     if (!body.success) {
       return context.json({ error: 'expected { "id"?: string }' }, 400);
     }
+    if (body.data.id === undefined) {
+      assertAllPluginsAllowed(context);
+    } else {
+      assertPluginAllowed(context, body.data.id);
+    }
     try {
       const results = await plugins.checkForUpdates(body.data.id);
       return context.json({ results });
@@ -568,7 +727,9 @@ export function registerPluginRoutes(
 
   app.get("/plugins/updates", (context) => {
     try {
-      return context.json({ results: plugins.listUpdateResults() });
+      return context.json({
+        results: filterPluginUpdates(context, plugins.listUpdateResults()),
+      });
     } catch (error) {
       return context.json(
         { error: error instanceof Error ? error.message : String(error) },
@@ -578,6 +739,7 @@ export function registerPluginRoutes(
   });
 
   app.post("/plugins/:id/update", async (context) => {
+    assertPluginRouteAccess(context);
     const json: unknown = await context.req.json().catch(() => null);
     const body = pluginApplyUpdateRequestSchema.safeParse(json);
     if (!body.success) {
@@ -596,6 +758,7 @@ export function registerPluginRoutes(
   });
 
   app.post("/plugins/install", async (context) => {
+    assertAllPluginsAllowed(context);
     const problem = localAuthProblem(context, deps);
     if (problem) {
       return context.json({ ok: false, error: problem.error }, problem.status);
@@ -630,6 +793,7 @@ export function registerPluginRoutes(
   });
 
   app.get("/plugins/:id/source", async (context) => {
+    assertPluginRouteAccess(context);
     const source = await plugins.getSource(context.req.param("id"));
     if (source === undefined) {
       return context.json({ error: "unknown plugin" }, 404);
@@ -639,12 +803,18 @@ export function registerPluginRoutes(
 
   app.post("/plugins/reload", async (context) => {
     const id = context.req.query("id") ?? undefined;
+    if (id === undefined) {
+      assertAllPluginsAllowed(context);
+    } else {
+      assertPluginAllowed(context, id);
+    }
     const outcome = await plugins.reload(id);
     if (!outcome.ok) return context.json(outcome, 422);
     return context.json(outcome);
   });
 
   app.post("/plugins/:id/enable", async (context) => {
+    assertPluginRouteAccess(context);
     const plugin = await plugins.setEnabled(context.req.param("id"), true);
     if (!plugin)
       return context.json({ ok: false, error: "unknown plugin" }, 404);
@@ -652,6 +822,7 @@ export function registerPluginRoutes(
   });
 
   app.post("/plugins/:id/disable", async (context) => {
+    assertPluginRouteAccess(context);
     const plugin = await plugins.setEnabled(context.req.param("id"), false);
     if (!plugin)
       return context.json({ ok: false, error: "unknown plugin" }, 404);
@@ -665,12 +836,14 @@ export function registerPluginRoutes(
   };
 
   app.get("/plugins/:id/settings", async (context) => {
+    assertPluginRouteAccess(context);
     const view = await plugins.getSettings(context.req.param("id"));
     if (!view) return context.json(NOT_RUNNING, 404);
     return context.json({ ok: true, ...view });
   });
 
   app.put("/plugins/:id/settings", async (context) => {
+    assertPluginRouteAccess(context);
     const json: unknown = await context.req.json().catch(() => null);
     const body = pluginSettingsUpdateRequestSchema.safeParse(json);
     if (!body.success) {
@@ -696,6 +869,7 @@ export function registerPluginRoutes(
 
   app.delete("/plugins/:id", async (context) => {
     const id = context.req.param("id");
+    assertPluginRouteAccess(context);
     if (plugins.isBuiltin(id)) {
       return context.json(
         {
@@ -712,6 +886,7 @@ export function registerPluginRoutes(
   });
 
   app.post("/plugins/:id/token", async (context) => {
+    assertPluginRouteAccess(context);
     const rawBody = await context.req.text();
     let json: unknown = {};
     if (rawBody.trim() !== "") {
@@ -747,6 +922,7 @@ export function registerPluginRoutes(
 
   app.all("/plugins/:id/http/*", async (context) => {
     const id = context.req.param("id");
+    assertPluginRouteAccess(context);
     const subPath = pluginHttpSubPath(context, id);
     const lookup = plugins.getHttpRoute(id, context.req.method, subPath);
     if (lookup.outcome === "unknown-plugin") {
@@ -793,6 +969,7 @@ export function registerPluginRoutes(
   app.post("/plugins/:id/rpc/:method", async (context) => {
     const id = context.req.param("id");
     const method = context.req.param("method");
+    assertPluginRouteAccess(context);
     context.header("Cache-Control", "no-store");
     const problem = localAuthProblem(context, deps);
     if (problem) {

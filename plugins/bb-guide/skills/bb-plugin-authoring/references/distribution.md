@@ -6,11 +6,11 @@ This skill is a guide, not the contract. For an exact signature or a symbol it
 does not cover:
 
 1. **`bb plugin types`**, run in the plugin directory (or given its path),
-   syncs that plugin's SDK surface to the running bb — no server needed. For a
+   syncs that plugin's SDK surface to the running EVA app — no server needed. For a
    plugin that depends on the npm package it repins the exact
-   `@get-bb/plugin-sdk` devDependency to this bb's SDK version and brings the
+   `@get-bb/plugin-sdk` devDependency to this EVA installation's SDK version and brings the
    runtime-shimmed packages' type-only devDependencies (sonner, vaul, the
-   portal radix families, ...) to the versions this bb ships — adding any an
+   portal radix families, ...) to the versions this EVA installation ships — adding any an
    app plugin is missing and moving one out of `dependencies` (run
    `npm install` after); for an older plugin that still vendors `types/*.d.ts`
    it rewrites those declarations. Either way a cloned or older plugin can be
@@ -170,8 +170,8 @@ installing from a marketplace that is not `bb-community`, bb resolves and shows
 the true source — including the exact release tag and commit a range lands
 on — so keep your listed URL, subdirectory, and range honest.
 
-BB's own official plugins are separate: inclusion in the `bb-community`
-marketplace is a BB release decision, not part of the plugin authoring
+EVA's own official plugins are separate: inclusion in the `bb-community`
+marketplace is a EVA release decision, not part of the plugin authoring
 workflow, and the bundled official plugins ship inside the app itself and
 install from that local copy with no network fetch.
 
@@ -185,7 +185,7 @@ State the outcome the user gets.
 `PLUGIN_OVERVIEW.md` beside package.json holds the long-form description. The
 detail page shows it in an Overview section under the lead paragraph, in the
 app and on the public getbb.app marketplace. `bb plugin new` scaffolds one, the
-BB Community marketplace requires one, and a plugin that is only installed from
+The EVA Integrations marketplace requires one, and a plugin that is only installed from
 a local path or a private source still reads better with one.
 
 The file is the same claim as `bb.description` at length: the same outcome, the
@@ -196,7 +196,7 @@ Overview section never disagree.
 
 The `submit-a-plugin` skill copies the file into the marketplace repository as
 `overview/<plugin-id>.md` and references it from the entry with
-`"overview": "./overview/<plugin-id>.md"`. A bundled BB plugin uses the same
+`"overview": "./overview/<plugin-id>.md"`. A bundled EVA plugin uses the same
 file, and the bb-official generator folds it into the built catalog.
 
 Follow these rules. Marketplace CI rejects a file that breaks one.

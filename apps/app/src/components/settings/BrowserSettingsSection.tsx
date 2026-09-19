@@ -234,7 +234,7 @@ export function BrowserSettingsSectionContent({
     <>
       <SettingsSection
         title="Browsers"
-        description="Bring signed-in sessions from a browser on this machine into the BB browser, so previews and agent tabs open already logged in."
+        description="Bring signed-in sessions from a browser on this machine into the EVA browser, so previews and agent tabs open already logged in."
         action={
           supported ? (
             <Button
@@ -250,7 +250,7 @@ export function BrowserSettingsSectionContent({
       >
         {!supported ? (
           <p className="text-sm text-subtle-foreground">
-            Only available in the BB desktop app.
+            Only available in the EVA desktop app.
           </p>
         ) : state.status === "loading" ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
@@ -283,8 +283,7 @@ export function BrowserSettingsSectionContent({
       </SettingsSection>
       {supported ? (
         <p className="mt-4 text-xs text-subtle-foreground/75">
-          Also from the CLI: <code>bb browser import-sources</code> and{" "}
-          <code>bb browser import-cookies</code>.
+          Browser import is also available from the EVA CLI.
         </p>
       ) : null}
       {dialogSource && desktopBrowser ? (

@@ -22,7 +22,7 @@ const GIT_PLUGIN = makePluginListItem({
   app: { hasApp: true, bundle: null },
   provenance: "catalog",
   catalogEntryId: "prompt-shaper",
-  publisherLabel: "BB Community",
+  publisherLabel: "EVA Integrations",
   sourceDisplay: "git · github.com/brsbl/bb-plugins",
   updateState: { ...EMPTY_PLUGIN_UPDATE_STATE, availableVersion: FULL_HASH },
 });

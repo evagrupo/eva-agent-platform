@@ -41,6 +41,11 @@ import {
   requireReadyEnvironment,
 } from "../../services/lib/entity-lookup.js";
 import {
+  assertCoreCapability,
+  assertPluginAllowedForAgent,
+  assertResourceAccess,
+} from "../../access-policy.js";
+import {
   threadEnvironmentUnavailableDetails,
   throwThreadEnvironmentUnavailable,
 } from "../../services/lib/lifecycle-api-errors.js";
@@ -220,6 +225,7 @@ async function requireThreadStorageTarget(
   deps: WorkSessionDeps,
   args: RequireThreadStorageTargetArgs,
 ): Promise<ThreadStorageTarget> {
+  assertCoreCapability({}, "files");
   const thread = requirePublicThread(deps.db, args.threadId);
   if (!thread.environmentId) {
     throwThreadEnvironmentUnavailable(
@@ -227,6 +233,7 @@ async function requireThreadStorageTarget(
     );
   }
   const environment = requireEnvironment(deps.db, thread.environmentId);
+  assertResourceAccess(deps.db, {}, "environment", environment.id, "read");
   return {
     hostId: environment.hostId,
     storagePath: await requireThreadStoragePath(deps, {
@@ -300,12 +307,14 @@ async function serveThreadWorktreeRawFile(
   rawPath: string,
   ifNoneMatch: string | undefined,
 ): Promise<Response> {
+  assertCoreCapability({}, "files");
   const filePath = parseSafeRelativeRoutePath(rawPath);
   const thread = requirePublicThread(deps.db, threadId);
   if (!thread.environmentId) {
     throw new ApiError(409, "invalid_request", "Thread has no environment");
   }
   const environment = requireReadyEnvironment(deps.db, thread.environmentId);
+  assertResourceAccess(deps.db, {}, "environment", environment.id, "read");
 
   return serveDaemonFileContent(
     deps,
@@ -348,6 +357,11 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
 
   get(routes.pluginMetadata.get, (context, query) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
+    assertPluginAllowedForAgent(
+      context,
+      thread.agentId ?? thread.providerId,
+      query.pluginId,
+    );
     const { metadata, corrupt } = getThreadPluginMetadata(
       deps.db,
       thread.id,
@@ -363,6 +377,11 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
 
   patch(routes.pluginMetadata.update, (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
+    assertPluginAllowedForAgent(
+      context,
+      thread.agentId ?? thread.providerId,
+      payload.pluginId,
+    );
     const result = patchThreadPluginMetadata(deps.db, {
       threadId: thread.id,
       pluginId: payload.pluginId,
@@ -679,6 +698,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
   );
 
   get(routes.storageFiles, async (context, query) => {
+    assertCoreCapability(context, "files");
     const target = await requireThreadStorageTarget(deps, {
       threadId: context.req.param("id"),
     });
@@ -716,6 +736,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.storageLocation, async (context) => {
+    assertCoreCapability(context, "files");
     const target = await requireThreadStorageTarget(deps, {
       threadId: context.req.param("id"),
     });
@@ -735,6 +756,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
   );
 
   get(routes.storagePaths, async (context, query) => {
+    assertCoreCapability(context, "files");
     const target = await requireThreadStorageTarget(deps, {
       threadId: context.req.param("id"),
     });
@@ -778,6 +800,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.storageContent, async (context, query) => {
+    assertCoreCapability(context, "files");
     validateFilePath(query.path);
     const target = await requireThreadStorageTarget(deps, {
       threadId: context.req.param("id"),
@@ -799,6 +822,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.hostFileContent, async (context, query) => {
+    assertCoreCapability(context, "files");
     const thread = requirePublicThread(deps.db, context.req.param("id"));
     if (!thread.environmentId) {
       throwThreadEnvironmentUnavailable(
@@ -806,6 +830,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       );
     }
     const environment = requireEnvironment(deps.db, thread.environmentId);
+    assertResourceAccess(deps.db, {}, "environment", environment.id, "read");
 
     return serveDaemonFileContent(
       deps,

@@ -1,7 +1,7 @@
 ---
 kind: instruction
-title: bb Guide — Customization
-summary: Command reference for customizing the bb app color palette, typography, keyboard shortcuts, and mobile push notifications.
+title: EVA Guide — Customization
+summary: Command reference for customizing the EVA app color palette, typography, keyboard shortcuts, and mobile push notifications.
 intent: Explain the CLI theme surface, server-backed app customization, and push-notification device registration.
 editingNotes: Keep flags accurate against the CLI implementation. Theme details live in the bb-cli skill's references/theming.md.
 ---
@@ -78,7 +78,7 @@ window and restart sees the same value. Keep Awake is instead owned by its
 builtin plugin: use its autosaving page under Settings → Installed plugins or run
 `bb keep-awake enable` or `bb keep-awake disable`. Choose every host with `bb
 keep-awake hosts all`, or name individual host ids after `bb keep-awake hosts`.
-On macOS it prevents system idle sleep while bb is running; closing the lid or
+On macOS it prevents system idle sleep while EVA is running; closing the lid or
 choosing Sleep still sleeps the Mac.
 
 Concurrency limit is also owned by its builtin plugin. Its autosaving page
@@ -114,9 +114,9 @@ entries stay in the config file.
 Settings → General includes `managedBranchPrefix`, which defaults to
 `bb/`. bb puts it in front of every branch name it creates for a worktree, so
 the default gives `bb/fix-login-flow-thr_ab12cd34ef`. Set `sawyer/wt-` to get
-`sawyer/wt-fix-login-flow-thr_ab12cd34ef`, or clear it for no prefix. bb rejects
+`sawyer/wt-fix-login-flow-thr_ab12cd34ef`, or clear it for no prefix. EVA rejects
 a prefix that cannot start a valid git branch name. The new prefix applies to
-branches bb creates after the change.
+branches EVA creates after the change.
 
   bb settings show
   bb settings ai-services
@@ -153,7 +153,7 @@ client-local; submitting stops and settles a running thread, then replaces the
 selected turn and all later conversation history while retaining workspace side
 effects. Grouped multi-message requests are not yet editable.
 
-BB releases restorable provider sessions after 30 idle minutes. The daemon
+EVA releases restorable provider sessions after 30 idle minutes. The daemon
 checks for these sessions every five minutes. Active turns, commands, agents,
 workflows, and monitors keep their sessions loaded.
 
@@ -189,7 +189,7 @@ Server-backed keyboard shortcuts
 
 Settings → Keyboard records per-command shortcut overrides. They are persisted
 server-side, applied live to every connected window, and survive restarts.
-Reset removes an override and returns to bb's current default; Clear explicitly
+Reset removes an override and returns to EVA's current default; Clear explicitly
 disables a command. `Mod` means Command on macOS and Control on Windows/Linux.
 Bindings for non-native actions apply in browser and desktop clients. Command
 contexts and native-only availability remain server-owned, and desktop menu

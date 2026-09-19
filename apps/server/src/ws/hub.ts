@@ -45,6 +45,12 @@ interface HubSocket {
   send(data: string): void;
 }
 
+export interface ClientRealtimeAccess {
+  canReadThread(threadId: string): boolean;
+  canUsePlugin(pluginId: string): boolean;
+  canReadTarget?: (target: RealtimeSubscriptionTarget) => boolean;
+}
+
 interface TerminalSocketSendQueue {
   bytes: number;
   payloads: string[];
@@ -206,6 +212,10 @@ export class HostOnlineRpcUnavailableError extends Error {
 export class NotificationHub implements DbNotifier {
   private readonly clientKeysBySocket = new Map<HubSocket, Set<string>>();
   private readonly clientSocketsByKey = new Map<string, Set<HubSocket>>();
+  private readonly clientRealtimeAccess = new Map<
+    HubSocket,
+    ClientRealtimeAccess
+  >();
   private readonly daemonSessions = new Map<
     string,
     {
@@ -268,9 +278,12 @@ export class NotificationHub implements DbNotifier {
     PendingThreadListEventsAppended
   >();
 
-  registerClient(socket: HubSocket): void {
+  registerClient(socket: HubSocket, access?: ClientRealtimeAccess): void {
     if (!this.clientKeysBySocket.has(socket)) {
       this.clientKeysBySocket.set(socket, new Set());
+    }
+    if (access !== undefined) {
+      this.clientRealtimeAccess.set(socket, access);
     }
   }
 
@@ -293,6 +306,7 @@ export class NotificationHub implements DbNotifier {
     }
 
     this.clientKeysBySocket.delete(socket);
+    this.clientRealtimeAccess.delete(socket);
   }
 
   onChangedMessage(listener: ChangedMessageListener): () => void {
@@ -846,6 +860,7 @@ export class NotificationHub implements DbNotifier {
           file: request.file,
         }),
       ),
+      (socket) => this.canClientReadThread(socket, thread.threadId),
     );
   }
 
@@ -862,6 +877,7 @@ export class NotificationHub implements DbNotifier {
           action,
         }),
       ),
+      (socket) => this.canClientReadThread(socket, thread.threadId),
     );
   }
 
@@ -879,12 +895,17 @@ export class NotificationHub implements DbNotifier {
           payload,
         }),
       ),
+      (socket) => this.canClientUsePlugin(socket, pluginId),
     );
   }
 
-  private broadcastToAllClients(payload: string): number {
+  private broadcastToAllClients(
+    payload: string,
+    canReceive: (socket: HubSocket) => boolean = () => true,
+  ): number {
     let delivered = 0;
     for (const socket of this.clientKeysBySocket.keys()) {
+      if (!canReceive(socket)) continue;
       socket.send(payload);
       delivered += 1;
     }
@@ -1015,7 +1036,7 @@ export class NotificationHub implements DbNotifier {
       subscriptionKey({ kind: "thread-detail", threadId }),
     );
     if (detailSockets) {
-      this.notifyClientsByKeySet(detailSockets, payload);
+      this.notifyThreadClients(detailSockets, threadId, payload);
     }
     this.notifyChangedMessageListeners(message);
 
@@ -1078,7 +1099,9 @@ export class NotificationHub implements DbNotifier {
       if (this.clientKeysBySocket.get(socket)?.has(detailKey)) {
         continue;
       }
-      socket.send(payload);
+      if (this.canClientReadThread(socket, threadId)) {
+        socket.send(payload);
+      }
     }
   }
 
@@ -1098,16 +1121,77 @@ export class NotificationHub implements DbNotifier {
     if (payload === null) {
       return;
     }
-    this.notifyClientsByKeySet(sockets, payload);
+    if (message.entity === "thread") {
+      this.notifyThreadClients(sockets, message.id, payload);
+    } else {
+      this.notifyClientsByKeySet(
+        sockets,
+        payload,
+        message.entity === "project"
+          ? { kind: "project-detail", projectId: message.id }
+          : message.entity === "environment"
+            ? { kind: "environment-detail", environmentId: message.id }
+            : message.entity === "host"
+              ? { kind: "host-detail", hostId: message.id }
+              : { kind: "system" },
+      );
+    }
     this.notifyChangedMessageListeners(message);
   }
 
   private notifyClientsByKeySet(
     sockets: Iterable<HubSocket>,
     payload: string,
+    target: RealtimeSubscriptionTarget,
   ): void {
     for (const socket of sockets) {
+      if (!this.canClientReadTarget(socket, target)) continue;
       socket.send(payload);
+    }
+  }
+
+  private canClientReadTarget(
+    socket: HubSocket,
+    target: RealtimeSubscriptionTarget,
+  ): boolean {
+    const access = this.clientRealtimeAccess.get(socket);
+    if (access === undefined || access.canReadTarget === undefined) return true;
+    try {
+      return access.canReadTarget(target);
+    } catch {
+      return false;
+    }
+  }
+
+  private canClientReadThread(socket: HubSocket, threadId: string): boolean {
+    const access = this.clientRealtimeAccess.get(socket);
+    if (access === undefined) return true;
+    try {
+      return access.canReadThread(threadId);
+    } catch {
+      return false;
+    }
+  }
+
+  private canClientUsePlugin(socket: HubSocket, pluginId: string): boolean {
+    const access = this.clientRealtimeAccess.get(socket);
+    if (access === undefined) return true;
+    try {
+      return access.canUsePlugin(pluginId);
+    } catch {
+      return false;
+    }
+  }
+
+  private notifyThreadClients(
+    sockets: Iterable<HubSocket>,
+    threadId: string,
+    payload: string,
+  ): void {
+    for (const socket of sockets) {
+      if (this.canClientReadThread(socket, threadId)) {
+        socket.send(payload);
+      }
     }
   }
 

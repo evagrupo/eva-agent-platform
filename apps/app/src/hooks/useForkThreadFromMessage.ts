@@ -66,6 +66,7 @@ export function useForkThreadFromMessage({
         }
 
         const seed: ForkThreadCreateSeed = {
+          agentId: source.agentId ?? source.providerId,
           environmentId: source.environmentId,
           model: executionOptions.model,
           permissionMode: executionOptions.permissionMode,

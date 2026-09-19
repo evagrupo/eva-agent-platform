@@ -29,8 +29,10 @@ import {
   createThreadSectionsArea,
   type ThreadSectionsArea,
 } from "./areas/thread-sections.js";
+import { createEvaAgentsArea, type EvaAgentsArea } from "./areas/eva-agents.js";
 
 export type * from "./public-types.js";
+export type * from "./areas/eva-agents.js";
 export { createBuiltinPlanCommandTextInput } from "@bb/domain";
 
 export interface CreateBbSdkArgs {
@@ -46,6 +48,7 @@ export interface BbSdkAreas extends BbRealtime {
   experimental_desktopBrowsers: ExperimentalDesktopBrowsersArea;
   experimental_server: ExperimentalServerArea;
   environments: EnvironmentsArea;
+  evaAgents: EvaAgentsArea;
   files: FilesArea;
   hosts: HostsArea;
   projects: ProjectsArea;
@@ -77,6 +80,7 @@ export function createBbSdk(
     experimental_desktopBrowsers: createDesktopBrowsersArea(sdkContext),
     experimental_server: createServerArea(sdkContext),
     environments: createEnvironmentsArea(sdkContext),
+    evaAgents: createEvaAgentsArea(sdkContext),
     files: createFilesArea(sdkContext),
     hosts: createHostsArea(sdkContext),
     subscribe(args) {

@@ -17,6 +17,9 @@ import { mapProviderMaintenanceRequests } from "./provider-maintenance-concurren
 export async function getProviderUsageLimits(
   deps: AppDeps,
   query: SystemUsageLimitsQuery,
+  providerAllowed?: (
+    provider: Awaited<ReturnType<typeof listSystemProviderInfos>>[number],
+  ) => boolean,
 ): Promise<ProviderUsageResponse> {
   const hostId = query.hostId ?? requirePrimaryHostId(deps);
   assertUsableHostId(deps, { hostId });
@@ -24,7 +27,8 @@ export async function getProviderUsageLimits(
     await listSystemProviderInfos(deps, { hostId, capability: "usage" })
   ).filter(
     (provider) =>
-      query.providerId === undefined || provider.id === query.providerId,
+      (query.providerId === undefined || provider.id === query.providerId) &&
+      (providerAllowed?.(provider) ?? true),
   );
   const entries = await mapProviderMaintenanceRequests(
     providers,

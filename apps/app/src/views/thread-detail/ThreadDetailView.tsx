@@ -309,6 +309,11 @@ import { useAppCommandHandler } from "@/components/commands/AppCommandProvider";
 import { DefaultPaneContextProvider, usePaneContext } from "./PaneContext";
 import { ThreadArchiveCommandHandler } from "./ThreadArchiveCommandHandler";
 import { ThreadRenameCommandHandler } from "./ThreadRenameCommandHandler";
+import {
+  canUseCoreCapability,
+  canUseCorePlugin,
+  useCoreAuth,
+} from "@/lib/core-auth";
 
 const EMPTY_PARENT_THREADS: readonly ThreadListEntry[] = [];
 const EMPTY_CHILD_THREAD_ITEMS: readonly ChildThreadPendingAttentionSource[] =
@@ -525,6 +530,15 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   const { isFocused, navigateInPane, onRequestClose, isBoundedPane } =
     usePaneContext();
   const navigate = useNavigate();
+  const coreAuth = useCoreAuth();
+  const secondaryPanelAllowed = canUseCoreCapability(
+    coreAuth,
+    "secondaryPanelTabs",
+  );
+  const threadInfoAllowed = canUseCoreCapability(coreAuth, "threadInfo");
+  const filesAllowed = canUseCoreCapability(coreAuth, "files");
+  const terminalReadAllowed = canUseCoreCapability(coreAuth, "terminalRead");
+  const terminalFullAllowed = canUseCoreCapability(coreAuth, "terminalFull");
   useFixedPanelTabsStorageMaintenance();
   const systemConfigQuery = useSystemConfig();
   const threadDetailBootstrapQuery = useThreadDetailBootstrap(threadId);
@@ -558,12 +572,16 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   });
   const threadFixedViewTabs = useMemo(
     () => [
-      createThreadInfoFixedPanelTab(),
-      ...(gitDiffTabStatus === "ineligible"
-        ? []
-        : [createGitDiffFixedPanelTab()]),
+      ...(secondaryPanelAllowed && threadInfoAllowed
+        ? [createThreadInfoFixedPanelTab()]
+        : []),
+      ...(secondaryPanelAllowed &&
+      filesAllowed &&
+      gitDiffTabStatus !== "ineligible"
+        ? [createGitDiffFixedPanelTab()]
+        : []),
     ],
-    [gitDiffTabStatus],
+    [filesAllowed, gitDiffTabStatus, secondaryPanelAllowed, threadInfoAllowed],
   );
   const fixedPanelTabsState = useReconciledFixedPanelTabsState({
     fixedTabs: threadFixedViewTabs,
@@ -591,11 +609,22 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
       threadId,
     });
   const pluginDetails = usePluginDetailPanelState(threadId, isFocused);
+  const visiblePluginDetails = useMemo(() => {
+    const destinations = pluginDetails.destinations.filter((destination) =>
+      canUseCorePlugin(coreAuth, destination.pluginId),
+    );
+    const activePluginId =
+      pluginDetails.activePluginId !== null &&
+      canUseCorePlugin(coreAuth, pluginDetails.activePluginId)
+        ? pluginDetails.activePluginId
+        : null;
+    return { ...pluginDetails, activePluginId, destinations };
+  }, [coreAuth, pluginDetails]);
   const isWorkspacePanelOpen = renderSecondaryPanelAsDrawer
     ? secondaryPanelDrawerVisibility.isDrawerVisible
     : isPersistedSecondaryPanelOpen;
   const isSecondaryPanelOpen =
-    isWorkspacePanelOpen || pluginDetails.activePluginId !== null;
+    isWorkspacePanelOpen || visiblePluginDetails.activePluginId !== null;
   const touchFixedPanelTabsState = useTouchFixedPanelTabsState(
     threadId,
     threadId,
@@ -671,7 +700,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
     useState<BrowserAddressFocusRequest | null>(null);
   const shouldLoadThreadStorageFiles = shouldLoadThreadStorageFileList({
     hasThread: thread !== undefined,
-    isSecondaryPanelOpen,
+    isSecondaryPanelOpen: isSecondaryPanelOpen && filesAllowed,
     secondaryTabs: fixedPanelTabsState.secondary.tabs,
   });
   const {
@@ -686,7 +715,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
     threadId,
   });
   const terminalsListQuery = useThreadTerminals(threadId, {
-    enabled: isSecondaryPanelOpen,
+    enabled: isSecondaryPanelOpen && terminalReadAllowed,
   });
   const {
     activeBrowserTab,
@@ -907,6 +936,29 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
             terminalSessions: loadedTerminalSessions,
           }),
     [loadedTerminalSessions, orderedSecondaryFileTabs, retainedTerminalId],
+  );
+  const visibleSecondaryFileTabs = useMemo(
+    () =>
+      syncedOrderedSecondaryFileTabs.filter((tab) => {
+        if (tab.kind === "terminal") return terminalReadAllowed;
+        if (
+          tab.kind === "workspace-file-preview" ||
+          tab.kind === "host-file-preview" ||
+          tab.kind === "thread-storage-file-preview"
+        ) {
+          return filesAllowed;
+        }
+        if (tab.kind === "plugin-panel") {
+          return canUseCorePlugin(coreAuth, tab.pluginId);
+        }
+        return true;
+      }),
+    [
+      coreAuth,
+      filesAllowed,
+      syncedOrderedSecondaryFileTabs,
+      terminalReadAllowed,
+    ],
   );
   useEffect(() => {
     if (terminalsListQuery.data === undefined) {
@@ -1204,8 +1256,9 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
     isSideChatThread && threadSourceThreadId !== null
       ? sendSideChatMessageToMain
       : undefined;
-  const canUseGitUi = gitDiffTabStatus === "eligible";
+  const canUseGitUi = filesAllowed && gitDiffTabStatus === "eligible";
   const canCreateTerminal =
+    terminalFullAllowed &&
     thread?.environmentId !== null &&
     thread?.environmentId !== undefined &&
     environment?.status === "ready" &&
@@ -1277,27 +1330,41 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
     closeWorkspacePanel();
   }, [dismissPluginDetails, closeWorkspacePanel]);
   const toggleSecondaryPanel = useCallback(() => {
-    if (pluginDetails.activePluginId !== null) closeSecondaryPanel();
+    if (visiblePluginDetails.activePluginId !== null) closeSecondaryPanel();
     else toggleWorkspacePanel();
-  }, [pluginDetails.activePluginId, closeSecondaryPanel, toggleWorkspacePanel]);
+  }, [
+    closeSecondaryPanel,
+    toggleWorkspacePanel,
+    visiblePluginDetails.activePluginId,
+  ]);
   const fixedTabDestinations = useMemo(
     () => [
-      createThreadInfoFixedTabDestination(() =>
-        openFixedViewDestination("thread-info"),
-      ),
-      createGitDiffFixedTabDestination({
-        eligible: canUseGitUi,
-        openCommit: openGitDiffCommitDestination,
-        openFile: openGitDiffFileDestination,
-        openOrdinary: openGitDiffDestination,
-      }),
+      ...(threadInfoAllowed
+        ? [
+            createThreadInfoFixedTabDestination(() =>
+              openFixedViewDestination("thread-info"),
+            ),
+          ]
+        : []),
+      ...(filesAllowed
+        ? [
+            createGitDiffFixedTabDestination({
+              eligible: canUseGitUi,
+              openCommit: openGitDiffCommitDestination,
+              openFile: openGitDiffFileDestination,
+              openOrdinary: openGitDiffDestination,
+            }),
+          ]
+        : []),
     ],
     [
       canUseGitUi,
+      filesAllowed,
       openFixedViewDestination,
       openGitDiffCommitDestination,
       openGitDiffDestination,
       openGitDiffFileDestination,
+      threadInfoAllowed,
     ],
   );
   const openFixedTab = useCallback(
@@ -1306,15 +1373,19 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
     [fixedTabDestinations],
   );
   const openSecondaryPanel = useCallback(
-    (panel: ThreadSecondaryPanelTab) =>
+    (panel: ThreadSecondaryPanelTab) => {
+      if (!secondaryPanelAllowed) return;
+      if (panel === "git-diff" && !filesAllowed) return;
+      if (panel === "thread-info" && !threadInfoAllowed) return;
       openFixedTab({
         surface: { kind: "current" },
         tab:
           panel === "git-diff"
             ? GIT_DIFF_FIXED_TAB_REFERENCE
             : THREAD_INFO_FIXED_TAB_REFERENCE,
-      }),
-    [openFixedTab],
+      });
+    },
+    [filesAllowed, openFixedTab, secondaryPanelAllowed, threadInfoAllowed],
   );
   const openSecondaryPanelDiffPanel = useCallback(
     () =>
@@ -1344,6 +1415,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   );
   const handleOpenLiveFilePreview = useCallback(
     (intent: AppFilePreviewIntent): boolean => {
+      if (!filesAllowed) return false;
       const normalized = normalizeExperimentalFileOpenOptions(intent);
       if (normalized === null || thread === undefined) return false;
       const lineRange = toFilePreviewLineRange(normalized.location);
@@ -1379,6 +1451,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
       openHostFile,
       openStorageFile,
       openWorkspaceFile,
+      filesAllowed,
       thread,
     ],
   );
@@ -1389,6 +1462,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   const handleOpenTimelinePluginPanel =
     useCallback<ThreadTimelineOpenPluginPanelHandler>(
       ({ pluginId, actionId, title, params }) => {
+        if (!canUseCorePlugin(coreAuth, pluginId)) return false;
         const action = pluginThreadPanelActions.find(
           (candidate) =>
             candidate.pluginId === pluginId && candidate.id === actionId,
@@ -1414,7 +1488,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
         openCompactDrawer();
         return true;
       },
-      [openCompactDrawer, openPluginPanel, pluginThreadPanelActions],
+      [coreAuth, openCompactDrawer, openPluginPanel, pluginThreadPanelActions],
     );
   const openBrowserTabAndReveal = useCallback(
     (url?: string) => {
@@ -1674,8 +1748,8 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
     [closeTerminal, removeFixedTerminalTab, threadId],
   );
   const handleCloseWindowRequest = useCallback(() => {
-    if (pluginDetails.activePluginId !== null) {
-      pluginDetails.close(pluginDetails.activePluginId);
+    if (visiblePluginDetails.activePluginId !== null) {
+      visiblePluginDetails.close(visiblePluginDetails.activePluginId);
       return true;
     }
     if (!isSecondaryPanelOpen) {
@@ -1700,7 +1774,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
     closeTab,
     handleCloseTerminalTab,
     isSecondaryPanelOpen,
-    pluginDetails,
+    visiblePluginDetails,
   ]);
   useAppCommandHandler("panel.toggle", () => {
     if (!isFocused) return false;
@@ -2035,6 +2109,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
       resolution: ThreadLocalFileLinkResolution,
       options?: ThreadSecondaryPanelFileOpenOptions,
     ) => {
+      if (!filesAllowed) return false;
       if (resolution.kind === "app-route") {
         return false;
       }
@@ -2078,13 +2153,14 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
       );
       return true;
     },
-    [openHostFile, openStorageFile, openWorkspaceFile],
+    [filesAllowed, openHostFile, openStorageFile, openWorkspaceFile],
   );
   const handleOpenTimelineLocalFileLink = useCallback(
     (
       link: ThreadTimelineLocalFileLink,
       options?: ThreadSecondaryPanelFileOpenOptions,
     ) => {
+      if (!filesAllowed) return false;
       const resolution = resolveThreadLocalFileLink({
         hostFileLinksAvailable:
           thread?.environmentId !== null && thread?.environmentId !== undefined,
@@ -2128,6 +2204,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
       return true;
     },
     [
+      filesAllowed,
       handleTimelineLocalFileLinkResolution,
       refetchThreadStorageFiles,
       thread?.environmentId,
@@ -2178,26 +2255,32 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   );
   const handleOpenFileInEditor = useMemo(
     () =>
-      buildOpenInEditorHandler({
-        rootPath: workspacePreviewRootPath,
-        canOpenPreferredTarget: canOpenPreferredFileTarget,
-        openInPreferredTarget: openPathInPreferredFileTarget,
-      }),
+      filesAllowed
+        ? buildOpenInEditorHandler({
+            rootPath: workspacePreviewRootPath,
+            canOpenPreferredTarget: canOpenPreferredFileTarget,
+            openInPreferredTarget: openPathInPreferredFileTarget,
+          })
+        : undefined,
     [
       canOpenPreferredFileTarget,
+      filesAllowed,
       openPathInPreferredFileTarget,
       workspacePreviewRootPath,
     ],
   );
   const handleOpenStorageFileInEditor = useMemo(
     () =>
-      buildOpenInEditorHandler({
-        rootPath: threadStorageRootPath,
-        canOpenPreferredTarget: canOpenPreferredFileTarget,
-        openInPreferredTarget: openPathInPreferredFileTarget,
-      }),
+      filesAllowed
+        ? buildOpenInEditorHandler({
+            rootPath: threadStorageRootPath,
+            canOpenPreferredTarget: canOpenPreferredFileTarget,
+            openInPreferredTarget: openPathInPreferredFileTarget,
+          })
+        : undefined,
     [
       canOpenPreferredFileTarget,
+      filesAllowed,
       openPathInPreferredFileTarget,
       threadStorageRootPath,
     ],
@@ -2205,7 +2288,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   const handleOpenHostFileInEditor = useMemo<
     OpenInEditorHandler | undefined
   >(() => {
-    if (!canOpenPreferredFileTarget) {
+    if (!filesAllowed || !canOpenPreferredFileTarget) {
       return undefined;
     }
     return (path) => {
@@ -2219,6 +2302,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   }, [
     activeHostFileLineRange,
     canOpenPreferredFileTarget,
+    filesAllowed,
     openPathInPreferredFileTarget,
   ]);
   const workspaceOpenPath = resolveThreadWorkspaceOpenPath({
@@ -2739,7 +2823,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   };
   const filenameOfPanelTab = (path: string) => path.split("/").at(-1) ?? path;
   const panelTabs: readonly SecondaryPanelRenderableTab[] =
-    syncedOrderedSecondaryFileTabs.map((tab): SecondaryPanelRenderableTab => {
+    visibleSecondaryFileTabs.map((tab): SecondaryPanelRenderableTab => {
       const pluginAction =
         tab.kind === "plugin-panel"
           ? pluginThreadPanelActions.find(
@@ -3022,7 +3106,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
         <PluginThreadPanelNavigationProvider
           openThreadPanel={handleOpenTimelinePluginPanel}
         >
-          <PluginDetailPanelContext.Provider value={pluginDetails}>
+          <PluginDetailPanelContext.Provider value={visiblePluginDetails}>
             {threadDetailContent}
           </PluginDetailPanelContext.Provider>
         </PluginThreadPanelNavigationProvider>

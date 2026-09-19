@@ -5,6 +5,7 @@ import {
   countNonDeletedAssignedChildThreads,
   countThreads,
   getEnvironment,
+  getProject,
   getThread,
   getThreadSectionById,
   listThreadMentionRowsByIds,
@@ -24,6 +25,7 @@ import {
   publicApiRoutes,
   typedRoutes,
   type ThreadGetQuery,
+  type ThreadCountQuery,
   type ThreadIncludeOption,
   type ThreadChildSummaryResponse,
   type ThreadCountResponse,
@@ -44,8 +46,19 @@ import {
   getNonDestroyedHostWithStatus,
   requireEnvironment,
   requirePublicProject,
-  requirePublicThread,
 } from "../../services/lib/entity-lookup.js";
+import {
+  assertResourceAccess,
+  assertCoreCapability,
+  assertExecutionAllowed,
+  assertPluginAllowed,
+  assertThreadCreationAllowed,
+  defaultDenyPolicy,
+  filterThreadsForContext,
+  getCoreAuthContext,
+  hasCoreCapability,
+  requireAuthorizedThread,
+} from "../../access-policy.js";
 import { listRunningThreadsWithIntendedHosts } from "../../services/threads/dispatch-attempt.js";
 import { dispatchThreadRenameCommand } from "../../services/threads/thread-commands.js";
 import { requestThreadStorageDeletion } from "../../services/threads/thread-lifecycle.js";
@@ -60,6 +73,7 @@ import { assertValidParentThread } from "../../services/threads/thread-parent.js
 import { handleThreadOwnershipChange } from "../../services/threads/thread-ownership.js";
 import { applyThreadExecutionOverride } from "../../services/threads/thread-execution-override.js";
 import { emitPluginThreadDeleted } from "../../services/plugins/plugin-thread-events.js";
+import { getEvaAgentForDb } from "../../agents/eva-agent-registry.js";
 
 function parseThreadIncludes(query: ThreadGetQuery): Set<ThreadIncludeOption> {
   const includes = new Set<ThreadIncludeOption>();
@@ -175,6 +189,64 @@ function requireThreadSection(
   }
 }
 
+function countAuthorizedThreads(
+  deps: AppDeps,
+  context: object,
+  query: ThreadCountQuery,
+): ThreadCountResponse {
+  const threads = listThreadsWithPendingInteractionState(deps.db, {
+    ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
+    includeHidden: query.includeHidden === "true",
+    archived: query.includeArchived === "true" ? undefined : false,
+    ...(query.parentThreadId === undefined ||
+    query.parentThreadId === THREAD_COUNT_ROOT_PARENT
+      ? {}
+      : { parentThreadId: query.parentThreadId }),
+  }).filter((thread) => {
+    if (
+      query.parentThreadId === THREAD_COUNT_ROOT_PARENT &&
+      thread.parentThreadId !== null
+    ) {
+      return false;
+    }
+    if (query.status !== undefined && thread.status !== query.status) {
+      return false;
+    }
+    if (
+      query.providerId !== undefined &&
+      thread.providerId !== query.providerId
+    ) {
+      return false;
+    }
+    if (
+      query.hostId !== undefined &&
+      thread.environmentHostId !== query.hostId
+    ) {
+      return false;
+    }
+    return filterThreadsForContext(deps.db, context, [thread]).length > 0;
+  });
+  const groups =
+    query.groupBy === undefined
+      ? undefined
+      : [
+          ...threads.reduce((counts, thread) => {
+            const key =
+              query.groupBy === "host"
+                ? thread.environmentHostId
+                : query.groupBy === "provider"
+                  ? thread.providerId
+                  : thread.projectId;
+            counts.set(key, (counts.get(key) ?? 0) + 1);
+            return counts;
+          }, new Map<string | null, number>()),
+        ].map(([key, count]) => ({ key, count }));
+  return {
+    total: threads.length,
+    ...(groups === undefined ? {} : { groups }),
+  };
+}
+
 function buildThreadSearchGroupResponse(
   deps: AppDeps,
   args: BuildThreadSearchGroupResponseArgs,
@@ -216,7 +288,8 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
 
   get(routes.count, (context, query) => {
     if (query.projectId) {
-      requirePublicProject(deps.db, query.projectId);
+      const project = requirePublicProject(deps.db, query.projectId);
+      assertResourceAccess(deps.db, context, "project", project.id, "read");
     }
     const result = countThreads(deps.db, {
       ...(query.status !== undefined ? { status: query.status } : {}),
@@ -240,17 +313,26 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       includeArchived: query.includeArchived === "true",
       includeHidden: query.includeHidden === "true",
     });
-    const response: ThreadCountResponse = {
-      total: result.total,
-      ...(result.groups !== undefined ? { groups: result.groups } : {}),
-    };
+    const response: ThreadCountResponse = hasCoreCapability(
+      getCoreAuthContext(context)?.policy ?? defaultDenyPolicy,
+      "threadAllRead",
+    )
+      ? result
+      : countAuthorizedThreads(deps, context, query);
     return context.json(response);
   });
 
   get(routes.running, (context) => {
-    return context.json(
-      listRunningThreadsWithIntendedHosts(deps) satisfies ThreadRunningResponse,
+    const running = listRunningThreadsWithIntendedHosts(deps).filter(
+      (entry) => {
+        const thread = getThread(deps.db, entry.id);
+        return (
+          thread !== null &&
+          filterThreadsForContext(deps.db, context, [thread]).length > 0
+        );
+      },
     );
+    return context.json(running satisfies ThreadRunningResponse);
   });
 
   get(routes.list, (context, query) => {
@@ -259,7 +341,8 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       offset: query.offset,
     });
     if (query.projectId) {
-      requirePublicProject(deps.db, query.projectId);
+      const project = requirePublicProject(deps.db, query.projectId);
+      assertResourceAccess(deps.db, context, "project", project.id, "read");
     }
     if (query.sectionId && query.unsectioned === "true") {
       throw new ApiError(
@@ -271,6 +354,10 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
     if (query.sectionId) {
       requireThreadSection(deps, query.sectionId);
     }
+    const restrictToVisibleOwnership = !hasCoreCapability(
+      getCoreAuthContext(context)?.policy ?? defaultDenyPolicy,
+      "threadAllRead",
+    );
     const threads = listThreadsWithPendingInteractionState(deps.db, {
       ...(query.projectId ? { projectId: query.projectId } : {}),
       ...(query.environmentId ? { environmentId: query.environmentId } : {}),
@@ -285,11 +372,28 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
         query.archived === undefined ? undefined : query.archived === "true",
       hasParent:
         query.hasParent === undefined ? undefined : query.hasParent === "true",
-      ...(limit !== undefined ? { limit } : {}),
-      ...(offset !== undefined ? { offset } : {}),
+      ...(restrictToVisibleOwnership
+        ? {}
+        : limit !== undefined
+          ? { limit }
+          : {}),
+      ...(restrictToVisibleOwnership
+        ? {}
+        : offset !== undefined
+          ? { offset }
+          : {}),
     });
+    const visibleThreads = filterThreadsForContext(deps.db, context, threads);
+    const paginatedThreads = restrictToVisibleOwnership
+      ? visibleThreads.slice(
+          offset ?? 0,
+          limit === undefined ? undefined : (offset ?? 0) + limit,
+        )
+      : visibleThreads;
     return context.json(
-      toThreadListEntryResponses(deps, { threads }) satisfies ThreadListEntry[],
+      toThreadListEntryResponses(deps, {
+        threads: paginatedThreads,
+      }) satisfies ThreadListEntry[],
     );
   });
 
@@ -303,12 +407,28 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       );
     }
     const limitPerGroup = parseSearchLimitPerGroup(query.limitPerGroup);
+    const search = searchThreadsWithPendingInteractionState(deps.db, {
+      query: searchQuery,
+      limitPerGroup,
+    });
+    const active = {
+      ...search.active,
+      results: search.active.results.filter(
+        (result) =>
+          filterThreadsForContext(deps.db, context, [result.thread]).length > 0,
+      ),
+    };
+    const archived = {
+      ...search.archived,
+      results: search.archived.results.filter(
+        (result) =>
+          filterThreadsForContext(deps.db, context, [result.thread]).length > 0,
+      ),
+    };
     return context.json(
       buildThreadSearchResponse(deps, {
-        ...searchThreadsWithPendingInteractionState(deps.db, {
-          query: searchQuery,
-          limitPerGroup,
-        }),
+        active: { ...active, total: active.results.length },
+        archived: { ...archived, total: archived.results.length },
       }) satisfies ThreadSearchResponse,
     );
   });
@@ -326,6 +446,14 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       if (thread === undefined) {
         return [];
       }
+      const authorizationThread = getThread(deps.db, thread.id);
+      if (
+        authorizationThread === null ||
+        filterThreadsForContext(deps.db, context, [authorizationThread])
+          .length === 0
+      ) {
+        return [];
+      }
       return [
         {
           threadId: thread.id,
@@ -338,26 +466,159 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
   });
 
   post(routes.create, async (context, payload) => {
+    const authContext = assertThreadCreationAllowed(context);
+    if (payload.origin === "plugin" && payload.originPluginId !== undefined) {
+      assertPluginAllowed(context, payload.originPluginId);
+    }
+    if (payload.parentThreadId !== undefined) {
+      requireAuthorizedThread(
+        deps.db,
+        context,
+        payload.parentThreadId,
+        "write",
+      );
+    }
+    if (payload.sourceThreadId !== undefined) {
+      requireAuthorizedThread(deps.db, context, payload.sourceThreadId, "read");
+    }
+    if (payload.lifecycleOwnerThreadId !== undefined && authContext !== null) {
+      const lifecycleOwner = getThread(deps.db, payload.lifecycleOwnerThreadId);
+      const lifecycleOwnerProject =
+        lifecycleOwner === null
+          ? null
+          : getProject(deps.db, lifecycleOwner.projectId);
+      if (
+        lifecycleOwner !== null &&
+        lifecycleOwner.archivedAt === null &&
+        lifecycleOwner.deletedAt === null &&
+        lifecycleOwnerProject?.deletedAt === null
+      ) {
+        requireAuthorizedThread(
+          deps.db,
+          context,
+          payload.lifecycleOwnerThreadId,
+          "read",
+        );
+      }
+    }
+    if (payload.startedOnBehalfOf !== null) {
+      requireAuthorizedThread(
+        deps.db,
+        context,
+        payload.startedOnBehalfOf.senderThreadId,
+        "read",
+      );
+    }
+    const requestedAgentId =
+      payload.agentId ??
+      authContext?.defaultAgentId ??
+      (authContext === null ? payload.providerId : undefined);
+    if (authContext !== null && requestedAgentId === undefined) {
+      throw new ApiError(
+        400,
+        "invalid_request",
+        "An explicit EVA agent is required",
+      );
+    }
+    if (
+      requestedAgentId !== undefined &&
+      getEvaAgentForDb(deps.db, requestedAgentId) === null &&
+      authContext !== null
+    ) {
+      throw new ApiError(400, "invalid_request", "Unknown EVA agent");
+    }
+    const execution = assertExecutionAllowed(context, {
+      ...(requestedAgentId === undefined ? {} : { agentId: requestedAgentId }),
+      providerId: payload.providerId,
+      model: payload.model,
+      reasoningLevel: payload.reasoningLevel,
+      permissionMode: payload.permissionMode,
+      requireComplete: true,
+    });
     if (payload.sectionId) {
       requireThreadSection(deps, payload.sectionId);
     }
     const thread = await createThreadFromRequest(deps, {
       ...payload,
+      ...(requestedAgentId === undefined ? {} : { agentId: requestedAgentId }),
+      ...(authContext === null ? {} : { ownerUserId: authContext.userId }),
+      ...(execution.providerId === undefined
+        ? {}
+        : { providerId: execution.providerId }),
+      ...(execution.model === undefined ? {} : { model: execution.model }),
+      ...(execution.reasoningLevel === undefined
+        ? {}
+        : { reasoningLevel: execution.reasoningLevel }),
+      ...(execution.permissionMode === undefined
+        ? {}
+        : { permissionMode: execution.permissionMode }),
       origin: payload.origin,
     });
     return context.json(toThreadResponseFromThread(deps, { thread }), 201);
   });
 
   post(routes.fork, async (context, payload) => {
-    const thread = await createThreadForkFromRequest(deps, payload);
+    const authContext = assertThreadCreationAllowed(context);
+    const sourceThread = requireAuthorizedThread(
+      deps.db,
+      context,
+      payload.sourceThreadId,
+      "read",
+    );
+    const agentId =
+      payload.agentId ?? sourceThread.agentId ?? sourceThread.providerId;
+    if (getEvaAgentForDb(deps.db, agentId) === null && authContext !== null) {
+      throw new ApiError(400, "invalid_request", "Unknown EVA agent");
+    }
+    assertExecutionAllowed(context, {
+      agentId,
+      permissionMode: payload.permissionMode,
+    });
+    const thread = await createThreadForkFromRequest(deps, payload, {
+      ownerUserId: authContext?.userId ?? null,
+      agentId,
+    });
     return context.json(toThreadResponseFromThread(deps, { thread }), 201);
   });
 
   get(routes.get, (context, query) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
+    const thread = requireAuthorizedThread(
+      deps.db,
+      context,
+      context.req.param("id"),
+      "read",
+    );
+    const includes = parseThreadIncludes(query);
+    if (includes.has("environment")) {
+      assertCoreCapability(context, "environments");
+      if (thread.environmentId !== null) {
+        assertResourceAccess(
+          deps.db,
+          context,
+          "environment",
+          thread.environmentId,
+          "read",
+        );
+      }
+    }
+    if (includes.has("host")) {
+      assertCoreCapability(context, "hosts");
+      if (thread.environmentId !== null) {
+        const environment = getEnvironment(deps.db, thread.environmentId);
+        if (environment !== null) {
+          assertResourceAccess(
+            deps.db,
+            context,
+            "host",
+            environment.hostId,
+            "read",
+          );
+        }
+      }
+    }
     return context.json(
       buildThreadResponse(deps, {
-        includes: parseThreadIncludes(query),
+        includes,
         thread,
       }),
     );
@@ -373,13 +634,42 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
   }
 
   get(routes.childSummary, (context) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
+    const thread = requireAuthorizedThread(
+      deps.db,
+      context,
+      context.req.param("id"),
+      "read",
+    );
     return context.json(getThreadChildSummary(thread.id));
   });
 
   patch(routes.update, async (context, payload) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
+    const thread = requireAuthorizedThread(
+      deps.db,
+      context,
+      context.req.param("id"),
+      "write",
+    );
+    if ("model" in payload || "reasoningLevel" in payload) {
+      assertExecutionAllowed(context, {
+        agentId: thread.agentId ?? thread.providerId,
+        providerId: thread.providerId,
+        ...(payload.model === undefined || payload.model === null
+          ? {}
+          : { model: payload.model }),
+        ...(payload.reasoningLevel === undefined ||
+        payload.reasoningLevel === null
+          ? {}
+          : { reasoningLevel: payload.reasoningLevel }),
+      });
+    }
     if (payload.parentThreadId) {
+      requireAuthorizedThread(
+        deps.db,
+        context,
+        payload.parentThreadId,
+        "write",
+      );
       assertValidParentThread(deps, {
         childThreadId: thread.id,
         parentThreadId: payload.parentThreadId,
@@ -424,7 +714,7 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
     const updated =
       Object.keys(metadataUpdate).length > 0
         ? updateThread(deps.db, deps.hub, thread.id, metadataUpdate)
-        : requirePublicThread(deps.db, thread.id);
+        : requireAuthorizedThread(deps.db, context, thread.id, "read");
     if (!updated) {
       throw new ApiError(404, "thread_not_found", "Thread not found");
     }
@@ -462,7 +752,12 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
   });
 
   del(routes.delete, async (context, payload) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
+    const thread = requireAuthorizedThread(
+      deps.db,
+      context,
+      context.req.param("id"),
+      "write",
+    );
     requireChildThreadsConfirmation({
       action: "delete",
       confirmed: payload.childThreadsConfirmed,

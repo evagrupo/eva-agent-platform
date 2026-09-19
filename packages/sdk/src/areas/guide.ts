@@ -25,6 +25,7 @@ const guideChapters: Record<string, TemplateId> = {
   customization: "bbGuideCustomization",
   plugins: "bbGuidePlugins",
   automations: "bbGuideAutomations",
+  "eva-agents": "bbGuideEvaAgents",
 };
 
 const templateBodyById = new Map(

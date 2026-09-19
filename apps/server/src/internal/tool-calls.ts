@@ -7,6 +7,10 @@ import type { ToolCallResponse } from "@bb/domain";
 import type { Hono } from "hono";
 import type { AppDeps } from "../types.js";
 import { ApiError } from "../errors.js";
+import {
+  handleEvaAgentToolCall,
+  isEvaAgentToolName,
+} from "../agents/eva-agent-tools.js";
 import { requireThreadEnvironment } from "../services/lib/entity-lookup.js";
 import {
   findPluginAgentTool,
@@ -16,6 +20,10 @@ import {
   handleUpdateEnvironmentDirectoryToolCall,
   UPDATE_ENVIRONMENT_DIRECTORY_TOOL_NAME,
 } from "../services/threads/thread-environment-directory.js";
+import {
+  assertPluginAllowedForUser,
+  assertToolAllowedForUser,
+} from "../access-policy.js";
 import { requireAuthenticatedDaemonSession } from "./session-state.js";
 
 const textEncoder = new TextEncoder();
@@ -72,6 +80,31 @@ export function registerInternalToolCallRoutes(app: Hono, deps: AppDeps): void {
           "Thread does not belong to the session host",
         );
       }
+      if (isEvaAgentToolName(payload.tool)) {
+        if (thread.ownerUserId !== null) {
+          assertToolAllowedForUser(
+            deps.db,
+            thread.ownerUserId,
+            payload.tool,
+            thread.agentId ?? thread.providerId,
+          );
+        }
+        return context.json(
+          await handleEvaAgentToolCall(deps, {
+            input: payload.arguments,
+            thread,
+            tool: payload.tool,
+          }),
+        );
+      }
+      if (thread.ownerUserId !== null) {
+        assertToolAllowedForUser(
+          deps.db,
+          thread.ownerUserId,
+          payload.tool,
+          thread.agentId ?? thread.providerId,
+        );
+      }
 
       if (payload.tool === UPDATE_ENVIRONMENT_DIRECTORY_TOOL_NAME) {
         return context.json(
@@ -86,6 +119,14 @@ export function registerInternalToolCallRoutes(app: Hono, deps: AppDeps): void {
 
       const pluginTool = findPluginAgentTool(payload.tool);
       if (pluginTool) {
+        if (thread.ownerUserId !== null) {
+          assertPluginAllowedForUser(
+            deps.db,
+            thread.ownerUserId,
+            pluginTool.pluginId,
+            thread.agentId ?? thread.providerId,
+          );
+        }
         const controller = new AbortController();
         const signal = AbortSignal.any([
           context.req.raw.signal,

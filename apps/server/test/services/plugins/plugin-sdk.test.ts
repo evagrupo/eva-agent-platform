@@ -903,6 +903,16 @@ describe("plugin bb.sdk against a running server", () => {
         },
         { plugin: "gamma", metadata: {}, deepFrozen: true },
       ]);
+      const restrictedResult =
+        await server.pluginService.resolveAgentConfiguration({
+          context,
+          skillIdsByPlugin: new Map(),
+          allowedPluginIds: new Set(["alpha"]),
+        });
+      expect(restrictedResult.tools).toEqual([]);
+      expect(takeObservations()).toEqual([
+        { plugin: "alpha", metadata: alphaMetadata, deepFrozen: true },
+      ]);
       const activeTurnSnapshot = seen[0]?.metadata;
 
       const alphaApi = requireApi(server.pluginService, "alpha");

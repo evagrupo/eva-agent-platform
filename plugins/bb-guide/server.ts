@@ -5,40 +5,40 @@ export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
     introduction: {
       type: "boolean",
-      label: "Send BB introduction",
+      label: "Send EVA introduction",
       description:
-        "Tell agents about the BB CLI, threads, and clickable links. Applies to new agent sessions.",
+        "Tell agents about the EVA CLI, threads, and clickable links. Applies to new agent sessions.",
       default: true,
     },
     skills: {
       type: "boolean",
       label: "Enable bundled skills",
-      description: "Make the selected BB guide skills available to agents.",
+      description: "Make the selected EVA guide skills available to agents.",
       default: true,
     },
     bbCli: {
       type: "boolean",
-      label: "BB CLI skill",
-      description: "Inspect and manage BB through the CLI.",
+      label: "EVA CLI skill",
+      description: "Inspect and manage EVA through the CLI.",
       default: true,
     },
     pluginAuthoring: {
       type: "boolean",
       label: "Plugin authoring skill",
-      description: "Create and change BB plugins and SDK extensions.",
+      description: "Create and change EVA plugins and SDK extensions.",
       default: true,
     },
     skillCreator: {
       type: "boolean",
       label: "Skill creator skill",
-      description: "Create and improve BB skills.",
+      description: "Create and improve EVA skills.",
       default: true,
     },
     submitPlugin: {
       type: "boolean",
       label: "Plugin submission skill",
       description:
-        "Prepare and submit a BB plugin to the Community marketplace.",
+        "Prepare and submit an EVA plugin to the Integrations marketplace.",
       default: true,
     },
   });

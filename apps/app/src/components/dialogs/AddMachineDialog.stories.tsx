@@ -206,7 +206,7 @@ export function EnrollmentCommandState() {
         <DialogStage>
           <ManualMachineSetupView
             command={null}
-            errorMessage="The gate rejected this bb's credential (HTTP 401)"
+            errorMessage="The gate rejected this EVA credential (HTTP 401)"
             onRetry={noop}
             onRegenerate={noop}
             connectedHost={null}

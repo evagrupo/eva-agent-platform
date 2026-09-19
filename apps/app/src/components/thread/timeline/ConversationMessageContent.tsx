@@ -379,7 +379,7 @@ function UserConversationMessage({
       : initiator === "system"
         ? {
             sourceKind: "system" as const,
-            sourceName: "BB",
+            sourceName: "EVA",
             sourceProjectId: null,
             sourceThreadId: null,
             sourceIsPluginSideChat: false,

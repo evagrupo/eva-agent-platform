@@ -80,7 +80,6 @@ import {
   hostNeedsUpdate,
   hostUpdateIsStalled,
 } from "@/lib/host-update-status";
-import { openUrlInExternalBrowser } from "@/lib/url-open-routing";
 import {
   getSettingsMachineRoutePath,
   getSettingsRoutePath,
@@ -97,7 +96,6 @@ const EMPTY_PROVIDER_CLI_FAILURES: ReadonlyMap<
   string,
   ProviderCliInstallFailure
 > = new Map();
-const CHANGELOG_URL = "https://getbb.app/changelog";
 const CHANGELOG_STALE_TIME_MS = 5 * 60_000;
 const CHANGELOG_DISMISSED_VERSION_STORAGE_KEY =
   "bb.settings.updates.dismissed-changelog-version";
@@ -416,21 +414,10 @@ function RowActions({ children }: { children: ReactNode }) {
 
 const CHANGELOG_INLINE_COMPONENTS: Components = {
   p: ({ children }) => <>{children}</>,
-  a: ({ children, href }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground"
-      onClick={(event) => {
-        event.preventDefault();
-        if (href !== undefined) {
-          openUrlInExternalBrowser(href);
-        }
-      }}
-    >
+  a: ({ children }) => (
+    <span className="text-foreground underline decoration-border underline-offset-2">
       {children}
-    </a>
+    </span>
   ),
   code: ({ children }) => (
     <code className="rounded bg-muted px-1 py-0.5 font-mono text-foreground">
@@ -596,7 +583,7 @@ export function ChangelogPreviewCard() {
                         variant="ghost"
                         size="icon"
                         className="size-7 text-muted-foreground hover:text-foreground"
-                        aria-label={`Dismiss bb ${entry.version} changelog preview`}
+                        aria-label={`Dismiss EVA ${entry.version} changelog preview`}
                         onClick={() => {
                           rawStringLocalStorage.setItem(
                             CHANGELOG_DISMISSED_VERSION_STORAGE_KEY,
@@ -665,20 +652,9 @@ export function ChangelogPreviewCard() {
               data-changelog-footer
               className="flex items-center justify-end border-t border-foreground bg-foreground px-4 py-2.5 text-background sm:px-5"
             >
-              <button
-                type="button"
-                disabled={!releaseVisible}
-                aria-label={`Open the full bb ${entry.version} changelog`}
-                onClick={() =>
-                  openUrlInExternalBrowser(
-                    `${CHANGELOG_URL}#${entry.version.replaceAll(".", "-")}`,
-                  )
-                }
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-sm text-xs font-semibold text-background underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-background"
-              >
-                Full changelog
-                <Icon aria-hidden name="ExternalLink" className="size-3.5" />
-              </button>
+              <span className="text-xs font-semibold text-background">
+                EVA release notes
+              </span>
             </div>
           </div>
         </div>
@@ -711,7 +687,7 @@ export function ChangelogPreviewCard() {
                   You're all caught up
                 </h3>
                 <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                  We'll show the next bb release here.
+                  We'll show the next EVA release here.
                 </p>
               </div>
             </div>
@@ -761,7 +737,7 @@ export function BbAppUpdateRows({
   );
   if (isDesktop && desktopInfo === null) {
     return row(
-      <RowName name="bb app" current={null} latest={null} />,
+      <RowName name="EVA app" current={null} latest={null} />,
       <RowStateControl live state="in-progress" />,
     );
   }
@@ -771,7 +747,7 @@ export function BbAppUpdateRows({
       desktopInfo.pendingVersion ?? desktopInfo.latestVersion;
     const latest = desktopInfo.updateAvailable ? pendingVersion : null;
     const name = (
-      <RowName name="bb app" current={desktopInfo.version} latest={latest} />
+      <RowName name="EVA app" current={desktopInfo.version} latest={latest} />
     );
 
     if (desktopInfo.updateDownloaded) {
@@ -781,7 +757,7 @@ export function BbAppUpdateRows({
           state="restart-required"
           buttonLeading={<BbLogo className="size-3" />}
           buttonLabel="Relaunch"
-          actionLabel="Relaunch bb to finish updating"
+          actionLabel="Relaunch EVA to finish updating"
           onClick={() => onRelaunchDesktop?.()}
         />,
       );
@@ -809,14 +785,14 @@ export function BbAppUpdateRows({
 
   if (systemVersion === undefined) {
     return row(
-      <RowName name="bb app" current={null} latest={null} />,
+      <RowName name="EVA app" current={null} latest={null} />,
       <RowStateControl state="in-progress" />,
     );
   }
 
   const name = (
     <RowName
-      name="bb app"
+      name="EVA app"
       detail={
         systemVersion.updateAvailable ? (
           <span className="hidden truncate font-mono text-2xs text-muted-foreground sm:inline">
@@ -942,7 +918,7 @@ export function BbDaemonUpdateRow({
           <BbLogo className="size-4" />
         </span>
       }
-      title="bb daemon"
+      title="EVA service"
       state={daemonCaption}
       trailingMeta={null}
       actions={
@@ -1200,7 +1176,7 @@ export function MachineUpdatesFleetSection({
     <SettingsSection
       action={action}
       bodyClassName="border-0 bg-transparent p-0"
-      description="Manage bb and provider CLI updates across all machines."
+      description="Manage EVA and provider CLI updates across all machines."
       title="Machine updates"
     >
       <div className="space-y-6 pt-1.5">{children}</div>

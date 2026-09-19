@@ -478,10 +478,19 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
     }),
   );
   let input = flattenPromptInputGroups(inputGroups);
-  ({ input, inputGroups } = await appendPluginMentionContext({
-    input,
-    inputGroups,
-  }));
+  const ownerThread = getThread(deps.db, thread.id);
+  const ownerUserId = ownerThread?.ownerUserId ?? null;
+  ({ input, inputGroups } = await appendPluginMentionContext(
+    {
+      input,
+      inputGroups,
+    },
+    {
+      db: deps.db,
+      ownerUserId,
+      agentId: thread.agentId ?? thread.providerId,
+    },
+  ));
   const deferredFirstTurnContext = resolveDeferredFirstTurnContext(
     deps.db,
     thread.id,

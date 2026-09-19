@@ -31,15 +31,15 @@ function installPlanFor(url: string): unknown {
     marketplace,
     marketplaceDisplayName:
       marketplace === "bb-official"
-        ? "BB Official"
+        ? "EVA Official"
         : marketplace === "bb-community"
-          ? "BB Community"
+          ? "EVA Integrations"
           : "Acme Plugins",
     publisherLabel:
       marketplace === "bb-official"
-        ? "BB Official"
+        ? "EVA Official"
         : marketplace === "bb-community"
-          ? "BB Community"
+          ? "EVA Integrations"
           : "Acme Plugins",
     official,
     author: { name: "Acme", url: "https://github.com/acme" },
@@ -151,7 +151,9 @@ describe("AddPluginDialog", () => {
     const source = "https://github.com/acme/bb-plugin-usage";
     const input = screen.getByLabelText("Plugin source") as HTMLInputElement;
 
-    expect(input.placeholder).toBe("https://github.com/owner/bb-plugin-name");
+    expect(input.placeholder).toBe(
+      "https://github.com/owner/eva-integration-name",
+    );
     expect(screen.getByText(/GitHub repository URL/)).toBeTruthy();
     fireEvent.change(input, { target: { value: source } });
     fireEvent.click(screen.getByRole("button", { name: /install plugin/i }));
@@ -228,7 +230,7 @@ describe("AddPluginDialog", () => {
       entryId: "linear",
       pluginId: "linear",
       marketplace: "bb-official",
-      publisherLabel: "BB Official",
+      publisherLabel: "EVA Official",
       displayName: "Linear",
       icon: "Github",
       iconUrl: null,
@@ -236,7 +238,7 @@ describe("AddPluginDialog", () => {
       source: "builtin:linear",
     });
     expect(
-      screen.getByText("Install this plugin, bundled with BB."),
+      screen.getByText("Install this integration, bundled with EVA."),
     ).not.toBeNull();
     unmount();
 
@@ -244,7 +246,7 @@ describe("AddPluginDialog", () => {
       entryId: "thread-hover-cards",
       pluginId: "thread-hover-cards",
       marketplace: "bb-community",
-      publisherLabel: "BB Community",
+      publisherLabel: "EVA Integrations",
       displayName: "Thread Hover Cards",
       icon: "Github",
       iconUrl: null,
@@ -253,7 +255,7 @@ describe("AddPluginDialog", () => {
     });
     expect(
       screen.getByText(
-        "Install this BB Community plugin from its listed source repository.",
+        "Install this EVA Integrations plugin from its listed source repository.",
       ),
     ).not.toBeNull();
     expect(screen.queryByText(/bundled with BB/)).toBeNull();
@@ -263,7 +265,7 @@ describe("AddPluginDialog", () => {
       entryId: "widgets",
       pluginId: "widgets",
       marketplace: "bb-community",
-      publisherLabel: "BB Community",
+      publisherLabel: "EVA Integrations",
       displayName: "Widgets",
       icon: "Zap",
       iconUrl: null,
@@ -272,7 +274,7 @@ describe("AddPluginDialog", () => {
     });
     expect(
       screen.getByText(
-        "Install this BB Community plugin from its listed npm package.",
+        "Install this EVA Integrations plugin from its listed npm package.",
       ),
     ).not.toBeNull();
   });
@@ -287,7 +289,7 @@ describe("AddPluginDialog", () => {
       iconUrl: null,
       iconTinted: false,
       marketplace: "bb-community",
-      publisherLabel: "BB Community",
+      publisherLabel: "EVA Integrations",
       source: "npm:bb-plugin-widgets@^1.0.0 (registry https://npm.acme.test)",
     });
 
@@ -304,7 +306,7 @@ describe("AddPluginDialog", () => {
       entryId: "linear",
       pluginId: "linear",
       marketplace: "bb-official",
-      publisherLabel: "BB Official",
+      publisherLabel: "EVA Official",
       displayName: "Linear",
       icon: "Github",
       iconUrl: null,
@@ -337,7 +339,7 @@ describe("AddPluginDialog", () => {
       entryId: "widgets",
       pluginId: "widgets",
       marketplace: "bb-community",
-      publisherLabel: "BB Community",
+      publisherLabel: "EVA Integrations",
       displayName: "Widgets",
       icon: null,
       iconUrl,
@@ -361,7 +363,7 @@ describe("AddPluginDialog", () => {
           entryId: "linear",
           pluginId: "linear",
           marketplace: "bb-official",
-          publisherLabel: "BB Official",
+          publisherLabel: "EVA Official",
           displayName: "Linear",
           icon: "Github",
           iconUrl: null,
@@ -392,14 +394,14 @@ describe("AddPluginDialog", () => {
   it("names and links a catalog plugin when installation fails", async () => {
     const errorToast = vi.spyOn(appToast, "error").mockReturnValue("toast");
     stubFetch(
-      { ok: false, error: "requires bb >= 0.15 — you have 0.14.1" },
+      { ok: false, error: "requires EVA >= 0.15 — you have 0.14.1" },
       422,
     );
     renderDialog({
       entryId: "linear",
       pluginId: "linear",
       marketplace: "bb-official",
-      publisherLabel: "BB Official",
+      publisherLabel: "EVA Official",
       displayName: "Linear",
       icon: null,
       iconUrl: null,
@@ -412,7 +414,7 @@ describe("AddPluginDialog", () => {
       expect(errorToast).toHaveBeenCalledTimes(1);
     });
     expect(screen.getByRole("alert").textContent).toBe(
-      "requires bb >= 0.15 — you have 0.14.1",
+      "requires EVA >= 0.15 — you have 0.14.1",
     );
     expect(errorToast.mock.calls[0]?.[0]).toBe("Plugin installation failed");
     render(
@@ -421,7 +423,7 @@ describe("AddPluginDialog", () => {
     const pluginLink = screen.getByRole("link", { name: "Linear" });
     expect(pluginLink.getAttribute("href")).toBe("/plugins/linear");
     expect(pluginLink.parentElement?.textContent).toBe(
-      "Linear — requires bb >= 0.15 — you have 0.14.1",
+      "Linear — requires EVA >= 0.15 — you have 0.14.1",
     );
   });
 
@@ -449,7 +451,7 @@ describe("AddPluginDialog", () => {
         .getAttribute("href"),
     ).toBe("https://github.com/acme/plugins.git");
     expect(screen.getByText("^1.0.0")).toBeTruthy();
-    expect(screen.getByText(/third-party marketplace/)).toBeTruthy();
+    expect(screen.getByText(/external catalog/)).toBeTruthy();
     expect(screen.getByText("Acme Plugins")).toBeTruthy();
     expect(
       requests.some((request) =>
@@ -484,7 +486,7 @@ describe("AddPluginDialog", () => {
       entryId: "linear",
       pluginId: "linear",
       marketplace: "bb-official",
-      publisherLabel: "BB Official",
+      publisherLabel: "EVA Official",
       displayName: "Linear",
       icon: "Github",
       iconUrl: null,

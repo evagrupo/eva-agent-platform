@@ -9,6 +9,7 @@ import { createLogger } from "@bb/logger";
 import { getAppSettings } from "@bb/db";
 import { initDb } from "./db.js";
 import { createApp } from "./server.js";
+import { createCoreAuthService, resolveCoreAuthRequired } from "./core-auth.js";
 import { PendingInteractionLifecycle } from "./services/interactions/pending-interactions.js";
 import { createMachineAuthService } from "./services/machine-auth.js";
 import { resolveBuiltinSkillsRootPath } from "./services/skills/builtin-skills-copy.js";
@@ -151,6 +152,9 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     serverPort: serverConfig.BB_SERVER_PORT,
     sharedSkillRoots: { user: [], project: [] },
     transcriptionModel: serverConfig.BB_TRANSCRIPTION,
+    authRequired: resolveCoreAuthRequired({
+      isDevelopment: !isProduction,
+    }),
   };
 
   const providerRegistry = createProviderRegistryService({
@@ -167,12 +171,23 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   if (appUrl !== undefined) {
     runtimeConfig.appUrl = appUrl;
   }
+  const miniAppsPublicDomain = toOptionalString(
+    serverConfig.BB_MINI_APPS_PUBLIC_DOMAIN,
+  );
+  if (miniAppsPublicDomain !== undefined) {
+    runtimeConfig.miniAppsPublicDomain = miniAppsPublicDomain;
+  }
   if (serverConfig.BB_DEV_APP_PORT !== undefined) {
     runtimeConfig.devAppPort = serverConfig.BB_DEV_APP_PORT;
   }
   if (serverConfig.BB_SERVER_LAUNCH_ID !== undefined) {
     runtimeConfig.launchId = serverConfig.BB_SERVER_LAUNCH_ID;
   }
+  const coreAuth = createCoreAuthService({
+    db,
+    config: runtimeConfig,
+  });
+  await coreAuth.bootstrapConfiguredOwner();
   const terminalSessions = new TerminalSessionLifecycle({
     config: runtimeConfig,
     db,
@@ -230,6 +245,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     app,
     closeWebSockets,
     injectWebSocket,
+    markReady,
     pluginCatalogService,
     pluginService,
     serverMove,
@@ -238,6 +254,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
       appVersion,
       bbAppManagedConfig,
       config: runtimeConfig,
+      coreAuth,
       db,
       hub,
       lifecycleDedupers,
@@ -309,7 +326,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   if (!isLoopbackHostname(serverConfig.BB_SERVER_BIND_HOST)) {
     logger.warn(
       { bindHost: serverConfig.BB_SERVER_BIND_HOST },
-      "SECURITY WARNING: The public API is unauthenticated and permits command execution and file reads. Wildcard server binding must only be used behind a trusted network boundary.",
+      "SECURITY WARNING: wildcard server binding exposes the API; production must keep BB_AUTH_REQUIRED=true and use a trusted TLS or network boundary.",
     );
   }
 
@@ -318,6 +335,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     serverConfig,
   });
   injectWebSocket(server);
+  markReady();
 
   logger.info(
     {

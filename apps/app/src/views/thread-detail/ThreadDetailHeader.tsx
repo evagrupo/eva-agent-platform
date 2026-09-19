@@ -43,6 +43,7 @@ import {
 import { usePaneContext } from "./PaneContext";
 import { PaneMaximizeButton } from "./PaneMaximizeButton";
 import type { ThreadHeaderGitAction } from "./useThreadGitActions";
+import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
 
 const THREAD_HEADER_ACTION_BUTTON_CLASS = cn(
   COARSE_POINTER_TOOLBAR_ACTION_BUTTON_CLASS,
@@ -77,6 +78,11 @@ export function ThreadDetailHeader({
   threadTitle,
   workspaceOpenButton,
 }: ThreadDetailHeaderProps) {
+  const auth = useCoreAuth();
+  const secondaryPanelAllowed = canUseCoreCapability(
+    auth,
+    "secondaryPanelTabs",
+  );
   const isCompactViewport = useIsCompactViewport();
   const [primaryAction, ...secondaryActions] = threadHeaderGitActions;
   const { renameThread } = useThreadActions();
@@ -150,7 +156,9 @@ export function ThreadDetailHeader({
     : "Show right panel";
   const rightPanelIconName = RIGHT_PANEL_TOGGLE_ICON_NAME;
   const showRightPanelToggle =
-    secondaryPanelHost === null && (!isSecondaryPanelOpen || isCompactViewport);
+    secondaryPanelAllowed &&
+    secondaryPanelHost === null &&
+    (!isSecondaryPanelOpen || isCompactViewport);
 
   const center = (
     <>

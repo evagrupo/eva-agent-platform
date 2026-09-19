@@ -537,7 +537,7 @@ describe("plugin install flows", () => {
         }),
       ).rejects.toThrow(
         new RegExp(
-          `install refused.*requires bb plugin SDK >=99\\.0\\.0, running SDK is ${PLUGIN_SDK_VERSION.replaceAll(".", "\\.")}`,
+          `install refused.*requires the EVA integration SDK >=99\\.0\\.0, running SDK is ${PLUGIN_SDK_VERSION.replaceAll(".", "\\.")}`,
           "u",
         ),
       );
@@ -960,7 +960,7 @@ describe("plugin install flows", () => {
       const source = `git:${repoDir}@main`;
       await expect(
         service.install(source, { kind: "root" }),
-      ).rejects.toThrowError(/install refused.*requires bb >=99\.0\.0/);
+      ).rejects.toThrowError(/install refused.*requires EVA >=99\.0\.0/);
       expect(service.list()).toHaveLength(0);
       const managed = join(
         dataDir,
@@ -985,7 +985,7 @@ describe("plugin install flows", () => {
         service.install(`git:${repoDir}@main`, { kind: "root" }),
       ).rejects.toThrowError(
         new RegExp(
-          `install refused.*requires bb plugin SDK >=99\\.0\\.0, running SDK is ${PLUGIN_SDK_VERSION.replaceAll(".", "\\.")}`,
+          `install refused.*requires the EVA integration SDK >=99\\.0\\.0, running SDK is ${PLUGIN_SDK_VERSION.replaceAll(".", "\\.")}`,
         ),
       );
     });
@@ -1046,7 +1046,7 @@ describe("plugin install flows", () => {
 
       await expect(
         service.install(source, { kind: "root" }),
-      ).rejects.toThrowError(/install refused.*requires bb >=0\.9\.0/u);
+      ).rejects.toThrowError(/install refused.*requires EVA >=0\.9\.0/u);
       expect(materializationCount).toBe(clonesBefore);
       expect(
         getInstalledPluginRegistration(db, "cached-engine"),
@@ -1608,7 +1608,7 @@ describe("plugin install flows", () => {
     const entry = await service.installPath(rootDir);
     expect(entry.status).toBe("incompatible");
     expect(entry.statusDetail).toContain(
-      `requires bb plugin SDK >=99.0.0, running SDK is ${PLUGIN_SDK_VERSION}`,
+      `requires the EVA integration SDK >=99.0.0, running SDK is ${PLUGIN_SDK_VERSION}`,
     );
   });
 

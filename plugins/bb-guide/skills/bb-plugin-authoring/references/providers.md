@@ -82,7 +82,7 @@ served as declared behind `nosniff` and a `default-src 'none'` CSP; it is
 not in the manifest, so `bb plugin build` cannot check it — keep it free of
 the script vectors the build refuses in a logo. A path or a declared
 icon is served to clients as a `logoUrl` and drawn as a `currentColor`
-mask, so a monochrome mark follows the bb theme (and the declared
+mask, so a monochrome mark follows the EVA theme (and the declared
 `strings.iconTint`) with no frontend bundle — this is how every provider bb
 ships gets its brand mark; core vendors none. A full-colour logo renders as a silhouette. A glyph name carries no
 bytes, so there is no `logoUrl` and clients draw the glyph from the shared
@@ -144,7 +144,7 @@ request as provider-scoped static options. Use it for immutable launch facts
 shared by all hosts, not user settings or machine-local state. It participates
 in bridge process identity, so changing it causes the next runtime to use a
 new bridge process. `experimental_visibility: "installed"` makes the provider
-host-dependent: BB asks that provider's bridge for `provider/health` and lists
+host-dependent: EVA asks that provider's bridge for `provider/health` and lists
 it only when the status is not `not_installed`. Such a declaration must support
 health; bridge failures hide only that provider.
 
@@ -176,9 +176,9 @@ the selected host against its authenticated `BB_SERVER_URL`, which is the
 right form for a server route that must work from enrolled machines.
 
 Contributions override the host shell environment. If multiple plugins return
-the same name, the earlier registration wins and BB logs the conflict. A
+the same name, the earlier registration wins and EVA logs the conflict. A
 resolver that throws, times out after five seconds, or returns invalid entries
-contributes nothing for that command without blocking other plugins. BB passes
+contributes nothing for that command without blocking other plugins. EVA passes
 values to the provider and reports them as-is in `provider.env-resolved`
 timeline events, provider output, and diagnostics.
 
@@ -187,7 +187,7 @@ login, pair the resolver with
 `bb.providers.experimental_contributeEnvHealth(providerId, resolve)`. Its
 host-scoped `ExperimentalPluginProviderEnvHealthContext` contains `hostId`.
 Return an `ExperimentalPluginProviderEnvHealth` `{ label, statusMessage }` only
-while the proxy is usable, or `null` otherwise. BB uses it only when the
+while the proxy is usable, or `null` otherwise. EVA uses it only when the
 provider bridge reports `unauthenticated` or `expired`, and only when the same
 plugin registered an env resolver for that provider. Installation and unknown
 failures are preserved.
@@ -241,7 +241,7 @@ subpath from the plugin's own SDK install, and managed Git installs run
 `npm install --omit=dev`, so a devDependency-only SDK is absent when the
 artifact is built. This is the exception to the devDependency rule under
 "bb.hosts"; the echo example's `package.json` shows the shape. A `bb.host`
-artifact cannot import bb's private `@bb/*` workspace packages; an installed
+artifact cannot import EVA's private `@bb/*` workspace packages; an installed
 plugin could not resolve them.
 
 The bridge speaks the canonical Provider Bridge Protocol — line-delimited

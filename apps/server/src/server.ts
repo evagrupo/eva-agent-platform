@@ -10,12 +10,34 @@ import { readFile, stat } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { extname, join, resolve } from "node:path";
 import { Hono } from "hono";
+import { getThread } from "@bb/db";
+import type { RealtimeSubscriptionTarget } from "@bb/domain";
 import { terminalWebSocketQuerySchema } from "@bb/server-contract";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import type { ServerAppDeps } from "./types.js";
 import { ApiError, errorToResponse } from "./errors.js";
+import { createCoreAuthService } from "./core-auth.js";
+import {
+  CORE_AUTH_CONTEXT_KEY,
+  assertCoreCapability,
+  assertBootstrapAllowed,
+  canAccessRealtimeTarget,
+  canAccessTerminal,
+  canReadThread,
+  assertPluginDataAllowed,
+  isPluginAllowedByPolicy,
+  runWithCoreAuthRequest,
+  type CoreCapability,
+} from "./access-policy.js";
 import { registerEnvironmentRoutes } from "./routes/environments.js";
+import { registerAccessRoutes } from "./routes/access.js";
+import { registerEvaAgentRoutes } from "./routes/eva-agents.js";
+import {
+  createMiniAppService,
+  registerMiniAppGateway,
+  registerMiniAppRoutes,
+} from "./routes/mini-apps.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerHostRoutes } from "./routes/hosts.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -101,6 +123,7 @@ import {
   callPluginHostRpc,
   disposePluginHostWorkers,
 } from "./services/plugins/plugin-host-rpc.js";
+import { ensureEvaAgentRegistry } from "./agents/eva-agent-registry.js";
 
 const PLUGIN_WIRE_HTTP_PATH = /^\/api\/v1\/plugins\/[^/]+\/http(?:\/|$)/u;
 import { rankAcceptedAssetEncodings } from "./asset-content-encoding.js";
@@ -136,6 +159,8 @@ interface ServerApp {
   app: Hono;
   closeWebSockets: CloseWebSockets;
   injectWebSocket: ReturnType<typeof createNodeWebSocket>["injectWebSocket"];
+  markReady: () => void;
+  coreAuth: ReturnType<typeof createCoreAuthService>;
   pluginService: PluginService;
   pluginCatalogService: PluginCatalogService;
   serverMove: ServerMoveCoordinator;
@@ -162,6 +187,23 @@ function normalizeInternalAuthPath(path: string): string {
     return path;
   }
   return path.replace(/\/+$/u, "");
+}
+
+function normalizePublicApiPath(path: string): string {
+  const withoutPrefix =
+    path === "/api/v1"
+      ? "/"
+      : path.startsWith("/api/v1/")
+        ? path.slice("/api/v1".length)
+        : path;
+  return normalizeInternalAuthPath(withoutPrefix);
+}
+
+function allowsAnonymousCoreAuthPath(path: string): boolean {
+  return (
+    path === "/api/v1/access/status" ||
+    path === "/api/v1/access/invitations/accept"
+  );
 }
 
 export interface ServerMoveAppOptions {
@@ -198,6 +240,8 @@ const THREAD_EVENT_WAIT_PATH_PATTERN =
   /^\/api\/v1\/threads\/[^/]+\/events\/wait$/u;
 const PLUGIN_APP_ASSET_PATH_PATTERN =
   /^\/api\/v1\/plugins\/[^/]+\/assets\/app\.(?:js|css)$/u;
+const EVA_CONTENT_SECURITY_POLICY =
+  "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: ws: wss:; worker-src 'self' blob:; frame-src 'self'";
 const PRECOMPRESSED_STATIC_FILES = [
   { encoding: "br", extension: ".br" },
   { encoding: "gzip", extension: ".gz" },
@@ -444,10 +488,48 @@ export function createApp(
   deps: ServerAppDeps,
   options?: CreateAppOptions,
 ): ServerApp {
+  ensureEvaAgentRegistry(deps.db);
+  const coreAuth =
+    deps.coreAuth ??
+    createCoreAuthService({
+      db: deps.db,
+      config: deps.config,
+    });
+  const miniAppService = createMiniAppService({
+    config: deps.config,
+    coreAuth,
+    db: deps.db,
+  });
   const app = new Hono();
+  app.use("*", async (context, next) => {
+    await next();
+    const headers = context.res.headers;
+    headers.set("x-content-type-options", "nosniff");
+    headers.set("referrer-policy", "strict-origin-when-cross-origin");
+    headers.set(
+      "permissions-policy",
+      "camera=(), microphone=(), geolocation=()",
+    );
+    headers.set("x-frame-options", "SAMEORIGIN");
+    const contentType = headers.get("content-type") ?? "";
+    if (
+      !context.req.path.startsWith("/api/") &&
+      contentType.includes("text/html")
+    ) {
+      headers.set("content-security-policy", EVA_CONTENT_SECURITY_POLICY);
+    }
+    if (!deps.config.isDevelopment) {
+      headers.set(
+        "strict-transport-security",
+        "max-age=31536000; includeSubDomains",
+      );
+    }
+    return context.res;
+  });
   const { injectWebSocket, upgradeWebSocket, wss } = createNodeWebSocket({
     app,
   });
+  registerMiniAppGateway(app, miniAppService, upgradeWebSocket);
   const slowApiRequestLogThresholdMs =
     options?.slowApiRequestLogThresholdMs ?? SLOW_API_REQUEST_LOG_THRESHOLD_MS;
   const bbAppArtifactService =
@@ -469,6 +551,7 @@ export function createApp(
     },
   };
   const pendingServerMove = serverMoveOptions.pending;
+  let ready = false;
 
   app.use("*", async (context, next) => {
     captureTrustedRemoteAddress(context);
@@ -521,6 +604,41 @@ export function createApp(
       ...(serverMove === null ? {} : { serverMove }),
     });
   });
+  app.get("/readyz", (context) =>
+    context.json({ ok: ready, ready }, ready ? 200 : 503),
+  );
+  const assertBrowserAuthRequest = (
+    context: Parameters<typeof browserRequestProblem>[0],
+  ): void => {
+    const problem = browserRequestProblem(context, deps);
+    if (problem !== null) {
+      throw new ApiError(problem.status, "forbidden_origin", problem.error);
+    }
+  };
+  app.use("/api/auth", async (context, next) => {
+    assertBrowserAuthRequest(context);
+    return next();
+  });
+  app.use("/api/auth/*", async (context, next) => {
+    assertBrowserAuthRequest(context);
+    return next();
+  });
+  app.all("/api/auth", (context) => coreAuth.handle(context.req.raw));
+  app.all("/api/auth/*", (context) => coreAuth.handle(context.req.raw));
+  app.use("/api/v1/*", async (context, next) => {
+    const authContext = await coreAuth.resolveRequest(context.req.raw);
+    if (authContext !== null) {
+      context.set(CORE_AUTH_CONTEXT_KEY, authContext);
+    }
+    if (
+      authContext === null &&
+      (coreAuth.required || coreAuth.hasSessionCookie(context.req.raw)) &&
+      !allowsAnonymousCoreAuthPath(context.req.path)
+    ) {
+      return unauthorizedResponse();
+    }
+    return runWithCoreAuthRequest(authContext, context.req.method, next);
+  });
   app.get("/install.sh", async (context) => {
     const script = await readFile(INSTALL_MACHINE_SCRIPT_PATH, "utf8");
     const credential = context.req.header("X-BB-Enrollment");
@@ -532,7 +650,7 @@ export function createApp(
           );
     if (credential !== undefined && bootstrap === null) {
       return new Response(
-        "Enrollment is expired or unavailable. Generate a new command in bb.\n",
+        "Enrollment is expired or unavailable. Generate a new command in EVA.\n",
         {
           status: 403,
           headers: {
@@ -749,6 +867,107 @@ export function createApp(
     }
     return next();
   });
+  publicApi.use("*", async (context, next) => {
+    const normalizedPath = normalizePublicApiPath(context.req.path);
+    const requiredCapability = (() => {
+      if (
+        normalizedPath === "/plugin-catalog" ||
+        normalizedPath.startsWith("/plugin-catalog/") ||
+        normalizedPath === "/marketplaces" ||
+        normalizedPath.startsWith("/marketplaces/") ||
+        normalizedPath === "/skills-registry" ||
+        normalizedPath.startsWith("/skills-registry/")
+      ) {
+        return "plugins" satisfies CoreCapability;
+      }
+      if (
+        normalizedPath === "/plugins" ||
+        normalizedPath.startsWith("/plugins/")
+      ) {
+        return "plugins" satisfies CoreCapability;
+      }
+      if (
+        normalizedPath === "/files" ||
+        normalizedPath.startsWith("/files/") ||
+        normalizedPath.startsWith("/file-previews/") ||
+        normalizedPath.includes("/thread-storage/files") ||
+        normalizedPath.includes("/thread-storage/paths") ||
+        normalizedPath.includes("/thread-storage/content") ||
+        normalizedPath.includes("/host-files/content") ||
+        normalizedPath.includes("/worktree/files") ||
+        normalizedPath.endsWith("/files/raw")
+      ) {
+        return "files" satisfies CoreCapability;
+      }
+      if (
+        normalizedPath === "/projects" ||
+        normalizedPath.startsWith("/projects/")
+      ) {
+        return "projects" satisfies CoreCapability;
+      }
+      if (normalizedPath === "/hosts" || normalizedPath.startsWith("/hosts/")) {
+        return "hosts" satisfies CoreCapability;
+      }
+      if (
+        normalizedPath === "/environments" ||
+        normalizedPath.startsWith("/environments/")
+      ) {
+        return "environments" satisfies CoreCapability;
+      }
+      if (
+        normalizedPath === "/thread-sections" ||
+        normalizedPath.startsWith("/thread-sections/")
+      ) {
+        return "threadInfo" satisfies CoreCapability;
+      }
+      if (normalizedPath.includes("/tabs")) {
+        return "secondaryPanelTabs" satisfies CoreCapability;
+      }
+      if (
+        normalizedPath === "/system/config" ||
+        normalizedPath.startsWith("/system/config/")
+      ) {
+        return "workspaceBootstrap" satisfies CoreCapability;
+      }
+      if (
+        normalizedPath === "/system/cli-skills" ||
+        normalizedPath.startsWith("/system/cli-skills/")
+      ) {
+        return "settings" satisfies CoreCapability;
+      }
+      if (
+        normalizedPath === "/ui-preferences" ||
+        normalizedPath.startsWith("/ui-preferences/")
+      ) {
+        return "settings" satisfies CoreCapability;
+      }
+      if (
+        normalizedPath === "/system" ||
+        normalizedPath.startsWith("/system/")
+      ) {
+        return "workspaceBootstrap" satisfies CoreCapability;
+      }
+      if (normalizedPath === "/eva" || normalizedPath.startsWith("/eva/")) {
+        return "workspaceBootstrap" satisfies CoreCapability;
+      }
+      return null;
+    })();
+    if (requiredCapability !== null) {
+      assertCoreCapability(context, requiredCapability);
+    }
+    if (normalizedPath === "/sidebar-bootstrap") {
+      assertBootstrapAllowed(context);
+    }
+    if (
+      normalizedPath === "/plugins" ||
+      normalizedPath.startsWith("/plugins/") ||
+      normalizedPath === "/skills-registry" ||
+      normalizedPath.startsWith("/skills-registry/")
+    ) {
+      assertPluginDataAllowed(context);
+    }
+    return next();
+  });
   const pluginCatalogService = createPluginCatalogService({
     db: deps.db,
     appVersion: deps.config.appVersion,
@@ -759,6 +978,9 @@ export function createApp(
     warn: (message) => deps.logger.warn(message),
   });
   registerProjectRoutes(publicApi, deps);
+  registerAccessRoutes(publicApi, deps, coreAuth, pluginService);
+  registerEvaAgentRoutes(publicApi, deps);
+  registerMiniAppRoutes(publicApi, miniAppService);
   registerThreadSectionRoutes(publicApi, deps);
   registerFileRoutes(publicApi, deps);
   registerHostRoutes(publicApi, deps, pluginService);
@@ -770,7 +992,12 @@ export function createApp(
   registerSystemRoutes(publicApi, deps, pluginService);
   registerUiPreferenceRoutes(publicApi, deps);
   registerPluginCatalogRoutes(publicApi, pluginCatalogService);
-  registerPluginRoutes(publicApi, deps, pluginService, upgradeWebSocket);
+  registerPluginRoutes(
+    publicApi,
+    { ...deps, coreAuth },
+    pluginService,
+    upgradeWebSocket,
+  );
   registerSkillsRegistryRoutes(publicApi, deps);
   registerServerMoveRoutes(publicApi, deps, serverMove);
   app.route("/api/v1", publicApi);
@@ -815,12 +1042,50 @@ export function createApp(
 
   app.get(
     "/ws",
-    upgradeWebSocket((context) => {
+    upgradeWebSocket(async (context) => {
       assertBrowserWebSocketAllowed(context);
+      const authContext = await coreAuth.resolveRequest(context.req.raw);
+      if (
+        authContext === null &&
+        (coreAuth.required || coreAuth.hasSessionCookie(context.req.raw))
+      ) {
+        throw new ApiError(401, "unauthorized", "Unauthorized");
+      }
+      const realtimeAccess =
+        authContext === null
+          ? undefined
+          : {
+              canReadThread: (threadId: string): boolean => {
+                const current = coreAuth.resolveSessionId(
+                  authContext.sessionId,
+                );
+                const thread = getThread(deps.db, threadId);
+                return current !== null && thread !== null
+                  ? canReadThread(deps.db, current, thread)
+                  : false;
+              },
+              canUsePlugin: (pluginId: string): boolean => {
+                const current = coreAuth.resolveSessionId(
+                  authContext.sessionId,
+                );
+                return current !== null
+                  ? isPluginAllowedByPolicy(current.policy, pluginId)
+                  : false;
+              },
+              canReadTarget: (target: RealtimeSubscriptionTarget) => {
+                const current = coreAuth.resolveSessionId(
+                  authContext.sessionId,
+                );
+                return current !== null
+                  ? canAccessRealtimeTarget(deps.db, current, target)
+                  : false;
+              },
+            };
       return {
-        onOpen: (_event, socket) => onClientSocketOpen(deps.hub, socket),
+        onOpen: (_event, socket) =>
+          onClientSocketOpen(deps.hub, socket, authContext, realtimeAccess),
         onMessage: (event, socket) =>
-          onClientSocketMessage(deps, socket, event.data),
+          onClientSocketMessage({ ...deps, coreAuth }, socket, event.data),
         onClose: (_event, socket) => onClientSocketClose(deps, socket),
       };
     }),
@@ -828,9 +1093,46 @@ export function createApp(
 
   app.get(
     "/ws/terminals/:terminalId",
-    upgradeWebSocket((context) => {
+    upgradeWebSocket(async (context) => {
       assertBrowserWebSocketAllowed(context);
+      const authContext = await coreAuth.resolveRequest(context.req.raw);
+      if (
+        authContext === null &&
+        (coreAuth.required || coreAuth.hasSessionCookie(context.req.raw))
+      ) {
+        throw new ApiError(401, "unauthorized", "Unauthorized");
+      }
       const terminalId = context.req.param("terminalId");
+      const authorizeTerminal =
+        authContext === null
+          ? undefined
+          : (requirement: Parameters<typeof canAccessTerminal>[3]) => {
+              const current = coreAuth.resolveSessionId(authContext.sessionId);
+              if (current === null) return "unauthorized" as const;
+              return canAccessTerminal(
+                deps.db,
+                current,
+                terminalId,
+                requirement,
+              )
+                ? ("ok" as const)
+                : ("forbidden" as const);
+            };
+      const terminalAuthorization = authorizeTerminal?.("read");
+      if (
+        terminalAuthorization !== undefined &&
+        terminalAuthorization !== "ok"
+      ) {
+        throw new ApiError(
+          terminalAuthorization === "unauthorized" ? 401 : 403,
+          terminalAuthorization === "unauthorized"
+            ? "unauthorized"
+            : "policy_denied",
+          terminalAuthorization === "unauthorized"
+            ? "Unauthorized"
+            : "Terminal access is disabled or exceeds policy",
+        );
+      }
       const query = terminalWebSocketQuerySchema.safeParse({
         sinceSeq: context.req.query("sinceSeq"),
       });
@@ -844,12 +1146,14 @@ export function createApp(
       return {
         onOpen: (_event, socket) =>
           onTerminalSocketOpen(deps, {
+            authorize: authorizeTerminal,
             socket,
             sinceSeq: query.data.sinceSeq,
             terminalId,
           }),
         onMessage: (event, socket) =>
           onTerminalSocketMessage(deps, {
+            authorize: authorizeTerminal,
             raw: event.data,
             socket,
             terminalId,
@@ -897,7 +1201,7 @@ export function createApp(
   if (options?.staticDir) {
     registerStaticAppRoutes(app, options.staticDir);
   } else {
-    app.get("/", (context) => context.text("bb server"));
+    app.get("/", (context) => context.text("EVA server"));
   }
 
   return {
@@ -909,8 +1213,12 @@ export function createApp(
         server: wss,
       }),
     injectWebSocket,
+    markReady: () => {
+      ready = true;
+    },
     pluginService,
     pluginCatalogService,
     serverMove,
+    coreAuth,
   };
 }

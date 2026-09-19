@@ -199,9 +199,9 @@ const DAEMON_ERROR_SUMMARIES: Record<string, string> = {
   server_move_cancelled: "The machine cancelled the move",
   server_move_digest_mismatch: "The export was damaged in transit",
   server_move_download_failed: "The machine couldn't download the export",
-  server_move_install_failed: "Installing bb on the machine failed",
+  server_move_install_failed: "Installing EVA on the machine failed",
   server_move_rejected: "The machine rejected the move",
-  server_move_server_entry_unavailable: "The machine can't run the bb server",
+  server_move_server_entry_unavailable: "The machine can't run the EVA server",
   server_move_start_failed: "The new server didn't start",
 };
 
@@ -590,7 +590,7 @@ export function createServerMoveCoordinator(
     );
     if (inspect.dataDirHasServerData) {
       throw new Error(
-        `${targetName} already has bb server data in ${inspect.dataDir}`,
+        `${targetName} already has EVA server data in ${inspect.dataDir}`,
       );
     }
     if (!inspect.portAvailable) {
@@ -603,7 +603,7 @@ export function createServerMoveCoordinator(
       !move.archiveExistingTargetServerData
     ) {
       throw new Error(
-        `${targetName} has its own bb data at ${inspect.existingServerData.path}. Confirm archiving it, then start the move again.`,
+        `${targetName} has its own EVA data at ${inspect.existingServerData.path}. Confirm archiving it, then start the move again.`,
       );
     }
     const appVersion = deps.config.appVersion;
@@ -612,7 +612,7 @@ export function createServerMoveCoordinator(
         move,
         "update-target",
         "skipped",
-        `${targetName} already runs bb ${appVersion}`,
+        `${targetName} already runs EVA ${appVersion}`,
       );
       return;
     }
@@ -620,7 +620,7 @@ export function createServerMoveCoordinator(
       move,
       "update-target",
       "running",
-      `Packing bb ${appVersion} for ${targetName}`,
+      `Packing EVA ${appVersion} for ${targetName}`,
     );
     const bbApp = await untilCancelled(move, environment.fullArtifact.build());
     move.bbApp = bbApp;
@@ -628,7 +628,7 @@ export function createServerMoveCoordinator(
       move,
       "update-target",
       "done",
-      `bb ${bbApp.version} will be installed on ${targetName}`,
+      `EVA ${bbApp.version} will be installed on ${targetName}`,
     );
   }
 
@@ -1456,7 +1456,7 @@ export function createServerMoveCoordinator(
             blockers.push({
               id: "archive-existing-data-required",
               severity: "blocker",
-              title: `Confirm archiving the existing bb data on ${check.response.targetHostName}`,
+              title: `Confirm archiving the existing EVA data on ${check.response.targetHostName}`,
               detail: existingData.path,
             });
           }

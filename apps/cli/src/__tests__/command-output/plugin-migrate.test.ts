@@ -225,7 +225,7 @@ describe("bb plugin dev stale-pin warning", () => {
     );
   }
 
-  it("warns when an exact pin differs from this bb's SDK version", async () => {
+  it("warns when an exact pin differs from this EVA installation's SDK version", async () => {
     await writeManifest({
       name: "bb-plugin-modern",
       bb: { server: "./server.ts" },
@@ -238,7 +238,7 @@ describe("bb plugin dev stale-pin warning", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(vi.mocked(console.warn).mock.calls.flat().join("\n")).toContain(
-      `This plugin pins @get-bb/plugin-sdk 0.2.0; this bb's SDK is ${PLUGIN_SDK_VERSION}`,
+      `This plugin pins @get-bb/plugin-sdk 0.2.0; this EVA installation's SDK is ${PLUGIN_SDK_VERSION}`,
     );
   });
 

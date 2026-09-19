@@ -21,6 +21,12 @@ import {
   type GateAuthHeaderReader,
 } from "../request-context.js";
 import {
+  assertCoreCapability,
+  assertResourceAccess,
+  canAccessResource,
+  getCoreAuthContext,
+} from "../access-policy.js";
+import {
   listPublicHostsWithStatus,
   requireNonDestroyedHostWithStatus,
   requirePublicStandardProject,
@@ -71,6 +77,24 @@ function assertHostManagementAllowed(context: GateAuthHeaderReader): void {
       "Machine credentials cannot manage hosts",
     );
   }
+  const authContext = getCoreAuthContext(context);
+  if (authContext !== null && authContext.role !== "admin") {
+    throw new ApiError(
+      403,
+      "policy_denied",
+      "Administrator access required for host management",
+    );
+  }
+}
+
+function requireHostRead(
+  deps: AppDeps,
+  context: GateAuthHeaderReader,
+  hostId: string,
+): string {
+  requireNonDestroyedHostWithStatus(deps, hostId);
+  assertResourceAccess(deps.db, context, "host", hostId);
+  return hostId;
 }
 
 function assertNotServerMachine(deps: AppDeps, hostId: string): void {
@@ -107,7 +131,7 @@ async function revokeConnectMachineCredential(
   } catch (error) {
     deps.logger.error(
       { err: error, machineId },
-      "Host was removed locally, but its bb connect machine credential could not be revoked. Revoke this machine manually from the getbb.app dashboard.",
+      "Host was removed locally, but its remote machine credential could not be revoked. Revoke this machine manually from the administration console.",
     );
   }
 }
@@ -143,21 +167,24 @@ export function registerHostRoutes(
     );
   });
 
-  get(routes.list, (context, query) =>
-    context.json(
+  get(routes.list, (context, query) => {
+    const authContext = getCoreAuthContext(context);
+    return context.json(
       listPublicHostsWithStatus(deps, {
         includeCreating: query.includeCreating === "true",
-      }),
-    ),
-  );
+      }).filter((host) =>
+        canAccessResource(deps.db, authContext, "host", host.id),
+      ),
+    );
+  });
 
-  get(routes.get, (context) =>
-    context.json({
-      ...requireNonDestroyedHostWithStatus(deps, context.req.param("id")),
-      connectMachineId: requireMutableHost(deps, context.req.param("id"))
-        .connectMachineId,
-    }),
-  );
+  get(routes.get, (context) => {
+    const hostId = requireHostRead(deps, context, context.req.param("id"));
+    return context.json({
+      ...requireNonDestroyedHostWithStatus(deps, hostId),
+      connectMachineId: requireMutableHost(deps, hostId).connectMachineId,
+    });
+  });
 
   get(routes.enrollmentCommand, async (context) => {
     assertHostManagementAllowed(context);
@@ -294,7 +321,8 @@ export function registerHostRoutes(
   });
 
   get(routes.directory, async (context, query) => {
-    const hostId = context.req.param("id");
+    assertCoreCapability(context, "files");
+    const hostId = requireHostRead(deps, context, context.req.param("id"));
     assertUsableHostId(deps, { hostId });
     const result = await callHostRetryableOnlineRpc(deps, {
       hostId,
@@ -308,9 +336,11 @@ export function registerHostRoutes(
   });
 
   get(routes.cloneDefaultPath, async (context, query) => {
-    const hostId = context.req.param("id");
+    assertCoreCapability(context, "files");
+    const hostId = requireHostRead(deps, context, context.req.param("id"));
     assertUsableHostId(deps, { hostId });
     const project = requirePublicStandardProject(deps.db, query.projectId);
+    assertResourceAccess(deps.db, context, "project", project.id, "read");
     const result = await callHostRetryableOnlineRpc(deps, {
       hostId,
       timeoutMs: COMMAND_TIMEOUT_MS,
@@ -323,7 +353,8 @@ export function registerHostRoutes(
   });
 
   post(routes.pathsExist, async (context, payload) => {
-    const hostId = context.req.param("id");
+    assertCoreCapability(context, "files");
+    const hostId = requireHostRead(deps, context, context.req.param("id"));
     assertUsableHostId(deps, { hostId });
     const result = await callHostRetryableOnlineRpc(deps, {
       hostId,
@@ -337,7 +368,8 @@ export function registerHostRoutes(
   });
 
   post(routes.pickFolder, async (context, payload) => {
-    const hostId = context.req.param("id");
+    assertCoreCapability(context, "files");
+    const hostId = requireHostRead(deps, context, context.req.param("id"));
     assertUsableHostId(deps, { hostId });
     if (payload.clientHostId !== hostId) {
       throw new ApiError(
@@ -357,14 +389,14 @@ export function registerHostRoutes(
   });
 
   get(routes.providerCliStatus, async (context) => {
-    const hostId = context.req.param("id");
+    const hostId = requireHostRead(deps, context, context.req.param("id"));
     assertUsableHostId(deps, { hostId });
     const result = await getProviderInstallations(deps, { hostId });
     return context.json(result);
   });
 
   post(routes.providerCliInstall, async (context, payload) => {
-    const hostId = context.req.param("id");
+    const hostId = requireHostRead(deps, context, context.req.param("id"));
     assertUsableHostId(deps, { hostId });
     await deps.providerRegistry.whenProviderRegistered(payload.provider);
     const registration = deps.providerRegistry.get(payload.provider);

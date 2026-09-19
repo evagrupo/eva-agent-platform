@@ -30,7 +30,7 @@ it("keeps the introduction and skill switches independent across reloads", async
           makePluginAgentConfigurationContext(),
         )
       ).skills;
-    expect(instructions()).toContain("You are working inside bb");
+    expect(instructions()).toContain("You are working inside EVA");
     expect((await skills()).sort()).toEqual([...bundledSkills].sort());
     await harness.behavior.setSettings({
       introduction: false,

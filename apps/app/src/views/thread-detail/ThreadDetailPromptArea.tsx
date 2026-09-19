@@ -616,6 +616,7 @@ export function ThreadDetailPromptArea({
   );
   const {
     executionOptionsRouting,
+    fixedExecution,
     selectedProviderId,
     setSelectedProviderId,
     setProviderModelReasoning,
@@ -650,6 +651,7 @@ export function ThreadDetailPromptArea({
     environmentHostId,
     scope: "component-local",
     resetKey: thread.id,
+    initialAgentId: thread.agentId ?? thread.providerId,
     initialProviderId: thread.providerId,
     initialModel:
       modelFallback?.fallbackModel ?? defaultExecutionOptions?.model,
@@ -696,6 +698,7 @@ export function ThreadDetailPromptArea({
   });
   const handoffSeed = useMemo<ThreadHandoffCreateSeed>(
     () => ({
+      agentId: thread.agentId ?? thread.providerId,
       environmentId: thread.environmentId,
       projectId: thread.projectId,
       sourceThreadId: thread.id,
@@ -704,8 +707,10 @@ export function ThreadDetailPromptArea({
     [
       sourceThreadDisplayTitle,
       thread.environmentId,
+      thread.agentId,
       thread.id,
       thread.projectId,
+      thread.providerId,
     ],
   );
   const beginHandoff = useCallback(() => {
@@ -1400,6 +1405,7 @@ export function ThreadDetailPromptArea({
         thread.environmentId === null
           ? executionOptionsRouting
           : { environmentId: thread.environmentId },
+      fixedExecution,
       provider: {
         options: providerOptions,
         selectedId: selectedProviderId,
@@ -1441,6 +1447,7 @@ export function ThreadDetailPromptArea({
     [
       effectiveSelectedModel,
       executionOptionsRouting,
+      fixedExecution,
       hasMultipleProviders,
       handleHandoffSelect,
       beginHandoff,
@@ -1505,10 +1512,13 @@ export function ThreadDetailPromptArea({
       options: hasConcreteDefaultExecutionOptions ? permissionModeOptions : [],
       onChange: setPermissionMode,
       supported:
-        hasConcreteDefaultExecutionOptions && supportsPermissionModeSelection,
+        hasConcreteDefaultExecutionOptions &&
+        supportsPermissionModeSelection &&
+        !fixedExecution,
     }),
     [
       hasConcreteDefaultExecutionOptions,
+      fixedExecution,
       permissionMode,
       permissionModeOptions,
       setPermissionMode,

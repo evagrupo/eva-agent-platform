@@ -206,7 +206,7 @@ describe("store-installed official plugins", () => {
           provenance: "catalog",
           catalogEntryId: "fixture",
           catalogMarketplaceName: "bb-official",
-          publisherLabel: "BB Official",
+          publisherLabel: "EVA Official",
           status: "running",
         },
       ]);

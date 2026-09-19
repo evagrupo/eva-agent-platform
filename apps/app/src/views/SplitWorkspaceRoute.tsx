@@ -10,11 +10,17 @@ import {
   LEGACY_PROJECT_COMPOSE_ROUTE_PATH,
   PLUGIN_DETAIL_ROUTE_PATH,
   PLUGIN_PANEL_ROUTE_PATH,
+  PLUGINS_ROUTE_PATH,
 } from "@/lib/route-paths";
 import type { PaneContent } from "@/lib/split-layout";
 import { useRouteState } from "@/hooks/useRouteState";
 import { LegacyProjectComposeRedirect } from "./RootComposeView";
 import { SplitThreadArea } from "./thread-detail/SplitThreadArea";
+import {
+  canUseCoreCapability,
+  canUseCorePlugin,
+  useCoreAuth,
+} from "@/lib/core-auth";
 
 disableGlobalCursorStyles();
 
@@ -26,6 +32,7 @@ const PluginsView = lazy(() =>
 
 export default function SplitWorkspaceRoute() {
   const location = useLocation();
+  const coreAuth = useCoreAuth();
   const { projectId, threadId, isThreadView } = useRouteState();
   const pluginMatch = matchPath(PLUGIN_PANEL_ROUTE_PATH, location.pathname);
   const pluginDetailMatch = matchPath(
@@ -73,12 +80,38 @@ export default function SplitWorkspaceRoute() {
 
   const layout = useAtomValue(splitLayoutAtom);
 
+  const threadReadAllowed =
+    canUseCoreCapability(coreAuth, "threadOwnRead") ||
+    canUseCoreCapability(coreAuth, "threadAllRead");
+  const threadWriteAllowed =
+    canUseCoreCapability(coreAuth, "threadOwnWrite") ||
+    canUseCoreCapability(coreAuth, "threadAllWrite");
+
   const legacyProjectId = legacyProjectMatch?.params.projectId;
   if (legacyProjectId) {
     return <LegacyProjectComposeRedirect projectId={legacyProjectId} />;
   }
   if (routeContent === null) {
     return <Navigate to={APP_ROOT_ROUTE_PATH} replace />;
+  }
+  if (
+    (routeContent.kind === "thread" && !threadReadAllowed) ||
+    (routeContent.kind === "new-thread" && !threadWriteAllowed)
+  ) {
+    return (
+      <main className="flex min-h-full items-center justify-center p-6">
+        <p className="text-sm text-muted-foreground">
+          This workspace area is unavailable under your current policy.
+        </p>
+      </main>
+    );
+  }
+  if (
+    (routeContent.kind === "plugin-detail" ||
+      routeContent.kind === "plugin-panel") &&
+    !canUseCorePlugin(coreAuth, routeContent.pluginId)
+  ) {
+    return <Navigate to={PLUGINS_ROUTE_PATH} replace />;
   }
   if (
     routeContent.kind === "plugin-detail" &&

@@ -134,8 +134,9 @@ function UpdatePluginDialogContent({
               aria-hidden
             />
             <span>
-              bb couldn&rsquo;t activate {displayPluginVersion(failure.version)}
-              . It restored {displayPluginVersion(plugin.version)} and its data.
+              EVA couldn&rsquo;t activate{" "}
+              {displayPluginVersion(failure.version)}. It restored{" "}
+              {displayPluginVersion(plugin.version)} and its data.
             </span>
           </div>
           {failure.detail.length > 0 ? (
@@ -203,7 +204,7 @@ function UpdatePluginDialogContent({
             <span className="font-medium" style={SUCCESS_TEXT_STYLE}>
               ✓
             </span>
-            <span>Compatible with your bb and plugin SDK</span>
+            <span>Compatible with your EVA workspace and integration SDK</span>
           </div>
           <DetailsDisclosure summary="Details — source, versions">
             <KeyValueGrid
@@ -265,7 +266,7 @@ function UpdatePluginDialogContent({
             />
             <span>
               {displayPluginVersion(blocked)} isn&rsquo;t compatible with this
-              bb
+              EVA workspace
             </span>
           </div>
           <DetailsDisclosure summary="Details" defaultExpanded>

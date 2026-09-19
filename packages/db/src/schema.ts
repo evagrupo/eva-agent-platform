@@ -88,6 +88,472 @@ export const authApiKeys = sqliteTable(
   ],
 );
 
+export const authSessions = sqliteTable(
+  "session",
+  {
+    id: text("id").primaryKey(),
+    token: text("token").notNull(),
+    expiresAt: integer("expiresAt", { mode: "timestamp_ms" }).notNull(),
+    ipAddress: text("ipAddress"),
+    userAgent: text("userAgent"),
+    userId: text("userId")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("session_token_unique").on(table.token),
+    index("session_user_id_idx").on(table.userId),
+  ],
+);
+
+export const authAccounts = sqliteTable(
+  "account",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("accountId").notNull(),
+    providerId: text("providerId").notNull(),
+    userId: text("userId")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    accessToken: text("accessToken"),
+    refreshToken: text("refreshToken"),
+    idToken: text("idToken"),
+    accessTokenExpiresAt: integer("accessTokenExpiresAt", {
+      mode: "timestamp_ms",
+    }),
+    refreshTokenExpiresAt: integer("refreshTokenExpiresAt", {
+      mode: "timestamp_ms",
+    }),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("account_user_id_idx").on(table.userId)],
+);
+
+export const authVerifications = sqliteTable(
+  "verification",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: integer("expiresAt", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("verification_identifier_idx").on(table.identifier)],
+);
+
+export const authPolicies = sqliteTable(
+  "auth_policies",
+  {
+    id: text("id").primaryKey(),
+    role: text("role").$type<"admin" | "user">().notNull(),
+    policyJson: text("policy_json").notNull(),
+    revision: integer("revision").notNull().default(1),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [index("auth_policies_role_idx").on(table.role)],
+);
+
+export const authPrincipals = sqliteTable(
+  "auth_principals",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    role: text("role").$type<"admin" | "user">().notNull().default("user"),
+    status: text("status")
+      .$type<"active" | "revoked" | "disabled">()
+      .notNull()
+      .default("active"),
+    policyId: text("policy_id")
+      .notNull()
+      .references(() => authPolicies.id),
+    defaultAgentId: text("default_agent_id"),
+    revision: integer("revision").notNull().default(1),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [index("auth_principals_policy_idx").on(table.policyId)],
+);
+
+export const authGroups = sqliteTable(
+  "auth_groups",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    policyId: text("policy_id")
+      .notNull()
+      .references(() => authPolicies.id),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("auth_groups_name_idx").on(table.name),
+    index("auth_groups_policy_idx").on(table.policyId),
+  ],
+);
+
+export const authGroupMembers = sqliteTable(
+  "auth_group_members",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => authGroups.id, { onDelete: "cascade" }),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.groupId] }),
+    index("auth_group_members_group_idx").on(table.groupId),
+  ],
+);
+
+export const authAgentGrants = sqliteTable(
+  "auth_agent_grants",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => authUsers.id, {
+      onDelete: "cascade",
+    }),
+    groupId: text("group_id").references(() => authGroups.id, {
+      onDelete: "cascade",
+    }),
+    agentId: text("agent_id").notNull(),
+    providerIdsJson: text("provider_ids_json").notNull(),
+    modelPatternsJson: text("model_patterns_json").notNull(),
+    reasoningLevelsJson: text("reasoning_levels_json").notNull(),
+    fixedExecution: integer("fixed_execution", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    permissionMode: text("permission_mode").$type<PermissionMode>(),
+    terminalAccess: text("terminal_access")
+      .$type<"none" | "read" | "controlled" | "full">()
+      .notNull()
+      .default("none"),
+    toolIdsJson: text("tool_ids_json").notNull(),
+    pluginIdsJson: text("plugin_ids_json").notNull().default("[]"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("auth_agent_grants_user_idx").on(table.userId),
+    index("auth_agent_grants_group_idx").on(table.groupId),
+    check(
+      "auth_agent_grants_one_subject_check",
+      sql`(${table.userId} IS NOT NULL AND ${table.groupId} IS NULL) OR (${table.userId} IS NULL AND ${table.groupId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export const evaAgents = sqliteTable(
+  "eva_agents",
+  {
+    id: text("id").primaryKey(),
+    displayName: text("display_name").notNull(),
+    description: text("description").notNull(),
+    icon: text("icon").notNull(),
+    status: text("status")
+      .$type<"draft" | "shadow" | "live">()
+      .notNull()
+      .default("draft"),
+    sourceProviderId: text("source_provider_id"),
+    providerIdsJson: text("provider_ids_json").notNull(),
+    defaultProviderId: text("default_provider_id"),
+    defaultModel: text("default_model").notNull(),
+    defaultReasoningLevel: text("default_reasoning_level")
+      .$type<ReasoningLevel>()
+      .notNull(),
+    defaultPermissionMode: text("default_permission_mode")
+      .$type<PermissionMode>()
+      .notNull(),
+    fixedExecution: integer("fixed_execution", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    reasoningLevelsJson: text("reasoning_levels_json").notNull(),
+    permissionModesJson: text("permission_modes_json").notNull(),
+    instructions: text("instructions").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("eva_agents_status_sort_idx").on(table.status, table.sortOrder),
+    index("eva_agents_updated_idx").on(table.updatedAt),
+  ],
+);
+
+export const evaAgentSkills = sqliteTable(
+  "eva_agent_skills",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => evaAgents.id, { onDelete: "cascade" }),
+    id: text("id").notNull(),
+    name: text("name").notNull(),
+    instructions: text("instructions").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.agentId, table.id] }),
+    index("eva_agent_skills_agent_sort_idx").on(table.agentId, table.sortOrder),
+  ],
+);
+
+export const evaAgentWorkspaces = sqliteTable(
+  "eva_agent_workspaces",
+  {
+    agentId: text("agent_id")
+      .primaryKey()
+      .references(() => evaAgents.id, { onDelete: "cascade" }),
+    workspaceKey: text("workspace_key").notNull(),
+    relativePath: text("relative_path").notNull(),
+    status: text("status").$type<"managed" | "error">().notNull(),
+    lastScaffoldedAt: integer("last_scaffolded_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("eva_agent_workspaces_key_idx").on(table.workspaceKey),
+  ],
+);
+
+export const evaAgentWorkspaceSync = sqliteTable(
+  "eva_agent_workspace_sync",
+  {
+    agentId: text("agent_id")
+      .primaryKey()
+      .references(() => evaAgents.id, { onDelete: "cascade" }),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    remoteUrl: text("remote_url"),
+    branch: text("branch").notNull().default("main"),
+    lastOperation: text("last_operation")
+      .$type<
+        "none" | "configure" | "initialize" | "commit" | "pull" | "push"
+      >()
+      .notNull()
+      .default("none"),
+    lastResult: text("last_result")
+      .$type<"none" | "success" | "error" | "conflict" | "blocked">()
+      .notNull()
+      .default("none"),
+    lastOperationAt: integer("last_operation_at"),
+    lastCommitHash: text("last_commit_hash"),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("eva_agent_workspace_sync_enabled_idx").on(
+      table.enabled,
+      table.updatedAt,
+    ),
+  ],
+);
+
+export const evaMiniAppDeployments = sqliteTable(
+  "eva_mini_app_deployments",
+  {
+    id: text("id").primaryKey(),
+    appId: text("app_id").notNull(),
+    displayName: text("display_name").notNull(),
+    loopbackPort: integer("loopback_port").notNull(),
+    createdByUserId: text("created_by_user_id").references(() => authUsers.id, {
+      onDelete: "set null",
+    }),
+    revokedAt: integer("revoked_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("eva_mini_app_deployments_app_id_idx").on(table.appId),
+    index("eva_mini_app_deployments_active_idx").on(
+      table.revokedAt,
+      table.updatedAt,
+    ),
+    check(
+      "eva_mini_app_deployments_loopback_port_check",
+      sql`${table.loopbackPort} BETWEEN 1 AND 65535`,
+    ),
+  ],
+);
+
+export const evaMiniAppLinks = sqliteTable(
+  "eva_mini_app_links",
+  {
+    id: text("id").primaryKey(),
+    deploymentId: text("deployment_id")
+      .notNull()
+      .references(() => evaMiniAppDeployments.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id").references(() => authUsers.id, {
+      onDelete: "set null",
+    }),
+    userId: text("user_id").references(() => authUsers.id, {
+      onDelete: "cascade",
+    }),
+    groupId: text("group_id").references(() => authGroups.id, {
+      onDelete: "cascade",
+    }),
+    agentId: text("agent_id"),
+    expiresAt: integer("expires_at").notNull(),
+    revokedAt: integer("revoked_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("eva_mini_app_links_deployment_idx").on(
+      table.deploymentId,
+      table.expiresAt,
+      table.revokedAt,
+    ),
+    index("eva_mini_app_links_user_idx").on(table.userId, table.createdAt),
+    index("eva_mini_app_links_group_idx").on(table.groupId, table.createdAt),
+    check(
+      "eva_mini_app_links_one_subject_check",
+      sql`(${table.userId} IS NOT NULL AND ${table.groupId} IS NULL) OR (${table.userId} IS NULL AND ${table.groupId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export const evaMiniAppHandoffs = sqliteTable(
+  "eva_mini_app_handoffs",
+  {
+    id: text("id").primaryKey(),
+    linkId: text("link_id")
+      .notNull()
+      .references(() => evaMiniAppLinks.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    coreSessionId: text("core_session_id")
+      .notNull()
+      .references(() => authSessions.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    exchangedAt: integer("exchanged_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("eva_mini_app_handoffs_token_hash_idx").on(table.tokenHash),
+    index("eva_mini_app_handoffs_link_idx").on(table.linkId, table.expiresAt),
+    index("eva_mini_app_handoffs_user_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+export const evaMiniAppSessions = sqliteTable(
+  "eva_mini_app_sessions",
+  {
+    id: text("id").primaryKey(),
+    linkId: text("link_id")
+      .notNull()
+      .references(() => evaMiniAppLinks.id, { onDelete: "cascade" }),
+    deploymentId: text("deployment_id")
+      .notNull()
+      .references(() => evaMiniAppDeployments.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    coreSessionId: text("core_session_id")
+      .notNull()
+      .references(() => authSessions.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    revokedAt: integer("revoked_at"),
+    createdAt: integer("created_at").notNull(),
+    lastSeenAt: integer("last_seen_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("eva_mini_app_sessions_token_hash_idx").on(table.tokenHash),
+    index("eva_mini_app_sessions_link_idx").on(table.linkId, table.expiresAt),
+    index("eva_mini_app_sessions_user_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+export const authAuditEvents = sqliteTable(
+  "auth_audit_events",
+  {
+    id: text("id").primaryKey(),
+    actorUserId: text("actor_user_id").references(() => authUsers.id, {
+      onDelete: "set null",
+    }),
+    targetUserId: text("target_user_id").references(() => authUsers.id, {
+      onDelete: "set null",
+    }),
+    eventType: text("event_type").notNull(),
+    metadataJson: text("metadata_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("auth_audit_events_actor_idx").on(table.actorUserId, table.createdAt),
+    index("auth_audit_events_target_idx").on(
+      table.targetUserId,
+      table.createdAt,
+    ),
+    index("auth_audit_events_created_idx").on(table.createdAt),
+  ],
+);
+
+export const authInstructions = sqliteTable(
+  "auth_instructions",
+  {
+    id: text("id").primaryKey(),
+    scope: text("scope")
+      .$type<"global" | "role" | "user" | "agent">()
+      .notNull(),
+    role: text("role").$type<"admin" | "user">(),
+    userId: text("user_id").references(() => authUsers.id, {
+      onDelete: "cascade",
+    }),
+    agentId: text("agent_id"),
+    content: text("content").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    revision: integer("revision").notNull().default(1),
+    createdByUserId: text("created_by_user_id").references(() => authUsers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("auth_instructions_scope_idx").on(table.scope),
+    index("auth_instructions_role_idx").on(table.role),
+    index("auth_instructions_user_idx").on(table.userId),
+    index("auth_instructions_agent_idx").on(table.agentId),
+  ],
+);
+
+export const authInvitations = sqliteTable(
+  "auth_invitations",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    role: text("role").$type<"admin" | "user">().notNull(),
+    policyId: text("policy_id")
+      .notNull()
+      .references(() => authPolicies.id),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    acceptedAt: integer("accepted_at"),
+    createdByUserId: text("created_by_user_id").references(() => authUsers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("auth_invitations_token_hash_idx").on(table.tokenHash),
+    index("auth_invitations_email_idx").on(table.email),
+    index("auth_invitations_expires_idx").on(table.expiresAt),
+  ],
+);
+
 export const hosts = sqliteTable(
   "hosts",
   {
@@ -574,9 +1040,13 @@ export const threads = sqliteTable(
     projectId: text("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").references(() => authUsers.id, {
+      onDelete: "set null",
+    }),
     environmentId: text("environment_id").references(() => environments.id, {
       onDelete: "set null",
     }),
+    agentId: text("agent_id"),
     providerId: text("provider_id").notNull(),
     modelOverride: text("model_override"),
     reasoningLevelOverride: text(
@@ -622,6 +1092,7 @@ export const threads = sqliteTable(
   },
   (table) => [
     index("threads_project_id_idx").on(table.projectId, table.id),
+    index("threads_owner_user_id_idx").on(table.ownerUserId, table.id),
     index("threads_project_updated_idx").on(table.projectId, table.updatedAt),
     index("threads_project_archived_deleted_idx").on(
       table.projectId,
@@ -633,6 +1104,7 @@ export const threads = sqliteTable(
       .on(table.archivedAt, table.deletedAt, table.pinSortKey, table.id)
       .where(sql`${table.pinnedAt} IS NOT NULL`),
     index("threads_environment_idx").on(table.environmentId),
+    index("threads_agent_idx").on(table.agentId),
     index("threads_lifecycle_owner_idx").on(table.lifecycleOwnerThreadId),
     index("threads_parent_idx").on(table.parentThreadId),
     index("threads_source_origin_idx").on(
@@ -658,6 +1130,71 @@ export const threads = sqliteTable(
     index("threads_active_maintenance_idx")
       .on(table.status)
       .where(sql`${table.deletedAt} IS NULL`),
+  ],
+);
+
+export const authThreadAccess = sqliteTable(
+  "auth_thread_access",
+  {
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    canRead: integer("can_read", { mode: "boolean" }).notNull().default(true),
+    canWrite: integer("can_write", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    grantedAt: integer("granted_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.threadId, table.userId] }),
+    index("auth_thread_access_user_idx").on(table.userId, table.threadId),
+  ],
+);
+
+export const authResourceAccess = sqliteTable(
+  "auth_resource_access",
+  {
+    id: text("id").primaryKey(),
+    resourceType: text("resource_type")
+      .$type<"project" | "host" | "environment">()
+      .notNull(),
+    resourceId: text("resource_id").notNull(),
+    userId: text("user_id").references(() => authUsers.id, {
+      onDelete: "cascade",
+    }),
+    groupId: text("group_id").references(() => authGroups.id, {
+      onDelete: "cascade",
+    }),
+    canRead: integer("can_read", { mode: "boolean" }).notNull().default(true),
+    canWrite: integer("can_write", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    grantedAt: integer("granted_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("auth_resource_access_user_idx").on(
+      table.userId,
+      table.resourceType,
+      table.resourceId,
+    ),
+    index("auth_resource_access_group_idx").on(
+      table.groupId,
+      table.resourceType,
+      table.resourceId,
+    ),
+    index("auth_resource_access_resource_idx").on(
+      table.resourceType,
+      table.resourceId,
+    ),
+    check(
+      "auth_resource_access_one_subject_check",
+      sql`(${table.userId} IS NOT NULL AND ${table.groupId} IS NULL) OR (${table.userId} IS NULL AND ${table.groupId} IS NOT NULL)`,
+    ),
   ],
 );
 

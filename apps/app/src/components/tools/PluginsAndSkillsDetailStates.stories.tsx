@@ -252,13 +252,13 @@ export function SkillDetailStates() {
       </State>
 
       <State
-        name="BB Official"
-        note="A skill that ships with bb uses the same publisher badge as a BB Official plugin. Its read-only behavior remains a separate permission fact."
+        name="EVA Core"
+        note="A skill that ships with EVA uses the same publisher badge as an EVA Core plugin. Its read-only behavior remains a separate permission fact."
       >
         <Skill
           titleBadge={{
-            label: "BB Official",
-            tooltip: "Ships with bb",
+            label: "EVA Core",
+            tooltip: "Ships with EVA",
           }}
         />
       </State>
@@ -355,7 +355,7 @@ const PLUGIN: PluginListItem = makePluginListItem({
   source: "npm:@bb-plugins/github",
   rootDir: "/Users/you/.bb/plugins/github",
   version: "1.4.0",
-  description: "Browse GitHub issues and pull requests without leaving bb.",
+  description: "Browse GitHub issues and pull requests without leaving EVA.",
   name: "GitHub",
   icon: "Github",
   sourceDisplay: "npm · @bb-plugins/github",
@@ -488,7 +488,7 @@ const BUNDLED_PLUGIN: PluginListItem = {
   source: "builtin:github",
   rootDir: "/managed/plugins/github",
   provenance: "builtin",
-  sourceDisplay: "Ships with bb",
+  sourceDisplay: "Ships with EVA",
   capabilities: STATIC_CAPABILITIES,
 };
 
@@ -497,7 +497,7 @@ const UNINSTALLED_CATALOG_PLUGIN = {
   marketplace: "bb-official",
   pluginId: "github",
   displayName: "GitHub",
-  description: "Browse GitHub issues and pull requests without leaving bb.",
+  description: "Browse GitHub issues and pull requests without leaving EVA.",
   icon: "Github",
   iconUrl: null,
   iconTinted: false,
@@ -506,9 +506,9 @@ const UNINSTALLED_CATALOG_PLUGIN = {
   collections: [],
   source: "builtin:github",
   repositoryUrl: null,
-  marketplaceDisplayName: "BB Official",
+  marketplaceDisplayName: "EVA Core",
   publisherKey: "bb-official",
-  publisherLabel: "BB Official",
+  publisherLabel: "EVA Core",
   official: true,
   author: null,
   installed: false,
@@ -523,7 +523,7 @@ const COMPATIBILITY_BLOCKED_PLUGIN: PluginListItem = {
   updateState: {
     ...EMPTY_PLUGIN_UPDATE_STATE,
     blockedVersion: "2.0.0",
-    blockedReasons: ["Requires bb 0.20 or newer, and this bb is 0.18."],
+    blockedReasons: ["Requires EVA 0.20 or newer, and this EVA is 0.18."],
   },
 };
 
@@ -632,7 +632,7 @@ function CatalogPlugin({
           entryId: entry.entryId,
           pluginId: entry.pluginId,
           marketplace: "bb-official",
-          publisherLabel: "BB Official",
+          publisherLabel: "EVA Core",
           displayName: entry.displayName,
           icon: entry.icon,
           iconUrl: entry.iconUrl,
@@ -681,11 +681,11 @@ export function PluginDetailStates() {
     <PluginStoryQueryBoundary>
       <Story
         title="Plugin detail states"
-        description="An uninstalled BB Official plugin shows the catalog facts bb can verify and offers Install. Once installed, the page adds runtime capabilities, settings, services, and schedules when they apply."
+        description="An uninstalled EVA Core plugin shows the catalog facts EVA can verify and offers Install. Once installed, the page adds runtime capabilities, settings, services, and schedules when they apply."
       >
         <State
           name="Before ownership"
-          note="An uninstalled BB Official plugin opens as a real detail page. Install is the primary header action; the full-trust confirmation is the commit step."
+          note="An uninstalled EVA Core plugin opens as a real detail page. Install is the primary header action; the full-trust confirmation is the commit step."
         >
           <CatalogPlugin />
         </State>
@@ -698,7 +698,7 @@ export function PluginDetailStates() {
             entry={{
               ...UNINSTALLED_CATALOG_PLUGIN,
               compatible: false,
-              incompatibleReason: "Requires bb 0.20 or newer.",
+              incompatibleReason: "Requires EVA 0.20 or newer.",
             }}
           />
         </State>
@@ -765,15 +765,15 @@ export function PluginDetailStates() {
         </State>
 
         <State
-          name="BB Official · catalog"
-          note="Installed from bb's catalog. It shares the BB Official badge with built-in plugins, while its install date and ownership menu preserve the lifecycle difference."
+          name="EVA Core · catalog"
+          note="Installed from EVA's catalog. It shares the EVA Core badge with built-in plugins, while its install date and ownership menu preserve the lifecycle difference."
         >
           <Plugin plugin={CATALOG_PLUGIN} />
         </State>
 
         <State
-          name="BB Official · built-in"
-          note="Ships with bb. The badge matches catalog-installed official plugins; the missing install date and ownership menu show that it cannot be uninstalled separately."
+          name="EVA Core · built-in"
+          note="Ships with EVA. The badge matches catalog-installed official plugins; the missing install date and ownership menu show that it cannot be uninstalled separately."
         >
           <Plugin plugin={BUNDLED_PLUGIN} />
         </State>
@@ -879,7 +879,7 @@ export function PluginBannerStates() {
             plugin={{
               ...PLUGIN,
               status: "incompatible",
-              statusDetail: "requires bb 0.20 or newer",
+              statusDetail: "requires EVA 0.20 or newer",
             }}
           />
         </State>
@@ -1038,7 +1038,7 @@ const CATALOG_PLUGIN = {
   id: "github-official",
   provenance: "catalog",
   catalogEntryId: "github",
-  publisherLabel: "BB Community",
+  publisherLabel: "EVA Integrations",
 } satisfies PluginListItem;
 
 const pluginUninstallItems = [
@@ -1120,7 +1120,7 @@ export function ResourceControlStates() {
                 onAction={noop}
               />
             }
-            meaning="Canonical BB Official plugin acquisition action on both Browse and the pre-ownership detail page."
+            meaning="Canonical EVA Core plugin acquisition action on both Browse and the pre-ownership detail page."
           />
           <ControlRow
             state="Plugin · installing"
@@ -1166,21 +1166,21 @@ export function ResourceControlStates() {
           description="Badges appear only when provenance changes how the resource should be understood. Ordinary owned resources stay unlabelled in their detail-page stories."
         >
           <ControlRow
-            state="Plugin · BB Official catalog"
+            state="Plugin · EVA Core catalog"
             control={<PluginProvenancePill plugin={CATALOG_PLUGIN} />}
             meaning="Published by bb and installed from the catalog."
           />
           <ControlRow
-            state="Plugin · BB Official built-in"
+            state="Plugin · EVA Core built-in"
             control={<PluginProvenancePill plugin={BUNDLED_PLUGIN} />}
-            meaning="Ships with bb. The same badge communicates publisher; lifecycle differences remain in metadata and actions."
+            meaning="Ships with EVA. The same badge communicates publisher; lifecycle differences remain in metadata and actions."
           />
           <ControlRow
-            state="Skill · BB Official"
+            state="Skill · EVA Core"
             control={
-              <ProvenancePill label="BB Official" tooltip="Ships with bb" />
+              <ProvenancePill label="EVA Core" tooltip="Ships with EVA" />
             }
-            meaning="A skill that ships with bb."
+            meaning="A skill that ships with EVA."
           />
           <ControlRow
             state="Skill · Included"
@@ -1285,7 +1285,7 @@ export function ResourceControlStates() {
             meaning="Local sources can be edited, opened, submitted to the marketplace, or removed from bb without deleting the source directory."
           />
           <ControlRow
-            state="BB Official built-in actions"
+            state="EVA Core built-in actions"
             control={<NoControl>No ownership menu</NoControl>}
             meaning="Built-in plugins cannot be uninstalled or source-edited here."
           />
@@ -1342,7 +1342,7 @@ export function ResourceControlStates() {
           <ControlRow
             state="Read-only actions"
             control={<NoControl>No ownership menu</NoControl>}
-            meaning="BB Official, Included, and Imported skills expose provenance without pretending they are mutable."
+            meaning="EVA Core, Included, and Imported skills expose provenance without pretending they are mutable."
           />
         </ControlTable>
 

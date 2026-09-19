@@ -20,6 +20,7 @@ import {
 import type { ProjectCommandWorkspace as CommandWorkspace } from "../projects/project-workspace.js";
 import { resolveServerOwnedSkillCatalogEntries } from "./injected-skills.js";
 import { resolveSkillCatalog } from "./skill-catalog.js";
+import { getPluginSkillRootContributions } from "../plugins/plugin-agent-contributions.js";
 import { readRegistrySkillProvenance } from "./registry-skill-provenance.js";
 import { hostPathDirname, resolveSharedSkills } from "./shared-skills.js";
 import {
@@ -184,8 +185,25 @@ function listServerOwnedSkills(deps: AppDeps): SkillSummary[] {
     .sort(compareSkillSummaries);
 }
 
-function listBbPluginSkills(deps: AppDeps): SkillSummary[] {
-  return resolveSkillCatalog(deps)
+function listBbPluginSkills(
+  deps: AppDeps,
+  allowedPluginIds?: ReadonlySet<string>,
+): SkillSummary[] {
+  const pluginSkillRoots =
+    allowedPluginIds === undefined
+      ? undefined
+      : getPluginSkillRootContributions().filter(
+          ({ pluginId }) =>
+            allowedPluginIds.has("*") || allowedPluginIds.has(pluginId),
+        );
+  return resolveSkillCatalog(deps, {
+    ...(pluginSkillRoots === undefined ? {} : { pluginSkillRoots }),
+    ...(allowedPluginIds === undefined
+      ? {}
+      : {
+          includeGeneratedPluginCommands: allowedPluginIds.has("*"),
+        }),
+  })
     .map(({ provenance, runtimeSource }): SkillSummary | null => {
       if (provenance.kind !== "plugin" || runtimeSource.kind !== "tree") {
         return null;
@@ -211,7 +229,10 @@ function listBbPluginSkills(deps: AppDeps): SkillSummary[] {
 
 export async function listProjectSkills(
   deps: AppDeps,
-  args: { workspace: CommandWorkspace },
+  args: {
+    workspace: CommandWorkspace;
+    allowedPluginIds?: ReadonlySet<string>;
+  },
 ): Promise<SkillSummary[]> {
   const skillProviders = deps.providerRegistry
     .list()
@@ -236,10 +257,16 @@ export async function listProjectSkills(
     }),
   ]);
   return [
-    ...assembleSkillList(perProvider),
+    ...assembleSkillList(perProvider).filter(
+      (skill) =>
+        args.allowedPluginIds === undefined ||
+        skill.pluginId === null ||
+        args.allowedPluginIds.has("*") ||
+        args.allowedPluginIds.has(skill.pluginId),
+    ),
     ...sharedSkills.summaries,
     ...listServerOwnedSkills(deps),
-    ...listBbPluginSkills(deps),
+    ...listBbPluginSkills(deps, args.allowedPluginIds),
   ].sort(compareSkillSummaries);
 }
 
@@ -363,9 +390,13 @@ async function resolveProjectSkill(
   args: {
     skillId: string;
     workspace: CommandWorkspace;
+    allowedPluginIds?: ReadonlySet<string>;
   },
 ): Promise<SkillSummary> {
-  const skills = await listProjectSkills(deps, { workspace: args.workspace });
+  const skills = await listProjectSkills(deps, {
+    workspace: args.workspace,
+    allowedPluginIds: args.allowedPluginIds,
+  });
   const match = skills.find((skill) => skill.id === args.skillId);
   if (!match) {
     throw new ApiError(404, "not_found", "Skill not found");
@@ -378,6 +409,7 @@ export async function listProjectSkillFiles(
   args: {
     skillId: string;
     workspace: CommandWorkspace;
+    allowedPluginIds?: ReadonlySet<string>;
   },
 ): Promise<{ files: string[]; truncated: boolean }> {
   const skill = await resolveProjectSkill(deps, args);
@@ -413,6 +445,7 @@ export async function readProjectSkill(
     skillId: string;
     path: string;
     workspace: CommandWorkspace;
+    allowedPluginIds?: ReadonlySet<string>;
   },
 ): Promise<{ content: string; revision: string }> {
   const skill = await resolveProjectSkill(deps, args);
@@ -455,6 +488,7 @@ export async function writeProjectSkill(
     content: string;
     revision: string;
     workspace: CommandWorkspace;
+    allowedPluginIds?: ReadonlySet<string>;
   },
 ): Promise<{ filePath: string; revision: string }> {
   const skill = await resolveProjectSkill(deps, args);
@@ -463,7 +497,7 @@ export async function writeProjectSkill(
     throw new ApiError(
       403,
       "forbidden",
-      "Bundled skills cannot be edited in bb",
+      "Bundled skills cannot be edited in EVA",
     );
   }
   if (editableScope.data === "bb-project" && args.workspace.cwd === null) {
@@ -552,6 +586,7 @@ export async function deleteProjectSkill(
   args: {
     skillId: string;
     workspace: CommandWorkspace;
+    allowedPluginIds?: ReadonlySet<string>;
   },
 ): Promise<string> {
   const skill = await resolveProjectSkill(deps, args);
@@ -560,7 +595,7 @@ export async function deleteProjectSkill(
     throw new ApiError(
       403,
       "forbidden",
-      "Bundled skills cannot be deleted in bb",
+      "Bundled skills cannot be deleted in EVA",
     );
   }
   if (editableScope.data === "bb-project" && args.workspace.cwd === null) {

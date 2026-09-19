@@ -66,18 +66,21 @@ interface UseSystemExecutionOptionsArgs {
   environmentId?: string;
   hostId?: string;
   providerId?: string;
+  agentId?: string;
 }
 
 interface SystemExecutionOptionsQueryArgs {
   environmentId: string | null;
   hostId: string | null;
   providerId: string | null;
+  agentId: string | null;
   writeLastKnown: boolean;
 }
 
 interface UseSystemProviderStatesOptions extends QueryOptions {
   environmentId?: string;
   hostId?: string;
+  agentId?: string;
   poll?: boolean;
 }
 
@@ -286,6 +289,7 @@ function systemExecutionOptionsQueryOptions({
   environmentId,
   hostId,
   providerId,
+  agentId,
   writeLastKnown,
 }: SystemExecutionOptionsQueryArgs) {
   return queryOptions<SystemExecutionOptionsResponse>({
@@ -293,12 +297,14 @@ function systemExecutionOptionsQueryOptions({
       environmentId,
       hostId,
       providerId,
+      agentId,
     }),
     queryFn: async ({ signal }) => {
       const response = await sdk.system.executionOptions({
         environmentId: environmentId ?? undefined,
         hostId: hostId ?? undefined,
         providerId: providerId ?? undefined,
+        agentId: agentId ?? undefined,
         signal,
       });
       if (writeLastKnown) {
@@ -327,7 +333,11 @@ function systemExecutionOptionsQueryOptions({
 
 export function prefetchSystemExecutionOptions(
   queryClient: QueryClient,
-  args: { routing: SystemProvidersQuery; providerIds: readonly string[] },
+  args: {
+    routing: SystemProvidersQuery;
+    providerIds: readonly string[];
+    agentId?: string;
+  },
 ): void {
   for (const providerId of args.providerIds) {
     void queryClient.prefetchQuery(
@@ -335,6 +345,7 @@ export function prefetchSystemExecutionOptions(
         environmentId: args.routing.environmentId ?? null,
         hostId: args.routing.hostId ?? null,
         providerId,
+        agentId: args.agentId ?? null,
         writeLastKnown: false,
       }),
     );
@@ -347,6 +358,7 @@ export function useSystemExecutionOptions(
   const environmentId = args.environmentId ?? null;
   const hostId = args.hostId ?? null;
   const providerId = args.providerId ?? null;
+  const agentId = args.agentId ?? null;
   const enabled = args.enabled ?? true;
   useSystemRealtimeSubscription({ enabled });
   useHostListRealtimeSubscription({ enabled });
@@ -361,6 +373,7 @@ export function useSystemExecutionOptions(
       environmentId,
       hostId,
       providerId,
+      agentId,
       writeLastKnown: true,
     }),
     enabled,
@@ -469,12 +482,14 @@ export function useSystemProviderStates(
 ) {
   const environmentId = options.environmentId ?? null;
   const hostId = options.hostId ?? null;
+  const agentId = options.agentId ?? null;
   return useQuery<SystemProviderStatesResponse>({
-    queryKey: systemProviderStatesQueryKey({ environmentId, hostId }),
+    queryKey: systemProviderStatesQueryKey({ environmentId, hostId, agentId }),
     queryFn: ({ signal }) =>
       sdk.system.providerStates({
         environmentId: options.environmentId,
         hostId: options.hostId,
+        agentId: options.agentId,
         signal,
       }),
     enabled: options.enabled ?? true,

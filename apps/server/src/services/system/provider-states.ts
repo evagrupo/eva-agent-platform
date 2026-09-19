@@ -42,7 +42,12 @@ function unknownProviderState(
 
 async function getProviderState(
   deps: AppDeps,
-  args: { cwd?: string; hostId: string; provider: ProviderInfo },
+  args: {
+    allowedPluginIds?: ReadonlySet<string>;
+    cwd?: string;
+    hostId: string;
+    provider: ProviderInfo;
+  },
 ): Promise<SystemProviderState> {
   if (!args.provider.maintenance.health) {
     return unknownProviderState(
@@ -86,6 +91,7 @@ async function getProviderState(
     const contributed = await resolvePluginProviderEnvHealth({
       providerId: args.provider.id,
       hostId: args.hostId,
+      allowedPluginIds: args.allowedPluginIds,
     });
     if (contributed === null) return health;
     return {
@@ -107,13 +113,17 @@ async function getProviderState(
 export async function getProviderStates(
   deps: AppDeps,
   query: SystemProvidersQuery,
+  providerAllowed?: (provider: ProviderInfo) => boolean,
+  allowedPluginIds?: ReadonlySet<string>,
 ): Promise<SystemProviderStatesResponse> {
   const hostId = resolveSystemLookupHostId(deps, query);
   const cwd =
     query.environmentId === undefined
       ? undefined
       : (requireEnvironment(deps.db, query.environmentId).path ?? undefined);
-  const providers = await listSystemProviderInfos(deps, { hostId });
+  const providers = (await listSystemProviderInfos(deps, { hostId })).filter(
+    providerAllowed ?? (() => true),
+  );
   try {
     requireConnectedHostSession(deps, hostId);
   } catch (error) {
@@ -134,6 +144,7 @@ export async function getProviderStates(
       getProviderState(deps, {
         hostId,
         provider,
+        allowedPluginIds,
         ...(cwd === undefined ? {} : { cwd }),
       }),
     ),

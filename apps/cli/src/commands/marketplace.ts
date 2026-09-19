@@ -38,7 +38,7 @@ export function registerMarketplaceCommands(
 ): void {
   const marketplace = program
     .command("marketplace")
-    .description("Manage the plugin marketplaces bb reads catalogs from");
+    .description("Manage the plugin catalogs EVA reads");
 
   marketplace
     .command("add <source>")
@@ -65,7 +65,7 @@ export function registerMarketplaceCommands(
 
   marketplace
     .command("list")
-    .description("List the marketplaces bb reads catalogs from")
+    .description("List the plugin catalogs EVA reads")
     .option("--json", "Output JSON")
     .action(
       action(async (opts: JsonOutputOptions) => {
@@ -124,7 +124,7 @@ export function registerMarketplaceCommands(
   marketplace
     .command("remove <name>")
     .description(
-      "Forget a marketplace. bb-official and bb-community cannot be removed. Installed plugins keep their direct sources",
+      "Forget a marketplace. EVA Official and EVA Integrations cannot be removed. Installed plugins keep their direct sources",
     )
     .option("--json", "Output JSON")
     .action(

@@ -8,6 +8,7 @@ import type { AppCreateThreadRequest } from "../api-types.js";
 import { promptDraftToInput, type PromptDraftState } from "./prompt-draft.js";
 
 export interface ThreadHandoffCreateSeed {
+  agentId?: string;
   environmentId: string | null;
   projectId: string;
   sourceThreadId: string;
@@ -156,6 +157,7 @@ export function buildThreadHandoffCreateRequest({
     projectId: seed.projectId,
     providerId: execution.providerId,
     reasoningLevel: execution.reasoningLevel,
+    ...(seed.agentId === undefined ? {} : { agentId: seed.agentId }),
     ...(execution.supportsServiceTier && execution.serviceTier
       ? { serviceTier: execution.serviceTier }
       : {}),

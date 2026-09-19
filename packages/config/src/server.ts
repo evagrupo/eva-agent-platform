@@ -21,6 +21,7 @@ import {
   BB_INFERENCE_FALLBACK_ENV,
   BB_INFERENCE_ENV,
   BB_MARKETPLACE_URL_ENV,
+  BB_MINI_APPS_PUBLIC_DOMAIN_ENV,
   BB_POSTHOG_API_KEY_ENV,
   BB_SERVER_BIND_HOST_ENV,
   BB_SERVER_LAUNCH_ID_ENV,
@@ -30,6 +31,7 @@ import {
   DEFAULT_BB_APP_SURFACE,
   DEFAULT_BB_APP_VERSION,
   DEFAULT_BB_EXTERNAL_URL,
+  DEFAULT_BB_MINI_APPS_PUBLIC_DOMAIN,
   DEFAULT_BB_INFERENCE_FALLBACK,
   DEFAULT_BB_INFERENCE,
   DEFAULT_BB_MARKETPLACE_URL,
@@ -60,6 +62,7 @@ export interface ServerConfig
   BB_INFERENCE_FALLBACK: string;
   BB_POSTHOG_API_KEY: string;
   BB_MARKETPLACE_URL: string;
+  BB_MINI_APPS_PUBLIC_DOMAIN: string;
   BB_SERVER_BIND_HOST: ServerBindHost;
   BB_SERVER_LAUNCH_ID?: string;
   BB_TELEMETRY: boolean;
@@ -127,6 +130,12 @@ export function loadServerConfig(
       context: loader.context,
       defaultValue: DEFAULT_BB_EXTERNAL_URL,
       definition: BB_EXTERNAL_URL_ENV,
+      env: loader.env,
+    }),
+    BB_MINI_APPS_PUBLIC_DOMAIN: readEnvVarWithDefault({
+      context: loader.context,
+      defaultValue: DEFAULT_BB_MINI_APPS_PUBLIC_DOMAIN,
+      definition: BB_MINI_APPS_PUBLIC_DOMAIN_ENV,
       env: loader.env,
     }),
     BB_HOST_DAEMON_PORT: loadHostDaemonPortValue({

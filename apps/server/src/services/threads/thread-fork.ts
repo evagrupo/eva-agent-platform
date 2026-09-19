@@ -62,6 +62,7 @@ function requireSourceEnvironment(
 export async function createThreadForkFromRequest(
   deps: ThreadForkDeps,
   request: ForkThreadRequest,
+  options: { agentId?: string; ownerUserId?: string | null } = {},
 ) {
   const sourceThread = requireForkSourceThread(deps, request.sourceThreadId);
   requireForkCapableProvider(deps, sourceThread);
@@ -76,6 +77,12 @@ export async function createThreadForkFromRequest(
   return createThreadFromRequest(
     deps,
     {
+      ownerUserId: options.ownerUserId ?? null,
+      agentId:
+        options.agentId ??
+        request.agentId ??
+        sourceThread.agentId ??
+        sourceThread.providerId,
       environment: request.environment ?? {
         type: "reuse",
         environmentId: sourceEnvironment.id,

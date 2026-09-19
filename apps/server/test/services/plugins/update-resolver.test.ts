@@ -564,7 +564,7 @@ describe("git semver tag resolution", () => {
                   engine: "bb",
                   required: ">=99.0.0",
                   actual: "1.0.0",
-                  message: "requires bb >=99.0.0, running bb is 1.0.0",
+                  message: "requires EVA >=99.0.0, running EVA is 1.0.0",
                 },
               ],
             }
@@ -609,7 +609,7 @@ describe("git semver tag resolution", () => {
               engine: "bb",
               required: ">=99.0.0",
               actual: "1.0.0",
-              message: "requires bb >=99.0.0, running bb is 1.0.0",
+              message: "requires EVA >=99.0.0, running EVA is 1.0.0",
             },
           ],
         }),

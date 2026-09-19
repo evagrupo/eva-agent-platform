@@ -65,7 +65,10 @@ import {
   throwThreadNotWritable,
 } from "../lib/lifecycle-api-errors.js";
 import { validatePromptAttachmentReferences } from "../projects/attachments.js";
-import { resolvePluginMentionContextInputs } from "../plugins/plugin-mentions.js";
+import {
+  resolvePluginMentionContextInputs,
+  type PluginMentionAuthorization,
+} from "../plugins/plugin-mentions.js";
 import { clearThreadContext } from "./thread-context-clear.js";
 import { withThreadSendGuard } from "./thread-context-mutation-guard.js";
 import {
@@ -336,15 +339,19 @@ export function formatAgentThreadInput(
 
 export function appendPluginMentionContext(
   prompt: GroupedPrompt,
+  authorization?: PluginMentionAuthorization,
 ): Promise<GroupedPrompt>;
 export function appendPluginMentionContext(
   prompt: PromptWithGroups,
+  authorization?: PluginMentionAuthorization,
 ): Promise<PromptWithGroups>;
 export async function appendPluginMentionContext(
   prompt: PromptWithGroups,
+  authorization?: PluginMentionAuthorization,
 ): Promise<PromptWithGroups> {
   const pluginMentionContext = await resolvePluginMentionContextInputs(
     prompt.input,
+    authorization,
   );
   if (pluginMentionContext.length === 0) {
     return prompt;
@@ -508,10 +515,18 @@ async function sendThreadMessageWithoutContextClear(
             senderThreadId,
           })
         : payload.input;
-  ({ input, inputGroups } = await appendPluginMentionContext({
-    input,
-    ...(inputGroups !== undefined ? { inputGroups } : {}),
-  }));
+  const ownerUserId = getThread(deps.db, thread.id)?.ownerUserId ?? null;
+  ({ input, inputGroups } = await appendPluginMentionContext(
+    {
+      input,
+      ...(inputGroups !== undefined ? { inputGroups } : {}),
+    },
+    {
+      db: deps.db,
+      ownerUserId,
+      agentId: thread.agentId ?? thread.providerId,
+    },
+  ));
   const deferredFirstTurnContext = resolveDeferredFirstTurnContext(
     deps.db,
     thread.id,

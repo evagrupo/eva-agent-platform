@@ -2286,6 +2286,7 @@ export interface NewThreadRequest {
    * `bb.sdk.projects.list({ includePersonal: true })`.
    */
   projectId: string;
+  agentId?: string;
   providerId: string;
   model: string;
   reasoningLevel: ReasoningLevel;

@@ -1,11 +1,11 @@
 ---
 kind: instruction
-title: bb Guide Overview
-summary: System overview and chapter index for the bb CLI guide.
-intent: Orient agents to bb core concepts and help them find the right guide chapter.
+title: EVA Guide Overview
+summary: System overview and chapter index for the EVA CLI guide.
+intent: Orient agents to EVA core concepts and help them find the right guide chapter.
 editingNotes: Keep this concise. Concepts only — command details belong in chapter files.
 ---
-bb is an agent orchestration tool for managing multiple agents.
+EVA is an agent orchestration tool for managing multiple agents.
 
 Core concepts:
 
@@ -26,12 +26,12 @@ Context variables set automatically inside a thread environment:
 - BB_CLI — absolute path to the daemon-managed `bb` executable (prefer this if bare `bb` is wrong; official entrypoints also re-exec to it)
 
 Run `bb status` to see your current context (resolved project and thread IDs).
-It also warns when an enabled plugin is not running (incompatible after a bb
+It also warns when an enabled plugin is not running (incompatible after an EVA
 upgrade, failed to load, or missing); run `bb plugin list` for the detail.
 
 All commands support --json for machine-readable output.
 
-To make a repo work with bb worktrees, run `bb guide environments` for the
+To make a repo work with EVA worktrees, run `bb guide environments` for the
 repo-level `.bb-env-setup.sh` and `.bb-env-teardown.sh` hooks. Run `bb guide
 agent-configuration` for the data-dir and workspace files that customize agent
 behavior.
@@ -50,5 +50,6 @@ Run `bb guide <chapter>` for command details:
   customization        Theming the app palette, settings, mobile push
                        notifications
   plugins              Installing plugins, plugin marketplaces, and their
-                       contributed bb commands
+                       contributed EVA commands
   automations          Scheduling and editing recurring or one-shot work
+  eva-agents           Listing and coordinating policy-approved EVA agents

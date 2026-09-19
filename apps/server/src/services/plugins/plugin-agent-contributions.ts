@@ -33,6 +33,17 @@ type PluginAgentContributions = Pick<
 
 let contributions: PluginAgentContributions | undefined;
 
+function pluginAllowed(
+  allowedPluginIds: ReadonlySet<string> | undefined,
+  pluginId: string,
+): boolean {
+  return (
+    allowedPluginIds === undefined ||
+    allowedPluginIds.has("*") ||
+    allowedPluginIds.has(pluginId)
+  );
+}
+
 export function setPluginAgentContributions(
   next: PluginAgentContributions | undefined,
 ): void {
@@ -43,49 +54,80 @@ export function getPluginSkillRootContributions(): PluginSkillRootContribution[]
   return contributions?.listSkillRootContributions() ?? [];
 }
 
-export function listPluginAgentTools(): PluginAgentToolContribution[] {
-  return contributions?.listAgentTools() ?? [];
+export function listPluginAgentTools(
+  allowedPluginIds?: ReadonlySet<string>,
+): PluginAgentToolContribution[] {
+  return (contributions?.listAgentTools() ?? []).filter((entry) =>
+    pluginAllowed(allowedPluginIds, entry.pluginId),
+  );
 }
 
 export async function resolvePluginAgentConfiguration(args: {
   context: Omit<PluginAgentConfigurationContext, "pluginMetadata">;
   skillIdsByPlugin: ReadonlyMap<string, readonly string[]>;
+  allowedPluginIds?: ReadonlySet<string>;
 }) {
   const active = contributions;
   if (!active?.resolveAgentConfiguration) {
+    const tools = listPluginAgentTools(args.allowedPluginIds);
     return {
-      tools: active?.listAgentTools() ?? [],
+      tools,
       selectedSkillIdsByPlugin: new Map<string, ReadonlySet<string>>(),
       dynamicInstructions: [] as Array<{ pluginId: string; text: string }>,
     };
   }
-  return active.resolveAgentConfiguration(args);
+  const resolved = await active.resolveAgentConfiguration(args);
+  return {
+    tools: resolved.tools.filter((entry) =>
+      pluginAllowed(args.allowedPluginIds, entry.pluginId),
+    ),
+    selectedSkillIdsByPlugin: new Map(
+      [...resolved.selectedSkillIdsByPlugin].filter(([pluginId]) =>
+        pluginAllowed(args.allowedPluginIds, pluginId),
+      ),
+    ),
+    dynamicInstructions: resolved.dynamicInstructions.filter((entry) =>
+      pluginAllowed(args.allowedPluginIds, entry.pluginId),
+    ),
+  };
 }
 
-export function listPluginInstructionContributions(): Array<{
+export function listPluginInstructionContributions(
+  allowedPluginIds?: ReadonlySet<string>,
+): Array<{
   pluginId: string;
   provider: (ctx: { threadId: string; projectId: string }) => string | null;
 }> {
-  return contributions?.listInstructionContributions() ?? [];
+  return (contributions?.listInstructionContributions() ?? []).filter((entry) =>
+    pluginAllowed(allowedPluginIds, entry.pluginId),
+  );
 }
 
 export async function resolvePluginProviderEnv(args: {
   providerId: string;
   context: ExperimentalPluginProviderEnvContext;
+  allowedPluginIds?: ReadonlySet<string>;
 }): Promise<HostDaemonContributedEnvEntry[]> {
   const active = contributions;
   if (!active?.resolveProviderEnv) return [];
-  return (await active.resolveProviderEnv(args)).entries.map((entry) => ({
-    name: entry.name,
-    value: entry.value,
-    source: entry.source,
-    reason: entry.reason,
-  }));
+  return (await active.resolveProviderEnv(args)).entries
+    .filter((entry) =>
+      "plugin" in entry.source
+        ? pluginAllowed(args.allowedPluginIds, entry.source.plugin)
+        : true,
+    )
+    .map((entry) => ({
+      name: entry.name,
+      value: entry.value,
+      source: entry.source,
+      reason: entry.reason,
+    }));
 }
 
 export async function resolvePluginProviderEnvHealth(args: {
   providerId: string;
   hostId: string;
+  allowedPluginIds?: ReadonlySet<string>;
 }) {
   const active = contributions;
   if (!active?.resolveProviderEnvHealth) return null;
@@ -94,13 +136,18 @@ export async function resolvePluginProviderEnvHealth(args: {
     context: {
       hostId: args.hostId,
     },
+    allowedPluginIds: args.allowedPluginIds,
   });
 }
 
 export function findPluginAgentTool(
   name: string,
+  allowedPluginIds?: ReadonlySet<string>,
 ): { pluginId: string; record: PluginAgentToolRecord } | undefined {
-  return contributions?.findAgentTool(name);
+  const tool = contributions?.findAgentTool(name);
+  return tool !== undefined && pluginAllowed(allowedPluginIds, tool.pluginId)
+    ? tool
+    : undefined;
 }
 
 export async function resolvePluginMention(args: {

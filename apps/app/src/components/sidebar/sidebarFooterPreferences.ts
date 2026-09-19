@@ -14,7 +14,7 @@ export const sidebarFooterHiddenAtom = createSyncedPreferenceAtom(
 );
 export const SIDEBAR_FOOTER_MORE_ID = "sidebar-footer-more";
 
-export type BuiltinFooterId = "settings" | "report-bug";
+export type BuiltinFooterId = "settings";
 export type FooterItem = { key: string; label: string; icon: string } & (
   | { kind: "builtin"; id: BuiltinFooterId }
   | { kind: "plugin"; slot: PluginSidebarFooterItemSlot }
@@ -45,13 +45,6 @@ export function useSidebarFooterPreferences() {
       icon: slot.icon,
       slot,
     })),
-    {
-      kind: "builtin",
-      id: "report-bug",
-      key: "builtin:report-bug",
-      label: "Report a bug",
-      icon: "Bug",
-    },
   ];
   const { ordered, normalizedOrder } = arrangeByStoredOrder({
     items,

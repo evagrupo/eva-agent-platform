@@ -23,6 +23,11 @@ import {
 } from "./thread-default-policy.js";
 import { getLastExecutionOptions } from "./thread-events.js";
 import { getSupportedReasoningLevelsForProvider } from "./thread-reasoning-policy.js";
+import {
+  assertExecutionAllowed,
+  assertExecutionAllowedForUser,
+  currentCoreAuthRequest,
+} from "../../access-policy.js";
 
 interface ExecutionPlanFieldInput<TValue> {
   source: CallerExecutionInputSource;
@@ -343,6 +348,23 @@ export async function resolveExistingThreadExecutionPlan(
     serviceTier,
     source: args.executionSource,
   };
+  const policyInput = {
+    ...(thread.agentId === null ? {} : { agentId: thread.agentId }),
+    providerId: thread.providerId,
+    model,
+    permissionMode,
+    reasoningLevel,
+  } satisfies Parameters<typeof assertExecutionAllowed>[1];
+  const requestState = currentCoreAuthRequest();
+  if (
+    requestState?.authContext !== null &&
+    requestState?.authContext !== undefined
+  ) {
+    assertExecutionAllowed({}, policyInput);
+  }
+  if (thread.ownerUserId !== null) {
+    assertExecutionAllowedForUser(deps.db, thread.ownerUserId, policyInput);
+  }
   return {
     resolvedExecution,
   };

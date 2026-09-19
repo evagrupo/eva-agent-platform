@@ -11,6 +11,7 @@ export const FORK_THREAD_CREATE_SEED_LOCATION_STATE_KEY =
   "forkThreadCreateSeed";
 
 export interface ForkThreadCreateSeed {
+  agentId?: string;
   environmentId: string;
   model: string;
   permissionMode: PermissionMode;
@@ -29,7 +30,10 @@ interface BuildForkThreadRequestArgs extends ForkThreadCreateSeed {
   providerSupportsFork: boolean;
 }
 
-type ForkableThread = Pick<Thread, "archivedAt" | "environmentId" | "providerId">;
+type ForkableThread = Pick<
+  Thread,
+  "archivedAt" | "environmentId" | "providerId"
+>;
 
 export function isThreadForkable(
   sourceThread: ForkableThread | null,
@@ -47,6 +51,7 @@ export function isThreadForkable(
 
 export function buildForkThreadRequest({
   environmentId,
+  agentId,
   input,
   model,
   permissionMode,
@@ -71,6 +76,7 @@ export function buildForkThreadRequest({
     permissionMode,
     ...(pluginSubmission === undefined ? {} : { pluginSubmission }),
     projectId,
+    ...(agentId === undefined ? {} : { agentId }),
     providerId,
     reasoningLevel,
     ...(serviceTier ? { serviceTier } : {}),

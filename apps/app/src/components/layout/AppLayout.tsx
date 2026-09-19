@@ -112,6 +112,7 @@ import { applyThreadOpenToLayout } from "@/views/thread-detail/splitThreadNaviga
 import { useAppSettingsRouteMemory } from "@/hooks/useAppSettingsRouteMemory";
 import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
 import { BackToAppCommandHandler } from "./BackToAppCommandHandler";
+import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
 
 const SIDEBAR_WIDTH_KEY = "bb.sidebar.width";
 const SIDEBAR_OPEN_KEY = "bb.sidebar.open";
@@ -259,7 +260,7 @@ function SidebarTriggerOverlay({
 }
 
 const routeTitles: Record<string, { title: string }> = {
-  "/": { title: "bb" },
+  "/": { title: "EVA" },
   "/settings": { title: "Settings" },
   "/automations": { title: "Automations" },
   "/skills": { title: "Skills" },
@@ -296,6 +297,7 @@ function AppHeader({
   pluginPanelSubPath,
   meta,
 }: AppHeaderProps) {
+  const coreAuth = useCoreAuth();
   const headerBreadcrumbs = meta.breadcrumbs;
   const headerTitle =
     headerBreadcrumbs || usesProjectChromeStyle ? undefined : meta.title;
@@ -319,14 +321,15 @@ function AppHeader({
     </div>
   ) : null;
 
-  const actions = pluginPanel ? (
+  const pageActions = pluginPanel ? (
     <PluginPanelHeaderActions
       panel={pluginPanel}
       subPath={pluginPanelSubPath ?? ""}
     />
   ) : usesProjectChromeStyle &&
     projectId &&
-    !isProjectlessProjectId(projectId) ? (
+    !isProjectlessProjectId(projectId) &&
+    canUseCoreCapability(coreAuth, "settings") ? (
     <>
       <Link
         to={getSettingsProjectRoutePath(projectId)}
@@ -347,6 +350,22 @@ function AppHeader({
       ) : null}
     </>
   ) : null;
+  const actions = (
+    <>
+      {coreAuth?.user?.role === "admin" ? (
+        <Link
+          to="/admin"
+          className={cn(
+            HEADER_ICON_BUTTON_CLASS,
+            "inline-flex items-center justify-center px-3 text-xs font-medium text-muted-foreground hover:bg-state-hover hover:text-foreground",
+          )}
+        >
+          Admin
+        </Link>
+      ) : null}
+      {pageActions}
+    </>
+  );
 
   return <AppPageHeader center={center} actions={actions} />;
 }
@@ -370,6 +389,11 @@ export function AppLayout({ children }: AppLayoutProps) {
     restoreIOSViewportOnKeyboardDismissal,
   );
   const location = useLocation();
+  const coreAuth = useCoreAuth();
+  const settingsAllowed = canUseCoreCapability(coreAuth, "settings");
+  const threadWriteAllowed =
+    canUseCoreCapability(coreAuth, "threadOwnWrite") ||
+    canUseCoreCapability(coreAuth, "threadAllWrite");
   const { projectId, threadId, isThreadView, isArchivedView, isRootView } =
     useRouteState();
   const [resourceRouteLabel, setResourceRouteLabel] = useAtom(
@@ -430,6 +454,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     [isCompactViewport, navigate, store],
   );
   useAppCommandHandler("thread.new", () => {
+    if (!threadWriteAllowed) return false;
     if (projectId !== undefined) {
       setRootComposeProjectId(projectId);
     }
@@ -439,10 +464,12 @@ export function AppLayout({ children }: AppLayoutProps) {
     return true;
   });
   useAppCommandHandler("settings.open", () => {
+    if (!settingsAllowed) return false;
     void navigate(settingsRoutePath);
     return true;
   });
   useAppCommandHandler("settings.openServers", () => {
+    if (!settingsAllowed) return false;
     void navigate(`${SETTINGS_ROUTE_PATH}/servers`);
     return true;
   });
@@ -606,7 +633,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       return pluginPanel.title;
     }
     if (documentTitleBreadcrumbs) {
-      const sectionLabel = documentTitleBreadcrumbs[0]?.label ?? "BB";
+      const sectionLabel = documentTitleBreadcrumbs[0]?.label ?? "EVA";
       const pageLabel = documentTitleBreadcrumbs.at(-1)?.label ?? sectionLabel;
       return pageLabel === sectionLabel
         ? sectionLabel
@@ -624,7 +651,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       return projectLabel ?? projectId;
     }
     const routeTitle = resolveRouteTitle(location.pathname)?.title;
-    return routeTitle && routeTitle.length > 0 ? routeTitle : "BB";
+    return routeTitle && routeTitle.length > 0 ? routeTitle : "EVA";
   })();
   const currentThreadPendingInteractionsQuery = useThreadPendingInteractions(
     threadId ?? "",

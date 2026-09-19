@@ -1,0 +1,1 @@
+ALTER TABLE `auth_principals` ADD `default_agent_id` text;

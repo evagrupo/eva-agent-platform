@@ -34,6 +34,7 @@ export interface UsePromptModelReasoningOptions {
   environmentHostId?: string;
   scope?: ThreadCreationOptionsScope;
   resetKey?: string | number | null;
+  initialAgentId?: string;
   initialProviderId?: string;
   preferReadyProviderWhenUnset?: boolean;
   initialModel?: string;

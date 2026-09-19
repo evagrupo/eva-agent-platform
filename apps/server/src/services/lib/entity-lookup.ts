@@ -23,6 +23,10 @@ import {
   throwThreadEnvironmentUnavailable,
   threadEnvironmentUnavailableDetails,
 } from "./lifecycle-api-errors.js";
+import {
+  currentCoreAuthRequest,
+  requireAuthorizedThread,
+} from "../../access-policy.js";
 
 type HostRow = NonNullable<ReturnType<typeof getHost>>;
 type ProjectRow = NonNullable<ReturnType<typeof getProject>>;
@@ -230,12 +234,9 @@ export function requirePublicThread(
   db: DbConnection,
   threadId: string,
 ): ThreadRow {
-  const thread = requireThread(db, threadId);
-  const project = getProject(db, thread.projectId);
-  if (thread.deletedAt !== null || project?.deletedAt !== null) {
-    throw new ApiError(404, "thread_not_found", "Thread not found");
-  }
-  return thread;
+  const method = currentCoreAuthRequest()?.method ?? "GET";
+  const mode = ["GET", "HEAD", "OPTIONS"].includes(method) ? "read" : "write";
+  return requireAuthorizedThread(db, null, threadId, mode);
 }
 
 export function requireEnvironment(

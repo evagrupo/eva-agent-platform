@@ -14,7 +14,9 @@ import type {
 } from "@bb/server-contract";
 
 export interface ThreadCreateServiceRequestInput {
+  ownerUserId?: string | null;
   environment: CreateThreadEnvironmentArgs;
+  agentId?: CreateThreadRequest["agentId"];
   executionInputSources?: CreateThreadRequest["executionInputSources"];
   /**
    * Epoch ms the first message should dispatch at. Present ⇒ the thread is

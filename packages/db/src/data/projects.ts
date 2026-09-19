@@ -227,7 +227,7 @@ export function getProject(db: DbConnection, id: string) {
   return db.select().from(projects).where(eq(projects.id, id)).get() ?? null;
 }
 
-export function getPersonalProject(db: DbConnection) {
+export function getPersonalProject(db: DbQueryConnection) {
   return (
     db
       .select()

@@ -38,6 +38,24 @@ import {
   readWorkspaceAgentInstructions,
 } from "./workspace-agent-instructions.js";
 import { resolveDeprecatedWorkspaceProvisionType } from "../environments/environment-response.js";
+import {
+  assertExecutionAllowedForUser,
+  allowedPluginIdsForPolicy,
+  isToolAllowedByPolicyForAgent,
+  isPluginAllowedByPolicyForAgent,
+  hasCoreCapability,
+  resolveCorePolicy,
+} from "../../access-policy.js";
+import {
+  getEvaAgentForDb,
+  listEvaAgentIds,
+} from "../../agents/eva-agent-registry.js";
+import { getEvaAgentWorkspaceInstructions } from "../../agents/eva-agent-scaffold.js";
+import {
+  EVA_AGENT_COLLABORATION_INSTRUCTIONS,
+  EVA_AGENT_TOOLS,
+} from "../../agents/eva-agent-tools.js";
+import { resolveCoreRuntimeInstructions } from "../../access-management.js";
 
 const UPDATE_ENVIRONMENT_DIRECTORY_INSTRUCTIONS =
   "If the user asks you to move this thread to another checkout, worktree, or directory, make sure the target directory exists, then call `update_environment_directory` with its absolute path. After it succeeds, stop work in the current turn; future turns will run in the updated environment.";
@@ -54,7 +72,7 @@ export interface ThreadRuntimeCommandEnvironment {
 interface ResolveThreadRuntimeCommandConfigArgs {
   environment: ThreadRuntimeCommandEnvironment;
   model: string;
-  thread: Thread;
+  thread: PolicyThread;
 }
 
 interface ResolvePermissionEscalationArgs {
@@ -62,6 +80,7 @@ interface ResolvePermissionEscalationArgs {
 }
 
 export interface ResolvedThreadRuntimeCommandConfig {
+  agentId: string;
   contributedEnv: HostDaemonContributedEnvEntry[];
   dynamicTools: DynamicTool[];
   injectedSkillSources: HostDaemonInjectedSkillSource[];
@@ -72,6 +91,8 @@ export interface ResolvedThreadRuntimeCommandConfig {
   threadStoragePath: string;
   workspacePath: string;
 }
+
+type PolicyThread = Thread & { ownerUserId?: string | null };
 
 function requireWorkspacePath(
   environment: ThreadRuntimeCommandEnvironment,
@@ -91,8 +112,16 @@ interface DynamicToolContribution {
 
 function resolveDynamicTools(
   pluginTools: ReturnType<typeof listPluginAgentTools>,
+  includeEvaAgentTools: boolean,
 ): DynamicToolContribution[] {
   return [
+    ...(includeEvaAgentTools
+      ? EVA_AGENT_TOOLS.map((tool) => ({
+          tool,
+          instructions: null,
+          pluginId: null,
+        }))
+      : []),
     {
       tool: UPDATE_ENVIRONMENT_DIRECTORY_TOOL,
       instructions: UPDATE_ENVIRONMENT_DIRECTORY_INSTRUCTIONS,
@@ -120,6 +149,67 @@ export async function resolveThreadRuntimeCommandConfig(
   deps: LoggedWorkSessionDeps,
   args: ResolveThreadRuntimeCommandConfigArgs,
 ): Promise<ResolvedThreadRuntimeCommandConfig> {
+  const ownerUserId = args.thread.ownerUserId ?? null;
+  const ownerPolicy =
+    ownerUserId === null ? null : resolveCorePolicy(deps.db, ownerUserId);
+  if (ownerUserId !== null && ownerPolicy === null) {
+    throw new ApiError(
+      403,
+      "policy_denied",
+      "The thread owner's current policy does not permit execution",
+    );
+  }
+  const ownerPluginPolicy = ownerPolicy?.policy ?? null;
+  const knownAgentIds =
+    ownerUserId === null ? undefined : listEvaAgentIds(deps.db);
+  const agentId =
+    args.thread.agentId ??
+    (ownerUserId === null ? args.thread.providerId : undefined);
+  if (ownerUserId !== null) {
+    if (agentId === undefined || getEvaAgentForDb(deps.db, agentId) === null) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "The selected EVA agent is not available",
+      );
+    }
+    assertExecutionAllowedForUser(deps.db, ownerUserId, {
+      agentId,
+      providerId: args.thread.providerId,
+      model: args.model,
+    });
+  }
+  const effectiveAgentId = agentId ?? args.thread.providerId;
+  const allowedPluginIds =
+    ownerUserId === null || ownerPluginPolicy === null
+      ? undefined
+      : allowedPluginIdsForPolicy(
+          ownerPluginPolicy,
+          effectiveAgentId,
+          knownAgentIds,
+        );
+  const pluginAllowed = (pluginId: string): boolean =>
+    ownerUserId === null ||
+    (ownerPluginPolicy !== null &&
+      hasCoreCapability(ownerPluginPolicy, "plugins") &&
+      hasCoreCapability(ownerPluginPolicy, "pluginData") &&
+      isPluginAllowedByPolicyForAgent(
+        ownerPluginPolicy,
+        effectiveAgentId,
+        pluginId,
+        knownAgentIds,
+      ));
+  if (
+    ownerUserId !== null &&
+    args.thread.originPluginId !== null &&
+    !pluginAllowed(args.thread.originPluginId)
+  ) {
+    throw new ApiError(
+      403,
+      "policy_denied",
+      `Plugin "${args.thread.originPluginId}" is not allowed by the thread owner's policy`,
+    );
+  }
   const workspacePath = requireWorkspacePath(args.environment);
   const project = getProject(deps.db, args.thread.projectId);
   if (!project) {
@@ -149,7 +239,9 @@ export async function resolveThreadRuntimeCommandConfig(
         workspacePath,
       }),
     ]);
-  const pluginSkillRoots = getPluginSkillRootContributions();
+  const pluginSkillRoots = getPluginSkillRootContributions().filter((root) =>
+    pluginAllowed(root.pluginId),
+  );
   const skillIdsByPlugin = discoverPluginSkillIds(deps.logger, {
     pluginSkillRoots,
     skillTreeRegistry: deps.skillTreeRegistry,
@@ -193,49 +285,111 @@ export async function resolveThreadRuntimeCommandConfig(
       },
     },
     skillIdsByPlugin,
+    allowedPluginIds,
   });
-  const contributedEnv = mergeHostAndProviderEnvironment(
-    await resolveHostEnvironment(deps, {
+  const filteredConditionalConfiguration = {
+    tools: conditionalConfiguration.tools.filter((contribution) =>
+      pluginAllowed(contribution.pluginId),
+    ),
+    selectedSkillIdsByPlugin: new Map(
+      [...conditionalConfiguration.selectedSkillIdsByPlugin].filter(
+        ([pluginId]) => pluginAllowed(pluginId),
+      ),
+    ),
+    dynamicInstructions: conditionalConfiguration.dynamicInstructions.filter(
+      (contribution) => pluginAllowed(contribution.pluginId),
+    ),
+  };
+  const [hostEnvironment, pluginEnvironment] = await Promise.all([
+    resolveHostEnvironment(deps, {
       hostId: host.id,
       projectId: project.id,
     }),
-    await resolvePluginProviderEnv({
+    resolvePluginProviderEnv({
       providerId: args.thread.providerId,
       context: {
         threadId: args.thread.id,
         projectId: project.id,
         hostId: host.id,
       },
+      allowedPluginIds,
     }),
+  ]);
+  const contributedEnv = mergeHostAndProviderEnvironment(
+    hostEnvironment,
+    pluginEnvironment.filter((entry) =>
+      "plugin" in entry.source ? pluginAllowed(entry.source.plugin) : true,
+    ),
   );
   const injectedSkillSources = resolveSkillCatalog(deps, {
+    includeGeneratedPluginCommands: ownerUserId === null || pluginAllowed("*"),
+    pluginSkillRoots,
     projectSkillSources,
     sharedSkillSources: sharedSkills.runtimeSources,
-    pluginSkillSelections: conditionalConfiguration.selectedSkillIdsByPlugin,
+    pluginSkillSelections:
+      filteredConditionalConfiguration.selectedSkillIdsByPlugin,
   }).map((entry) => entry.runtimeSource);
   const dataDirAgentInstructions = readDataDirAgentInstructions(
     deps.logger,
     deps.config.dataDir,
   );
   const dynamicToolContributions = resolveDynamicTools(
-    conditionalConfiguration.tools,
-  );
+    filteredConditionalConfiguration.tools,
+    ownerUserId !== null &&
+      getEvaAgentForDb(deps.db, effectiveAgentId) !== null,
+  ).filter((contribution) => {
+    if (ownerUserId === null) return true;
+    return (
+      ownerPluginPolicy !== null &&
+      (contribution.pluginId === null ||
+        pluginAllowed(contribution.pluginId)) &&
+      isToolAllowedByPolicyForAgent(
+        ownerPluginPolicy,
+        effectiveAgentId,
+        contribution.tool.name,
+        knownAgentIds,
+      )
+    );
+  });
   const dynamicTools = dynamicToolContributions.map(
     (contribution) => contribution.tool,
   );
   const instructionSections: string[] = [];
+  if (
+    dynamicToolContributions.some((contribution) =>
+      contribution.tool.name.startsWith("eva_"),
+    )
+  ) {
+    instructionSections.push(EVA_AGENT_COLLABORATION_INSTRUCTIONS);
+  }
+  const builtInAgentInstructions =
+    getEvaAgentWorkspaceInstructions(effectiveAgentId);
+  if (builtInAgentInstructions !== null && ownerPolicy?.role !== "admin") {
+    instructionSections.push(builtInAgentInstructions);
+  }
+  if (ownerUserId !== null) {
+    instructionSections.push(
+      ...resolveCoreRuntimeInstructions({
+        db: deps.db,
+        userId: ownerUserId,
+        agentId: effectiveAgentId,
+      }),
+    );
+  }
   for (const contribution of dynamicToolContributions) {
     if (!contribution.instructions) continue;
     if (contribution.pluginId === null) {
       instructionSections.push(contribution.instructions);
     } else {
       instructionSections.push(
-        `The following instructions come from the BB plugin "${contribution.pluginId}" for its tool "${contribution.tool.name}":`,
+        `The following instructions come from an approved EVA integration "${contribution.pluginId}" for its tool "${contribution.tool.name}":`,
         contribution.instructions,
       );
     }
   }
-  for (const contribution of listPluginInstructionContributions()) {
+  for (const contribution of listPluginInstructionContributions(
+    allowedPluginIds,
+  )) {
     let text: string | null;
     try {
       text = contribution.provider({
@@ -258,13 +412,13 @@ export async function resolveThreadRuntimeCommandConfig(
       text = text.slice(0, PLUGIN_INSTRUCTION_CONTRIBUTION_MAX_CHARS);
     }
     instructionSections.push(
-      `The following instructions come from the BB plugin "${contribution.pluginId}":`,
+      `The following instructions come from an approved EVA integration "${contribution.pluginId}":`,
       text,
     );
   }
-  for (const contribution of conditionalConfiguration.dynamicInstructions) {
+  for (const contribution of filteredConditionalConfiguration.dynamicInstructions) {
     instructionSections.push(
-      `The following dynamic instructions come from the BB plugin "${contribution.pluginId}":`,
+      `The following dynamic instructions come from an approved EVA integration "${contribution.pluginId}":`,
       contribution.text,
     );
   }
@@ -286,6 +440,7 @@ export async function resolveThreadRuntimeCommandConfig(
     threadId: args.thread.id,
   });
   return {
+    agentId: effectiveAgentId,
     contributedEnv,
     dynamicTools,
     injectedSkillSources,

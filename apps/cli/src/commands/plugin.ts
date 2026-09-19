@@ -191,7 +191,7 @@ function warnIfSdkPinIsStale(pin: string | null): void {
   if (pin === null || !EXACT_VERSION_PATTERN.test(pin)) return;
   if (pin === PLUGIN_SDK_VERSION) return;
   console.warn(
-    `This plugin pins @get-bb/plugin-sdk ${pin}; this bb's SDK is ${PLUGIN_SDK_VERSION} — \`bb plugin types\` updates the pin.`,
+    `This plugin pins @get-bb/plugin-sdk ${pin}; this EVA installation's SDK is ${PLUGIN_SDK_VERSION} — \`bb plugin types\` updates the pin.`,
   );
 }
 
@@ -249,7 +249,7 @@ async function requirePluginManifest(
   }
   if (typeof manifest.bb?.server !== "string") {
     console.error(
-      `${rootDir} is not a bb plugin — package.json has no "bb.server" entry.`,
+      `${rootDir} is not an EVA plugin — package.json has no "bb.server" entry.`,
     );
     process.exit(1);
   }
@@ -310,7 +310,7 @@ async function warnIfSdkVersionUnpublished(): Promise<void> {
   if (status === "published") return;
   if (status === "unknown") {
     console.warn(
-      `Warning: could not reach the npm registry to verify that @get-bb/plugin-sdk ${PLUGIN_SDK_VERSION} — this bb's SDK version — is published.`,
+      `Warning: could not reach the npm registry to verify that @get-bb/plugin-sdk ${PLUGIN_SDK_VERSION} — this EVA installation's SDK version — is published.`,
     );
     console.warn(
       "  If `npm install` fails to resolve it, the version may not be on your registry yet.",
@@ -318,16 +318,16 @@ async function warnIfSdkVersionUnpublished(): Promise<void> {
     return;
   }
   console.warn(
-    `Warning: @get-bb/plugin-sdk ${PLUGIN_SDK_VERSION} — this bb's SDK version — was not found on npm.`,
+    `Warning: @get-bb/plugin-sdk ${PLUGIN_SDK_VERSION} — this EVA installation's SDK version — was not found on npm.`,
   );
   console.warn(
     "  `npm install` in the new plugin will fail until that version publishes.",
   );
   console.warn(
-    "  To work around it, pack the SDK from a bb checkout and point the",
+    "  To work around it, pack the SDK from an EVA checkout and point the",
   );
   console.warn("  devDependency at the tarball:");
-  console.warn("    (cd <bb-repo>/packages/plugin-sdk && npm pack)");
+  console.warn("    (cd <eva-repo>/packages/plugin-sdk && npm pack)");
   console.warn(
     '    npm pkg set devDependencies.@get-bb/plugin-sdk="file:/abs/path/to/get-bb-plugin-sdk-' +
       `${PLUGIN_SDK_VERSION}.tgz"`,
@@ -650,10 +650,10 @@ function resolvedSourceLines(source: PluginCatalogResolvedSource): string[] {
 
 function installPlanSummary(plan: PluginCatalogInstallPlan): string {
   if (plan.kind === "bundled") {
-    return `Installing ${plan.displayName}, bundled with BB (${plan.source})`;
+    return `Installing ${plan.displayName}, bundled with EVA (${plan.source})`;
   }
   if (plan.official) {
-    return `Installing ${plan.displayName} from the ${plan.marketplaceDisplayName} marketplace, reviewed by BB (${plan.source})`;
+    return `Installing ${plan.displayName} from the ${plan.marketplaceDisplayName} marketplace, reviewed by EVA (${plan.source})`;
   }
   const author =
     plan.author.url === null
@@ -661,7 +661,7 @@ function installPlanSummary(plan: PluginCatalogInstallPlan): string {
       : `${plan.author.name} (${plan.author.url})`;
   return [
     `Installing ${plan.displayName} (${plan.entryId}@${plan.marketplace})`,
-    `  marketplace: ${plan.marketplaceDisplayName} — a third-party marketplace, not reviewed by BB`,
+    `  marketplace: ${plan.marketplaceDisplayName} — a third-party marketplace, not reviewed by EVA`,
     `  author: ${author}`,
     ...resolvedSourceLines(plan.resolvedSource),
   ].join("\n");
@@ -783,7 +783,7 @@ export function registerPluginCommands(
 ): void {
   const plugin = program
     .command("plugin")
-    .description("Manage BB plugins")
+    .description("Manage EVA plugins")
     .enablePositionalOptions();
 
   const rpc = plugin
@@ -890,7 +890,7 @@ export function registerPluginCommands(
   plugin
     .command("search <query>")
     .description(
-      "Search every plugin the store lists: the plugins bundled with the app, the reserved bb-community marketplace catalog BB reviews, and any third-party marketplace added on this host. The Marketplace column names the source; only bb-community is reviewed by BB",
+      "Search every plugin the store lists: the plugins bundled with the app, the reserved EVA Integrations catalog, and any third-party marketplace added on this host. The Marketplace column names the source; EVA Integrations is reviewed by EVA",
     )
     .option("--json", "Output JSON")
     .action(
@@ -918,7 +918,7 @@ export function registerPluginCommands(
             ? "✓ installed"
             : result.compatible
               ? "compatible"
-              : `requires newer bb${result.incompatibleReason ? `: ${result.incompatibleReason}` : ""}`,
+              : `requires newer EVA${result.incompatibleReason ? `: ${result.incompatibleReason}` : ""}`,
         ]);
         console.log(
           renderBorderlessTable(
@@ -1021,7 +1021,7 @@ export function registerPluginCommands(
   plugin
     .command("install <source>")
     .description(
-      "Install a catalog entry by name or <entry>@<marketplace>, a Git repository URL, a local path, builtin:<name>, git:<url>[@<ref|semver-range>], or npm:<name>@<version>. A catalog entry from a third-party marketplace is not reviewed by BB, so its confirmation names the marketplace, the author, and the exact resolved source (managed sources validate engines ranges and build artifacts; bundled plugin ids are reserved)",
+      "Install a catalog entry by name or <entry>@<marketplace>, a Git repository URL, a local path, builtin:<name>, git:<url>[@<ref|semver-range>], or npm:<name>@<version>. A catalog entry from a third-party marketplace is not reviewed by EVA, so its confirmation names the marketplace, the author, and the exact resolved source (managed sources validate engines ranges and build artifacts; bundled plugin identifiers are reserved)",
     )
     .option(
       "--subdirectory <path>",
@@ -1107,8 +1107,8 @@ export function registerPluginCommands(
           if (!opts.json) {
             console.log(summary);
             console.log(
-              "Plugins are full-trust code running inside the BB server. " +
-                "They can read all local BB data, including other plugins' secrets.",
+              "Plugins are full-trust code running inside the EVA server. " +
+                "They can read all local EVA data, including other plugins' secrets.",
             );
           }
           await confirmPluginAction(
@@ -1307,7 +1307,7 @@ export function registerPluginCommands(
   plugin
     .command("types [path]")
     .description(
-      "Sync a plugin's @get-bb/plugin-sdk surface to the running bb (default: cwd): repin the npm devDependency and the type-only devDependencies of the packages bb shims at runtime (sonner, vaul, the portal radix families, ...) for plugins that depend on the package, or rewrite the vendored types/ declarations for plugins that still carry them",
+      "Sync a plugin's @get-bb/plugin-sdk surface to the running EVA installation (default: cwd): repin the npm devDependency and the type-only devDependencies of the packages EVA shims at runtime (sonner, vaul, the portal radix families, ...) for plugins that depend on the package, or rewrite the vendored types/ declarations for plugins that still carry them",
     )
     .option(
       "--check",
@@ -1339,15 +1339,15 @@ export function registerPluginCommands(
             if (pending.pin !== null || pending.movedFromDependencies) {
               console.error(
                 pending.pin === null
-                  ? 'Move "@get-bb/plugin-sdk" from dependencies to devDependencies — bb provides its runtime (`bb plugin types` does it for you).'
+                  ? 'Move "@get-bb/plugin-sdk" from dependencies to devDependencies — EVA provides its runtime (`bb plugin types` does it for you).'
                   : `Set "@get-bb/plugin-sdk" to ${PLUGIN_SDK_VERSION} in devDependencies and re-run npm install (\`bb plugin types\` does it for you).`,
               );
             }
             for (const shim of pending.shimmedTypePins) {
               console.error(
                 shim.movedFromDependencies
-                  ? `Move "${shim.name}" from dependencies to devDependencies at ${shim.to} — bb shims it at runtime and never bundles it (\`bb plugin types\` does it for you).`
-                  : `Set "${shim.name}" to ${shim.to} in devDependencies — the version this bb shims at runtime (\`bb plugin types\` does it for you).`,
+                  ? `Move "${shim.name}" from dependencies to devDependencies at ${shim.to} — EVA shims it at runtime and never bundles it (\`bb plugin types\` does it for you).`
+                  : `Set "${shim.name}" to ${shim.to} in devDependencies — the version this EVA installation shims at runtime (\`bb plugin types\` does it for you).`,
               );
             }
             process.exit(1);
@@ -1359,7 +1359,7 @@ export function registerPluginCommands(
           });
           if (changed === null) {
             console.log(
-              `@get-bb/plugin-sdk is already pinned to ${PLUGIN_SDK_VERSION} — this bb's SDK version${hasApp ? ", and the runtime-shimmed packages are at this bb's versions" : ""}.`,
+              `@get-bb/plugin-sdk is already pinned to ${PLUGIN_SDK_VERSION} — this EVA installation's SDK version${hasApp ? ", and the runtime-shimmed packages are at this EVA installation's versions" : ""}.`,
             );
             console.log(
               "The declarations are in node_modules/@get-bb/plugin-sdk/bundled-types/ — read them for exact signatures.",

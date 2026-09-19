@@ -70,6 +70,12 @@ import {
   rawDiffFileStatToEntry,
   selectInitialPatchPaths,
 } from "./diff-tiering.js";
+import {
+  assertCoreCapability,
+  assertResourceAccess,
+  canAccessResource,
+  getCoreAuthContext,
+} from "../access-policy.js";
 
 const LISTED_ENVIRONMENT_STATUSES: readonly EnvironmentStatus[] =
   environmentStatusValues.filter((status) => status !== "destroyed");
@@ -273,6 +279,32 @@ function resolveGitDiffWorkspaceTarget(deps: AppDeps, environmentId: string) {
   return requireWorkspaceCommandTarget(environment);
 }
 
+function requireReadableEnvironment(
+  deps: AppDeps,
+  context: object,
+  environmentId: string,
+) {
+  const environment = requireEnvironment(deps.db, environmentId);
+  assertResourceAccess(deps.db, context, "environment", environment.id, "read");
+  return environment;
+}
+
+function requireWritableEnvironment(
+  deps: AppDeps,
+  context: object,
+  environmentId: string,
+) {
+  const environment = requireEnvironment(deps.db, environmentId);
+  assertResourceAccess(
+    deps.db,
+    context,
+    "environment",
+    environment.id,
+    "write",
+  );
+  return environment;
+}
+
 export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   const { del, get, patch, post } = typedRoutes<PublicApiSchema>(app, {
     onValidationError: (msg) => new ApiError(400, "invalid_request", msg),
@@ -284,6 +316,7 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
       limit: query?.limit,
       offset: query?.offset,
     });
+    const authContext = getCoreAuthContext(context);
     return context.json(
       listEnvironments(deps.db, {
         ...(query?.projectId ? { projectId: query.projectId } : {}),
@@ -296,12 +329,25 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
         ...(limit === undefined ? {} : { limit }),
         ...(offset === undefined ? {} : { offset }),
         statuses: query?.status ? [query.status] : LISTED_ENVIRONMENT_STATUSES,
-      }).map(toEnvironmentResponse),
+      })
+        .filter((environment) =>
+          canAccessResource(
+            deps.db,
+            authContext,
+            "environment",
+            environment.id,
+          ),
+        )
+        .map(toEnvironmentResponse),
     );
   });
 
   del(routes.delete, (context) => {
-    const environment = requireEnvironment(deps.db, context.req.param("id"));
+    const environment = requireWritableEnvironment(
+      deps,
+      context,
+      context.req.param("id"),
+    );
     if (
       countLiveThreadsInEnvironment(deps.db, {
         environmentId: environment.id,
@@ -331,13 +377,17 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   get(routes.get, (context) =>
     context.json(
       toEnvironmentResponse(
-        requireEnvironment(deps.db, context.req.param("id")),
+        requireReadableEnvironment(deps, context, context.req.param("id")),
       ),
     ),
   );
 
   patch(routes.update, (context, payload) => {
-    const environment = requireEnvironment(deps.db, context.req.param("id"));
+    const environment = requireWritableEnvironment(
+      deps,
+      context,
+      context.req.param("id"),
+    );
     const updated = updateEnvironmentMetadata(
       deps.db,
       deps.hub,
@@ -351,7 +401,11 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   });
 
   post(routes.archiveThreads, (context) => {
-    const environment = requireEnvironment(deps.db, context.req.param("id"));
+    const environment = requireWritableEnvironment(
+      deps,
+      context,
+      context.req.param("id"),
+    );
     const archivedThreadIds = archiveEnvironmentThreads(deps, { environment });
     return context.json({
       ok: true,
@@ -360,9 +414,10 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.status, async (context, query) => {
+    assertCoreCapability(context, "files");
     const environment = requireReadyEnvironment(
       deps.db,
-      context.req.param("id"),
+      requireReadableEnvironment(deps, context, context.req.param("id")).id,
     );
     if (!environment.isGitRepo) {
       return context.json({
@@ -398,9 +453,10 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.pullRequest, async (context) => {
+    assertCoreCapability(context, "files");
     const environment = requireReadyEnvironment(
       deps.db,
-      context.req.param("id"),
+      requireReadableEnvironment(deps, context, context.req.param("id")).id,
     );
     if (!environment.isGitRepo) {
       return context.json({ outcome: "absent" });
@@ -434,7 +490,13 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.diff, async (context, query) => {
-    const target = resolveGitDiffWorkspaceTarget(deps, context.req.param("id"));
+    assertCoreCapability(context, "files");
+    const environment = requireReadableEnvironment(
+      deps,
+      context,
+      context.req.param("id"),
+    );
+    const target = resolveGitDiffWorkspaceTarget(deps, environment.id);
     if (target === null) {
       return context.json(NON_GIT_DIFF_NOT_APPLICABLE);
     }
@@ -464,7 +526,13 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.diffFiles, async (context, query) => {
-    const target = resolveGitDiffWorkspaceTarget(deps, context.req.param("id"));
+    assertCoreCapability(context, "files");
+    const environment = requireReadableEnvironment(
+      deps,
+      context,
+      context.req.param("id"),
+    );
+    const target = resolveGitDiffWorkspaceTarget(deps, environment.id);
     if (target === null) {
       return context.json(NON_GIT_DIFF_NOT_APPLICABLE);
     }
@@ -516,7 +584,13 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   });
 
   post(routes.diffPatch, async (context, payload) => {
-    const target = resolveGitDiffWorkspaceTarget(deps, context.req.param("id"));
+    assertCoreCapability(context, "files");
+    const environment = requireWritableEnvironment(
+      deps,
+      context,
+      context.req.param("id"),
+    );
+    const target = resolveGitDiffWorkspaceTarget(deps, environment.id);
     if (target === null) {
       return context.json(NON_GIT_DIFF_NOT_APPLICABLE);
     }
@@ -545,9 +619,10 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.diffFile, async (context, query) => {
+    assertCoreCapability(context, "files");
     const environment = requireReadyEnvironment(
       deps.db,
-      context.req.param("id"),
+      requireReadableEnvironment(deps, context, context.req.param("id")).id,
     );
     const repoRelativePath = query.path.replace(/^\/+/u, "");
     if (
@@ -579,9 +654,10 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.diffBranches, async (context, query) => {
+    assertCoreCapability(context, "files");
     const environment = requireReadyEnvironment(
       deps.db,
-      context.req.param("id"),
+      requireReadableEnvironment(deps, context, context.req.param("id")).id,
     );
     const branchQuery = normalizeBranchQuery(query.query);
     const selectedBranch = normalizeBranchQuery(query.selectedBranch);
@@ -607,9 +683,10 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.paths, async (context, query) => {
+    assertCoreCapability(context, "files");
     const environment = requireReadyEnvironment(
       deps.db,
-      context.req.param("id"),
+      requireReadableEnvironment(deps, context, context.req.param("id")).id,
     );
     const limit = parseFileListLimit(query.limit);
     const inclusion = parsePathKindInclusion({
@@ -646,9 +723,10 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
   });
 
   post(routes.actions, async (context, payload) => {
+    assertCoreCapability(context, "files");
     const environment = requireReadyEnvironment(
       deps.db,
-      context.req.param("id"),
+      requireWritableEnvironment(deps, context, context.req.param("id")).id,
     );
 
     try {

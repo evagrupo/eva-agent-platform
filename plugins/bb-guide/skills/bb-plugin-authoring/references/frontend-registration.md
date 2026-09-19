@@ -211,7 +211,7 @@ is lost when the document navigates; check again when `url` changes.
 `app.slots.experimental_sidebarNavigation` replaces the navigation controls
 above the thread list. The component receives `items`, `activeItemId`, and
 `isCompactViewport`. The items represent New thread, Search threads, Plugins,
-Skills, and plugin panels. BB keeps the drawer, thread list, footer,
+Skills, and plugin panels. EVA keeps the drawer, thread list, footer,
 resize handle, and hidden-body shortcut policy.
 
 Each item has an `id`, `label`, semantic `icon`, host `action`, disabled state,
@@ -222,9 +222,9 @@ the host quick palette. The former inline sidebar search field and query state
 are not part of this API.
 
 The component also receives `experimental_Original`. Render it to delegate to
-BB without another replacement lookup. BB restores the original controls if
+EVA without another replacement lookup. EVA restores the original controls if
 the selected replacement is unavailable or crashes. Users can select
-Automatic, BB, or one plugin under Settings → Appearance → Navigation.
+Automatic, EVA, or one plugin under Settings → Appearance → Navigation.
 
 ### Replacing the sidebar thread list
 
@@ -232,7 +232,7 @@ Automatic, BB, or one plugin under Settings → Appearance → Navigation.
 list fills the sidebar's scroll area. Registering activates the replacement
 while the plugin is enabled. If multiple plugins register one, the first in
 deterministic slot order is active by default; removing it reveals the next.
-The user can pin BB's list or a specific provider under
+The user can pin EVA's list or a specific provider under
 **Settings → Appearance → Sidebar**. The choice is per client.
 
 Your component gets the scrolling list and nothing else. The New-thread button,
@@ -256,7 +256,7 @@ interface PluginThreadListProps {
   /** Deprecated compatibility value for the removed sidebar search field.
       The host always supplies "". */
   searchQuery: string;
-  /** BB's bound thread list. Render it to delegate conditionally without
+  /** EVA's bound thread list. Render it to delegate conditionally without
       re-entering plugin replacement resolution. */
   Original: ComponentType;
 }
@@ -274,7 +274,7 @@ const actions = experimental_useSidebarThreadActions();
 // environment { id, name, branchName, providerId, workspaceDisplayKind },
 // where workspaceDisplayKind is deprecated compatibility data; host { id, name },
 // createdAt, updatedAt, lastReadAt, latestAttentionAt, and
-// `indicator` (bb's resolved status kind) + `indicatorLabel` (its a11y string).
+// `indicator` (EVA's resolved status kind) + `indicatorLabel` (its a11y string).
 // Draw your own glyph for `indicator`; the SDK ships no status component.
 // Treat an unknown indicator value as "none" — bb adds kinds over time.
 
@@ -283,13 +283,13 @@ const actions = experimental_useSidebarThreadActions();
 const { pullRequest } = experimental_useSidebarThreadPullRequest(thread.id);
 // → { isLoading, pullRequest: { number, title, url, state, attention } | null }
 
-actions.open(id, { split: true }); // bb's split placement rules
+actions.open(id, { split: true }); // EVA's split placement rules
 actions.openNewThread({ projectId, focusPrompt: true });
 actions.setPinned(id, true);
 actions.setRead(id, false);
 actions.rename(id, "New title"); // silent; for inline editing
 actions.archive(id); // archives children too, closes their panes
-actions.requestDelete(id); // opens bb's delete confirmation
+actions.requestDelete(id); // opens EVA's delete confirmation
 ```
 
 Destructive actions deliberately route through the host's own flow, so there
@@ -317,10 +317,10 @@ has its own drag-to-reorder: a split drag engages only once the pointer leaves
 the sidebar.
 
 **Your row, your menu.** This API ships no components. Build your own context
-menu from `experimental_useSidebarThreadActions` — it exposes everything bb's
-own menu does, including `requestDelete`, which opens bb's confirmation.
+menu from `experimental_useSidebarThreadActions` — it exposes everything EVA's
+own menu does, including `requestDelete`, which opens EVA's confirmation.
 
-**Keyboard support is a DOM contract.** bb's thread shortcuts find rows by
+**Keyboard support is a DOM contract.** EVA's thread shortcuts find rows by
 query selector, not by React state. Put both attributes on each row's anchor or
 the surface-specific numbered shortcuts, `thread.next`, and `thread.previous`
 silently stop working:

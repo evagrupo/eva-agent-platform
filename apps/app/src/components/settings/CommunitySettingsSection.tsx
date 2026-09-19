@@ -8,7 +8,6 @@ import {
 import { openUrlInExternalBrowser } from "@/lib/url-open-routing";
 
 const DISCORD_INVITE_URL = "https://discord.gg/kvBU6tJhcJ";
-const GITHUB_REPO_URL = "https://github.com/get-bb/bb";
 
 interface CommunityLinkRowProps {
   description: string;
@@ -54,7 +53,7 @@ export function CommunitySettingsSection() {
   return (
     <SettingsSection
       title="Community"
-      description="Chat with other bb users and follow development on GitHub."
+      description="Get help with EVA and follow product updates."
     >
       <div className="space-y-5">
         <CommunityLinkRow
@@ -64,13 +63,6 @@ export function CommunitySettingsSection() {
           icon="DiscordLogo"
           iconClassName="text-brand-discord"
           openLabel="Join Discord"
-        />
-        <CommunityLinkRow
-          label="GitHub"
-          description="Source code, issues, and releases for the bb project."
-          href={GITHUB_REPO_URL}
-          icon="GithubLogo"
-          openLabel="View on GitHub"
         />
       </div>
     </SettingsSection>

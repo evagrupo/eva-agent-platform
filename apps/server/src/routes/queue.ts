@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { listQueuedThreadMessagesForApi } from "@bb/db";
+import { getThread, listQueuedThreadMessagesForApi } from "@bb/db";
 import {
   publicApiRoutes,
   typedRoutes,
@@ -8,6 +8,7 @@ import {
 import { ApiError } from "../errors.js";
 import type { AppDeps } from "../types.js";
 import { toThreadQueuedMessage } from "../services/threads/thread-queued-messages.js";
+import { canReadThread, getCoreAuthContext } from "../access-policy.js";
 
 /**
  * The cross-thread queue list.
@@ -25,13 +26,20 @@ export function registerQueueRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(publicApiRoutes.queue.list, (context, query) => {
-    return context.json(
-      listQueuedThreadMessagesForApi(deps.db, {
-        ...(query.threadId !== undefined ? { threadId: query.threadId } : {}),
-        ...(query.waitHolder !== undefined
-          ? { waitHolder: query.waitHolder }
-          : {}),
-      }).map(toThreadQueuedMessage),
-    );
+    const authContext = getCoreAuthContext(context);
+    const queuedMessages = listQueuedThreadMessagesForApi(deps.db, {
+      ...(query.threadId !== undefined ? { threadId: query.threadId } : {}),
+      ...(query.waitHolder !== undefined
+        ? { waitHolder: query.waitHolder }
+        : {}),
+    }).filter((message) => {
+      const thread = getThread(deps.db, message.threadId);
+      return (
+        thread !== null &&
+        thread.deletedAt === null &&
+        canReadThread(deps.db, authContext, thread)
+      );
+    });
+    return context.json(queuedMessages.map(toThreadQueuedMessage));
   });
 }

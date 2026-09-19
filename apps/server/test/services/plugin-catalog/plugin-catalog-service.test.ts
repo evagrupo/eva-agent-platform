@@ -214,17 +214,17 @@ describe("plugin catalog service", () => {
       ],
       source: "builtin:docs",
       marketplace: "bb-official",
-      marketplaceDisplayName: "BB Official",
+      marketplaceDisplayName: "EVA Official",
       publisherKey: "bb-official",
-      publisherLabel: "BB Official",
-      author: { name: "BB", url: null },
+      publisherLabel: "EVA Official",
+      author: { name: "EVA", url: null },
       installed: false,
       compatible: true,
     });
     expect(catalog.collections()).toEqual([
       {
         id: "bb-official",
-        displayName: "BB Official",
+        displayName: "EVA Official",
         pluginIds: BUNDLED_PLUGINS.map((plugin) => plugin.pluginId),
       },
     ]);
@@ -567,7 +567,7 @@ describe("plugin catalog service", () => {
       expect(catalog.collections()).toEqual([
         {
           id: "bb-official",
-          displayName: "BB Official",
+          displayName: "EVA Official",
           pluginIds: BUNDLED_PLUGINS.map((plugin) => plugin.pluginId),
         },
         {
@@ -611,7 +611,7 @@ describe("plugin catalog service", () => {
       expect(catalog.collections()).toEqual([
         {
           id: "bb-official",
-          displayName: "BB Official",
+          displayName: "EVA Official",
           pluginIds: BUNDLED_PLUGINS.map((plugin) => plugin.pluginId),
         },
       ]);

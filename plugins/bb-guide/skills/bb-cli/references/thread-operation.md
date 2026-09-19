@@ -118,11 +118,11 @@ For review or fix pipelines, get the environment ID from
 
 ## Opening Threads And Files In The App
 
-- Reference a BB thread in chat as `@thread:thr_abc123`, substituting its
-  actual ID. BB renders the mention with the correct project-aware link; do not
+- Reference an EVA thread in chat as `@thread:thr_abc123`, substituting its
+  actual ID. EVA renders the mention with the correct project-aware link; do not
   construct `/threads/...` or `/projects/.../threads/...` URLs manually.
-- Use `bb thread open <path>` inside a BB thread to open a Markdown, HTML, or
-  other workspace file for the user in the BB IDE's thread panel.
+- Use `bb thread open <path>` inside an EVA thread to open a Markdown, HTML, or
+  other workspace file for the user in the EVA IDE's thread panel.
 - Use `bb thread open <thread-id> --split right|down|left|top|replace` to open
   or focus a thread in the current app split layout. `replace` is the default;
   an already-open thread is focused. Edge splits create panes through the
@@ -134,8 +134,8 @@ For review or fix pipelines, get the environment ID from
 - Absolute paths under `BB_THREAD_STORAGE` open as thread-storage files for the
   current thread.
 - Use `bb thread pane maximize|restore|toggle|spotlight|clear-spotlight
-[thread-id]` to change a matching open pane in every connected BB app window.
-  Inside a BB thread, omit the ID to use `BB_THREAD_ID`. The command reports
+[thread-id]` to change a matching open pane in every connected EVA app window.
+  Inside an EVA thread, omit the ID to use `BB_THREAD_ID`. The command reports
   how many connected clients received the ephemeral action. The SDK equivalent is
   `sdk.threads.paneAction({ threadId, action })`.
 - Users can also toggle the focused pane from its header or with the configurable
@@ -159,7 +159,7 @@ For review or fix pipelines, get the environment ID from
 
 - Use `bb terminal ...` for long-running commands the user may need to inspect
   or stop later: dev servers, watch tasks, REPLs, database consoles, and similar
-  processes. The terminal is a real persistent PTY shown in the bb UI.
+  processes. The terminal is a real persistent PTY shown in the EVA UI.
 - `list` and `create` require exactly one explicit scope: `--thread <id>`,
   `--environment <id>`, or `--machine <id-or-name>` (`--host` is an alias).
   Add `--cwd <path>` only to a machine scope. Machine targets resolve to an

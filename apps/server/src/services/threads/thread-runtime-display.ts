@@ -163,6 +163,7 @@ function toPublicThread(thread: Thread): Thread {
     id: thread.id,
     projectId: thread.projectId,
     environmentId: thread.environmentId,
+    agentId: thread.agentId ?? null,
     providerId: thread.providerId,
     title: thread.title,
     titleFallback: thread.titleFallback,

@@ -116,4 +116,17 @@ describe("ExecutionControls", () => {
 
     expect(onServiceTierChange).toHaveBeenCalledWith("default");
   });
+
+  it("removes execution pickers for a fixed policy tuple", () => {
+    renderExecutionControls({
+      ...makeExecutionControlsProps(vi.fn()),
+      fixedExecution: true,
+    });
+
+    expect(
+      screen.queryByRole("button", {
+        name: "Provider, model and reasoning",
+      }),
+    ).toBeNull();
+  });
 });

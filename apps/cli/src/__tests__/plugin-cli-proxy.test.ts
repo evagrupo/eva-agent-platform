@@ -289,9 +289,9 @@ describe("describeUnreachableServer", () => {
     });
   }
 
-  it("says bb is not running only on ECONNREFUSED", () => {
+  it("says EVA is not running only on ECONNREFUSED", () => {
     expect(describeUnreachableServer(url, fetchFailed("ECONNREFUSED"))).toBe(
-      `bb is not running at ${url} — open the bb app, then re-run this command.`,
+      `EVA is not running at ${url} — open the EVA app, then re-run this command.`,
     );
   });
 
@@ -302,23 +302,23 @@ describe("describeUnreachableServer", () => {
         aggregateFetchFailed(["ECONNREFUSED", "ECONNREFUSED"]),
       ),
     ).toBe(
-      `bb is not running at ${url} — open the bb app, then re-run this command.`,
+      `EVA is not running at ${url} — open the EVA app, then re-run this command.`,
     );
 
     const mixedMessage = describeUnreachableServer(
       url,
       aggregateFetchFailed(["ECONNREFUSED", "EPERM"]),
     );
-    expect(mixedMessage).toContain(`Cannot reach bb at ${url}: EPERM`);
-    expect(mixedMessage).toContain("bb may still be running");
+    expect(mixedMessage).toContain(`Cannot reach EVA at ${url}: EPERM`);
+    expect(mixedMessage).toContain("EVA may still be running");
     expect(mixedMessage).not.toContain("not running at");
   });
 
-  it("reports a blocked connection without declaring bb down", () => {
+  it("reports a blocked connection without declaring EVA down", () => {
     for (const code of ["EPERM", "EACCES"]) {
       const message = describeUnreachableServer(url, fetchFailed(code));
-      expect(message).toContain(`Cannot reach bb at ${url}: ${code}`);
-      expect(message).toContain("bb may still be running");
+      expect(message).toContain(`Cannot reach EVA at ${url}: ${code}`);
+      expect(message).toContain("EVA may still be running");
       expect(message).not.toContain("not running at");
     }
   });
@@ -328,10 +328,10 @@ describe("describeUnreachableServer", () => {
       name: "TimeoutError",
     });
     const message = describeUnreachableServer(url, timeout, 2000);
-    expect(message).toContain(`bb did not respond at ${url} within 2000ms`);
+    expect(message).toContain(`EVA did not respond at ${url} within 2000ms`);
     expect(message).toContain("it may be busy or temporarily unreachable");
     expect(message).not.toContain("not running at");
-    expect(message).not.toContain("bb is running");
+    expect(message).not.toContain("EVA is running");
     expect(message).toContain("re-run it");
   });
 
@@ -349,7 +349,7 @@ describe("describeUnreachableServer", () => {
       cause: new Error("getaddrinfo ENOTFOUND example.invalid"),
     });
     expect(describeUnreachableServer(url, err)).toBe(
-      `Cannot reach bb at ${url}: fetch failed: getaddrinfo ENOTFOUND example.invalid`,
+      `Cannot reach EVA at ${url}: fetch failed: getaddrinfo ENOTFOUND example.invalid`,
     );
   });
 });

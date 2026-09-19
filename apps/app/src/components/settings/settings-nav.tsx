@@ -19,6 +19,7 @@ import {
   buildPluginSettingsEntries,
   type PluginSettingsEntry,
 } from "./plugin-settings-entries";
+import { canUseCorePlugin, useCoreAuth } from "@/lib/core-auth";
 
 export interface SettingsNavState {
   activeSection: SettingsSectionId | null;
@@ -49,6 +50,7 @@ export function useSettingsNavSections(
 
 export function useSettingsNavState(): SettingsNavState {
   const location = useLocation();
+  const auth = useCoreAuth();
   const { fileOpeners, settingsSections } = usePluginSlots();
   const sections = useSettingsNavSections(fileOpeners);
   const pluginListQuery = usePluginList({ enabled: true });
@@ -89,7 +91,9 @@ export function useSettingsNavState(): SettingsNavState {
               ? sectionParam
               : "general";
 
-  const installedPlugins = pluginListQuery.data?.plugins ?? [];
+  const installedPlugins = (pluginListQuery.data?.plugins ?? []).filter(
+    (plugin) => canUseCorePlugin(auth, plugin.id),
+  );
   const pluginEntries = buildPluginSettingsEntries({
     installedPlugins,
     settingsSections,

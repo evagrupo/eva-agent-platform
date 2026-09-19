@@ -6,6 +6,7 @@ import {
   assertUsableHostId,
   requirePrimaryHostId,
 } from "../hosts/primary-host.js";
+import { requireNonDestroyedHostWithStatus } from "../lib/entity-lookup.js";
 import {
   requireEnvironment,
   requireReadyEnvironment,
@@ -54,6 +55,7 @@ export function resolveProjectWorkspaceTarget(
       projectId: args.projectId,
       ready: true,
     });
+    requireNonDestroyedHostWithStatus(deps, environment.hostId);
     assertUsableHostId(deps, { hostId: environment.hostId });
     if (environment.path === null) {
       throw new ApiError(
@@ -66,6 +68,7 @@ export function resolveProjectWorkspaceTarget(
   }
 
   const hostId = args.hostId ?? requirePrimaryHostId(deps);
+  requireNonDestroyedHostWithStatus(deps, hostId);
   assertUsableHostId(deps, { hostId });
   const source = resolveProjectSourceOnHost(deps, {
     hostId,
@@ -98,6 +101,7 @@ export function resolveProjectCommandWorkspace(
       projectId: args.projectId,
       ready: false,
     });
+    requireNonDestroyedHostWithStatus(deps, environment.hostId);
     assertUsableHostId(deps, { hostId: environment.hostId });
     if (environment.status === "ready" && environment.path !== null) {
       return { hostId: environment.hostId, cwd: environment.path };
@@ -113,6 +117,7 @@ export function resolveProjectCommandWorkspace(
   }
 
   const hostId = args.hostId ?? requirePrimaryHostId(deps);
+  requireNonDestroyedHostWithStatus(deps, hostId);
   assertUsableHostId(deps, { hostId });
   return {
     hostId,

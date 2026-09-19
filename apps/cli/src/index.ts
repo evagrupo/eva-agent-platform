@@ -16,7 +16,7 @@ const program = new Command();
 
 program
   .name("bb")
-  .description("BB CLI - manage your AI coding agents")
+  .description("EVA CLI - manage your AI coding agents")
   .enablePositionalOptions()
   .version(resolveBbCliVersion());
 
@@ -65,7 +65,7 @@ async function tryPluginCommandProxy(
     );
     if (disabledId !== null) {
       console.error(
-        `bb ${candidate} is provided by the "${disabledId}" plugin, which is disabled — ` +
+        `The EVA command \`bb ${candidate}\` is provided by the "${disabledId}" plugin, which is disabled — ` +
           `run \`bb plugin enable ${disabledId}\` or enable it in Plugins.`,
       );
       process.exit(1);
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
 
     return `
 
-Current context:
+Current EVA context (compatibility environment names):
   BB_PROJECT_ID: ${project}
   BB_THREAD_ID: ${thread}
   BB_SERVER_URL: ${context.serverUrl}

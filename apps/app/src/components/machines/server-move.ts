@@ -68,7 +68,7 @@ export function serverMoveStepLabel(
     case "stop-work":
       return "Stopping running work";
     case "update-target":
-      return `Updating bb on ${targetHostName}`;
+      return `Updating EVA on ${targetHostName}`;
     case "export":
       return "Exporting server data";
     case "transfer":

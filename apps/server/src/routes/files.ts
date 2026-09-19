@@ -27,7 +27,15 @@ import {
   assertUsableHostId,
   requirePrimaryHostId,
 } from "../services/hosts/primary-host.js";
-import { requirePublicThreadEnvironment } from "../services/lib/entity-lookup.js";
+import {
+  requireNonDestroyedHostWithStatus,
+  requirePublicThreadEnvironment,
+} from "../services/lib/entity-lookup.js";
+import {
+  assertResourceAccess,
+  getCoreAuthContext,
+  requireAuthorizedThread,
+} from "../access-policy.js";
 import {
   DEFAULT_PATH_LIST_EXCLUDE_NAMES,
   WORKSPACE_PATH_LIST_INCLUDE_HIDDEN,
@@ -47,6 +55,7 @@ interface FilePreviewLease {
   hostId: string;
   rootPath: string;
   expiresAtMs: number;
+  ownerUserId: string | null;
 }
 
 function normalizeMimeType(value: string | null | undefined): string | null {
@@ -133,12 +142,15 @@ function createRawFilesystemHtmlPreviewResponse(
 
 async function serveRawFilesystemHtmlFile(
   deps: LoggedWorkSessionDeps,
+  context: Parameters<typeof getCoreAuthContext>[0],
   threadId: string,
   rawPath: string,
 ): Promise<Response> {
   const filePath = parseRawFilesystemPath(rawPath);
   assertHtmlPreviewPath(filePath);
+  requireAuthorizedThread(deps.db, context, threadId, "read");
   const { environment } = requirePublicThreadEnvironment(deps.db, threadId);
+  assertResourceAccess(deps.db, context, "environment", environment.id, "read");
   return serveDaemonFileContent(
     deps,
     {
@@ -156,15 +168,26 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
   const routes = publicApiRoutes.threads;
 
   get(routes.rawFile, async (context, query) =>
-    serveRawFilesystemHtmlFile(deps, context.req.param("id"), query.path),
+    serveRawFilesystemHtmlFile(
+      deps,
+      context,
+      context.req.param("id"),
+      query.path,
+    ),
   );
 
   const fileRoutes = publicApiRoutes.files;
   const previewRoutes = publicApiRoutes.filePreviews;
   const previewLeases = new Map<string, FilePreviewLease>();
 
-  const resolveHostId = (hostId: string | undefined): string => {
+  const resolveHostId = (
+    hostId: string | undefined,
+    context: object,
+    mode: "read" | "write" = "read",
+  ): string => {
     const resolved = hostId ?? requirePrimaryHostId(deps);
+    requireNonDestroyedHostWithStatus(deps, resolved);
+    assertResourceAccess(deps.db, context, "host", resolved, mode);
     assertUsableHostId(deps, { hostId: resolved });
     return resolved;
   };
@@ -223,9 +246,11 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
 
   const withHostFileRoute = async <T>(
     hostIdInput: string | undefined,
+    context: object,
     run: (hostId: string) => Promise<T>,
+    mode: "read" | "write" = "read",
   ): Promise<T> => {
-    const hostId = resolveHostId(hostIdInput);
+    const hostId = resolveHostId(hostIdInput, context, mode);
     try {
       return await run(hostId);
     } catch (error) {
@@ -234,7 +259,7 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
   };
 
   post(fileRoutes.read, (context, payload) =>
-    withHostFileRoute(payload.hostId, async (hostId) => {
+    withHostFileRoute(payload.hostId, context, async (hostId) => {
       const result = await callHostRetryableOnlineRpc(deps, {
         hostId,
         timeoutMs: COMMAND_TIMEOUT_MS,
@@ -251,27 +276,32 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
   );
 
   post(fileRoutes.write, (context, payload) =>
-    withHostFileRoute(payload.hostId, async (hostId) => {
-      const result = await runHostFileMutationCommand(hostId, {
-        type: "host.write_file",
-        path: payload.path,
-        content: payload.content,
-        contentEncoding: payload.contentEncoding ?? "utf8",
-        createParents: payload.createParents ?? false,
-        ...(payload.rootPath !== undefined
-          ? { rootPath: payload.rootPath }
-          : {}),
-        ...(payload.expectedSha256 !== undefined
-          ? { expectedSha256: payload.expectedSha256 }
-          : {}),
-        ...(payload.mode !== undefined ? { mode: payload.mode } : {}),
-      });
-      return context.json(result);
-    }),
+    withHostFileRoute(
+      payload.hostId,
+      context,
+      async (hostId) => {
+        const result = await runHostFileMutationCommand(hostId, {
+          type: "host.write_file",
+          path: payload.path,
+          content: payload.content,
+          contentEncoding: payload.contentEncoding ?? "utf8",
+          createParents: payload.createParents ?? false,
+          ...(payload.rootPath !== undefined
+            ? { rootPath: payload.rootPath }
+            : {}),
+          ...(payload.expectedSha256 !== undefined
+            ? { expectedSha256: payload.expectedSha256 }
+            : {}),
+          ...(payload.mode !== undefined ? { mode: payload.mode } : {}),
+        });
+        return context.json(result);
+      },
+      "write",
+    ),
   );
 
   post(fileRoutes.list, (context, payload) =>
-    withHostFileRoute(payload.hostId, async (hostId) => {
+    withHostFileRoute(payload.hostId, context, async (hostId) => {
       const result = await callHostRetryableOnlineRpc(deps, {
         hostId,
         timeoutMs: COMMAND_TIMEOUT_MS,
@@ -293,7 +323,7 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
   );
 
   post(fileRoutes.listPaths, (context, payload) =>
-    withHostFileRoute(payload.hostId, async (hostId) => {
+    withHostFileRoute(payload.hostId, context, async (hostId) => {
       const result = await callHostRetryableOnlineRpc(deps, {
         hostId,
         timeoutMs: COMMAND_TIMEOUT_MS,
@@ -317,49 +347,64 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
   );
 
   post(fileRoutes.mkdir, (context, payload) =>
-    withHostFileRoute(payload.hostId, async (hostId) => {
-      const result = await runHostFileMutationCommand(hostId, {
-        type: "host.mkdir",
-        path: payload.path,
-        recursive: payload.recursive ?? false,
-        ...(payload.rootPath !== undefined
-          ? { rootPath: payload.rootPath }
-          : {}),
-      });
-      return context.json(result);
-    }),
+    withHostFileRoute(
+      payload.hostId,
+      context,
+      async (hostId) => {
+        const result = await runHostFileMutationCommand(hostId, {
+          type: "host.mkdir",
+          path: payload.path,
+          recursive: payload.recursive ?? false,
+          ...(payload.rootPath !== undefined
+            ? { rootPath: payload.rootPath }
+            : {}),
+        });
+        return context.json(result);
+      },
+      "write",
+    ),
   );
 
   post(fileRoutes.move, (context, payload) =>
-    withHostFileRoute(payload.hostId, async (hostId) => {
-      const result = await runHostFileMutationCommand(hostId, {
-        type: "host.move_path",
-        sourcePath: payload.sourcePath,
-        destinationPath: payload.destinationPath,
-        ...(payload.rootPath !== undefined
-          ? { rootPath: payload.rootPath }
-          : {}),
-      });
-      return context.json(result);
-    }),
+    withHostFileRoute(
+      payload.hostId,
+      context,
+      async (hostId) => {
+        const result = await runHostFileMutationCommand(hostId, {
+          type: "host.move_path",
+          sourcePath: payload.sourcePath,
+          destinationPath: payload.destinationPath,
+          ...(payload.rootPath !== undefined
+            ? { rootPath: payload.rootPath }
+            : {}),
+        });
+        return context.json(result);
+      },
+      "write",
+    ),
   );
 
   post(fileRoutes.remove, (context, payload) =>
-    withHostFileRoute(payload.hostId, async (hostId) => {
-      const result = await runHostFileMutationCommand(hostId, {
-        type: "host.remove_path",
-        path: payload.path,
-        recursive: payload.recursive ?? false,
-        ...(payload.rootPath !== undefined
-          ? { rootPath: payload.rootPath }
-          : {}),
-      });
-      return context.json(result);
-    }),
+    withHostFileRoute(
+      payload.hostId,
+      context,
+      async (hostId) => {
+        const result = await runHostFileMutationCommand(hostId, {
+          type: "host.remove_path",
+          path: payload.path,
+          recursive: payload.recursive ?? false,
+          ...(payload.rootPath !== undefined
+            ? { rootPath: payload.rootPath }
+            : {}),
+        });
+        return context.json(result);
+      },
+      "write",
+    ),
   );
 
   post(fileRoutes.createPreview, (context, payload) => {
-    const hostId = resolveHostId(payload.hostId);
+    const hostId = resolveHostId(payload.hostId, context);
     if (!isAbsoluteHostPath(payload.rootPath)) {
       throw new ApiError(
         400,
@@ -378,6 +423,7 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
       hostId,
       rootPath: normalizeHostPath(payload.rootPath),
       expiresAtMs,
+      ownerUserId: getCoreAuthContext(context)?.userId ?? null,
     });
     return context.json({
       baseUrl: `/api/v1/file-previews/${encodeURIComponent(id)}`,
@@ -392,6 +438,21 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
       previewLeases.delete(id);
       throw new ApiError(404, "not_found", "File preview expired", false);
     }
+    const authContext = getCoreAuthContext(context);
+    if (
+      authContext !== null &&
+      authContext.role !== "admin" &&
+      lease.ownerUserId !== authContext.userId
+    ) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "File preview is not available under your policy",
+        false,
+      );
+    }
+    requireNonDestroyedHostWithStatus(deps, lease.hostId);
+    assertResourceAccess(deps.db, context, "host", lease.hostId, "read");
     const rawPath = context.req.param("filePath").replace(/\\/g, "/");
     const segments = rawPath.split("/");
     if (

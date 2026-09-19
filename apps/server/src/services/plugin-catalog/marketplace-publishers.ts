@@ -6,21 +6,41 @@ import {
 
 const RESERVED_PUBLISHER_LABELS: ReadonlySet<string> = new Set([
   BUILTIN_PUBLISHER_LABEL,
-  "BB Community",
+  "EVA Integrations",
 ]);
+
+const LEGACY_PRODUCT_LABELS: ReadonlyMap<string, string> = new Map([
+  ["BB Official", BUILTIN_PUBLISHER_LABEL],
+  ["BB Community", "EVA Integrations"],
+]);
+
+export function evaProductLabel(value: string): string {
+  return LEGACY_PRODUCT_LABELS.get(value) ?? value;
+}
+
+export function marketplaceDisplayNameForProduct(args: {
+  marketplaceName: string;
+  displayName?: string | null;
+}): string {
+  const displayName = evaProductLabel(
+    args.displayName?.trim() || args.marketplaceName,
+  );
+  if (
+    args.marketplaceName === CURATED_PLUGIN_MARKETPLACE_NAME ||
+    args.marketplaceName === BUNDLED_MARKETPLACE_NAME
+  ) {
+    return displayName;
+  }
+  return RESERVED_PUBLISHER_LABELS.has(displayName)
+    ? args.marketplaceName
+    : displayName;
+}
 
 export function marketplacePublisherLabel(args: {
   marketplaceName: string;
   displayName: string;
 }): string {
-  if (
-    args.marketplaceName === CURATED_PLUGIN_MARKETPLACE_NAME ||
-    args.marketplaceName === BUNDLED_MARKETPLACE_NAME
-  )
-    return args.displayName;
-  return RESERVED_PUBLISHER_LABELS.has(args.displayName)
-    ? args.marketplaceName
-    : args.displayName;
+  return marketplaceDisplayNameForProduct(args);
 }
 
 export function pluginPublisherLabel(args: {
@@ -35,5 +55,5 @@ export function pluginPublisherLabel(args: {
   if (args.provenance !== "catalog") return null;
   const name = args.catalogMarketplaceName;
   if (name === null) return null;
-  return args.labels.get(name) ?? name;
+  return evaProductLabel(args.labels.get(name) ?? name);
 }

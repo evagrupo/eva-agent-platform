@@ -17,7 +17,6 @@ import { VoiceInputSettingsSectionContent } from "@/components/settings/VoiceInp
 import { ArchivedThreadsSettingsSection } from "@/components/settings/ArchivedThreadsSettingsSection";
 import { CommunitySettingsSection } from "@/components/settings/CommunitySettingsSection";
 import { KeyboardSettingsSection } from "@/components/settings/KeyboardSettingsSection";
-import { MarketplacesSettingsSection } from "@/components/settings/MarketplacesSettingsSection";
 import { MachineEnvironmentSettings } from "@/components/settings/MachineEnvironmentSettings";
 import { MachinesSettingsSection } from "@/components/settings/MachinesSettingsSection";
 import { ProjectsSettingsSection } from "@/components/settings/ProjectsSettingsSection";
@@ -350,8 +349,6 @@ function SettingsStoryContent({ route }: { route: SettingsStoryRoute }) {
       return <SettingsUpdatesStory />;
     case "experiments":
       return <ExperimentsStory />;
-    case "marketplaces":
-      return <MarketplacesSettingsSection />;
     case "community":
       return <CommunitySettingsSection />;
     case "archived":

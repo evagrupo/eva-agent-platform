@@ -34,6 +34,11 @@ import {
   parseEnvironmentValue,
 } from "@/components/pickers/environment-picker-value";
 import { PERMISSION_MODE_OPTIONS } from "@/lib/permission-mode-options";
+import {
+  useCoreAuth,
+  type CoreAuthAgent,
+  type CoreAuthAgentExecutionTuple,
+} from "@/lib/core-auth";
 import { useRootComposeReuseEnvironment } from "@/lib/root-compose-selection";
 import { getProviderIconInfo } from "@/lib/provider-icon";
 import { fastServiceTierLabel } from "@/lib/reasoning-labels";
@@ -80,6 +85,8 @@ export { formatModelLabel, resolvePermissionModeSelection };
 
 const EMPTY_PROVIDERS: ProviderInfo[] = [];
 const EMPTY_COMPOSER_ACTIONS: ProviderComposerAction[] = [];
+const EMPTY_AGENTS: CoreAuthAgent[] = [];
+const EMPTY_AGENT_TUPLES: CoreAuthAgentExecutionTuple[] = [];
 
 const DEFAULT_SUPPORTED_PERMISSION_MODES: readonly PermissionMode[] = ["full"];
 
@@ -107,6 +114,10 @@ type ProviderModelReasoningSelectionSetter = (
 
 interface UseThreadCreationOptionsResult<TExecutionInputSources> {
   executionOptionsRouting: SystemProvidersQuery;
+  agentOptions: readonly CoreAuthAgent[];
+  selectedAgentId: string | null;
+  fixedExecution: boolean;
+  setSelectedAgentId: (value: string) => void;
   selectedProviderId: string;
   setSelectedProviderId: StringSelectionSetter;
   setProviderModelReasoning: ProviderModelReasoningSelectionSetter;
@@ -196,6 +207,55 @@ function migrateLegacyStoredEnvironmentValue(stored: string): string {
   return stored;
 }
 
+function resolveInitialAgentId(
+  agents: readonly CoreAuthAgent[],
+  initialAgentId: string | undefined,
+  providerId: string | undefined,
+  defaultAgentId: string | null | undefined,
+): string | null {
+  if (
+    initialAgentId !== undefined &&
+    agents.some((agent) => agent.id === initialAgentId)
+  ) {
+    return initialAgentId;
+  }
+  if (
+    defaultAgentId !== undefined &&
+    defaultAgentId !== null &&
+    agents.some((agent) => agent.id === defaultAgentId)
+  ) {
+    return defaultAgentId;
+  }
+  if (providerId !== undefined) {
+    const matchingAgent = agents.find((agent) =>
+      agent.providerIds.includes(providerId),
+    );
+    if (matchingAgent !== undefined) return matchingAgent.id;
+  }
+  return agents[0]?.id ?? null;
+}
+
+function executionTupleAllowsProvider(
+  tuple: CoreAuthAgentExecutionTuple,
+  providerId: string,
+): boolean {
+  return (
+    tuple.providerIds.includes("*") || tuple.providerIds.includes(providerId)
+  );
+}
+
+function executionTupleAllowsModel(
+  tuple: CoreAuthAgentExecutionTuple,
+  model: string,
+): boolean {
+  return tuple.models.some(
+    (rule) =>
+      rule === "*" ||
+      rule === model ||
+      (rule.endsWith("*") && model.startsWith(rule.slice(0, -1))),
+  );
+}
+
 export function sanitizeStoredEnvironmentValue(stored: string): string {
   if (!stored) return "";
   const migrated = migrateLegacyStoredEnvironmentValue(stored);
@@ -221,6 +281,7 @@ export function useThreadCreationOptions(
     environmentId,
     environmentHostId,
     initialEnvironmentSelectionValue,
+    initialAgentId,
     initialModel,
     initialProviderId,
     initialPermissionMode,
@@ -232,6 +293,81 @@ export function useThreadCreationOptions(
     resetKey,
     scope = "new-thread",
   } = options ?? {};
+  const coreAuth = useCoreAuth();
+  const agentOptions =
+    coreAuth?.bootstrap?.capabilities.execution.agents ?? EMPTY_AGENTS;
+  const initialAgentSelection = useMemo(
+    () =>
+      resolveInitialAgentId(
+        agentOptions,
+        initialAgentId,
+        initialProviderId,
+        coreAuth?.bootstrap?.capabilities.execution.defaultAgentId,
+      ),
+    [
+      agentOptions,
+      coreAuth?.bootstrap?.capabilities.execution.defaultAgentId,
+      initialAgentId,
+      initialProviderId,
+    ],
+  );
+  const [selectedAgentIdState, setSelectedAgentIdState] = useState<
+    string | null
+  >(initialAgentSelection);
+  const [agentResetKey, setAgentResetKey] = useState(resetKey);
+  if (agentResetKey !== resetKey) {
+    setAgentResetKey(resetKey);
+    setSelectedAgentIdState(initialAgentSelection);
+  }
+  const selectedAgentId = agentOptions.some(
+    (agent) => agent.id === selectedAgentIdState,
+  )
+    ? selectedAgentIdState
+    : initialAgentSelection;
+  const executionAgentTuples =
+    coreAuth?.bootstrap?.capabilities.execution.agentTuples ??
+    EMPTY_AGENT_TUPLES;
+  const selectedAgent = agentOptions.find(
+    (agent) => agent.id === selectedAgentId,
+  );
+  const selectedAgentTuples = executionAgentTuples.filter(
+    (tuple) => tuple.agentId === selectedAgentId,
+  );
+  const selectedAgentFixedTuple =
+    selectedAgentTuples.length === 1 && selectedAgentTuples[0]?.fixed
+      ? selectedAgentTuples[0]
+      : undefined;
+  const fixedExecution =
+    selectedAgentFixedTuple !== undefined ||
+    selectedAgent?.fixedExecution === true;
+  const fixedProviderId = fixedExecution
+    ? (selectedAgentFixedTuple?.defaultProviderId ??
+      selectedAgent?.defaultProviderId ??
+      null)
+    : null;
+  const fixedModel = fixedExecution
+    ? (selectedAgentFixedTuple?.defaultModel ??
+      selectedAgent?.defaultModel ??
+      null)
+    : null;
+  const fixedReasoningLevel = fixedExecution
+    ? (selectedAgentFixedTuple?.defaultReasoningLevel ??
+      selectedAgent?.defaultReasoningLevel ??
+      null)
+    : null;
+  const fixedPermissionMode = fixedExecution
+    ? (selectedAgentFixedTuple?.defaultPermissionMode ??
+      selectedAgent?.defaultPermissionMode ??
+      null)
+    : null;
+  const setSelectedAgentId = useCallback(
+    (value: string) => {
+      if (agentOptions.some((agent) => agent.id === value)) {
+        setSelectedAgentIdState(value);
+      }
+    },
+    [agentOptions],
+  );
   const { setValue: setStoredProviderId, value: storedProviderId } =
     usePromptBoxProviderPreference();
   const setStoredProviderModelReasoning =
@@ -308,15 +444,19 @@ export function useThreadCreationOptions(
     usesLocalThreadSelections,
   ]);
 
-  const selectedProviderIdBeforeReadyFallback = usesStoredCreateSelections
-    ? storedProviderId || renderedThreadSelections.selectedProviderId
-    : renderedThreadSelections.selectedProviderId;
+  const selectedProviderIdBeforeReadyFallback =
+    fixedProviderId ??
+    (usesStoredCreateSelections
+      ? storedProviderId || renderedThreadSelections.selectedProviderId
+      : renderedThreadSelections.selectedProviderId);
   const rawServiceTier = usesStoredCreateSelections
     ? storedServiceTier || renderedThreadSelections.serviceTier
     : renderedThreadSelections.serviceTier;
-  const rawPermissionMode = usesStoredCreateSelections
-    ? storedPermissionMode || renderedThreadSelections.permissionMode
-    : renderedThreadSelections.permissionMode;
+  const rawPermissionMode =
+    fixedPermissionMode ??
+    (usesStoredCreateSelections
+      ? storedPermissionMode || renderedThreadSelections.permissionMode
+      : renderedThreadSelections.permissionMode);
   const rawEnvironmentSelectionValue =
     scope === "new-thread"
       ? (rootComposeReuseValue ??
@@ -338,6 +478,7 @@ export function useThreadCreationOptions(
           : { modelCatalogScope: knownModelCatalogScope }),
         scope,
       });
+  const selectedAgentProviderIds = selectedAgent?.providerIds;
   const canResolveReadyProvider =
     executionOptionsQueryEnabled &&
     scope === "new-thread" &&
@@ -348,6 +489,7 @@ export function useThreadCreationOptions(
   const providerStatesQuery = useSystemProviderStates({
     enabled: shouldResolveReadyProvider,
     ...executionOptionsRouting,
+    agentId: selectedAgentId ?? undefined,
     poll: false,
   });
   const queriedReadyProviderId = shouldResolveReadyProvider
@@ -379,12 +521,17 @@ export function useThreadCreationOptions(
   const rawSelectedProviderId =
     selectedProviderIdBeforeReadyFallback || readyProviderId || "";
   const executionOptionsProviderId = executionOptionsQueryEnabled
-    ? rawSelectedProviderId || undefined
+    ? rawSelectedProviderId.length > 0 &&
+      (selectedAgentProviderIds === undefined ||
+        selectedAgentProviderIds.includes(rawSelectedProviderId))
+      ? rawSelectedProviderId
+      : undefined
     : undefined;
   const executionOptionsQuery = useSystemExecutionOptions({
     enabled: executionOptionsQueryEnabled,
     ...executionOptionsRouting,
     providerId: executionOptionsProviderId,
+    agentId: selectedAgentId ?? undefined,
   });
   const hostsQuery = useHosts();
   const systemConfig = useSystemConfig();
@@ -426,21 +573,24 @@ export function useThreadCreationOptions(
   const effectiveProviderMatchesInitialProvider =
     effectiveProviderId.length > 0 &&
     effectiveProviderId === renderedThreadSelections.selectedProviderId;
-  const rawSelectedModel = usesStoredCreateSelections
-    ? storedSelectedModel ||
-      (effectiveProviderMatchesInitialProvider
-        ? renderedThreadSelections.selectedModel
-        : "")
-    : renderedThreadSelections.selectedModel;
+  const rawSelectedModel =
+    fixedModel ??
+    (usesStoredCreateSelections
+      ? storedSelectedModel ||
+        (effectiveProviderMatchesInitialProvider
+          ? renderedThreadSelections.selectedModel
+          : "")
+      : renderedThreadSelections.selectedModel);
   const preferredReasoningLevel: ReasoningLevel | undefined =
-    usesStoredCreateSelections
+    fixedReasoningLevel ??
+    (usesStoredCreateSelections
       ? storedReasoningLevel ||
         (effectiveProviderMatchesInitialProvider
           ? initialReasoningLevel
           : undefined)
       : localProvidersUsingDefaults.has(effectiveProviderId)
         ? undefined
-        : renderedThreadSelections.reasoningLevel;
+        : renderedThreadSelections.reasoningLevel);
 
   const selectedProviderInfo = useMemo(
     () => providers.find((p) => p.id === effectiveProviderId),
@@ -475,7 +625,9 @@ export function useThreadCreationOptions(
   const permissionModes: readonly PermissionMode[] =
     activeProviderCapabilities?.permissionModes ??
     DEFAULT_SUPPORTED_PERMISSION_MODES;
-  const supportsPermissionModeSelection = permissionModes.length > 1;
+  const selectedProviderTuples = selectedAgentTuples.filter((tuple) =>
+    executionTupleAllowsProvider(tuple, effectiveProviderId),
+  );
   const routedHostCeiling = useMemo(() => {
     const hosts = hostsQuery.data;
     if (!hosts) return null;
@@ -497,30 +649,6 @@ export function useThreadCreationOptions(
     : executionOptionsQuery.data?.permissionCeiling;
   const permissionCeiling: PermissionMode =
     routedCeiling ?? routedHostCeiling ?? "full";
-  const allowedPermissionModes = useMemo(
-    () =>
-      permissionModes.filter(
-        (mode) =>
-          permissionModeRank(mode) <= permissionModeRank(permissionCeiling),
-      ),
-    [permissionCeiling, permissionModes],
-  );
-  const permissionModeOptions = useMemo(
-    () =>
-      PERMISSION_MODE_OPTIONS.filter((option) =>
-        permissionModes.includes(option.value),
-      ).map((option) =>
-        permissionModeRank(option.value) > permissionModeRank(permissionCeiling)
-          ? {
-              ...option,
-              disabled: true,
-              disabledReason: PERMISSION_CEILING_REASON,
-            }
-          : option,
-      ),
-    [permissionCeiling, permissionModes],
-  );
-
   const serviceTierSupportByProvider = useMemo(() => {
     const supportByProvider: Record<string, boolean> = {};
     for (const provider of providers) {
@@ -565,12 +693,61 @@ export function useThreadCreationOptions(
     [rawServiceTier, supportsServiceTier],
   );
 
+  const policyPermissionModes = useMemo<readonly PermissionMode[]>(() => {
+    if (fixedPermissionMode !== null) return [fixedPermissionMode];
+    if (executionAgentTuples.length === 0) return permissionModes;
+    const tuples =
+      selectedModel.length === 0
+        ? selectedProviderTuples
+        : selectedProviderTuples.filter((tuple) =>
+            executionTupleAllowsModel(tuple, selectedModel),
+          );
+    return permissionModes.filter((mode) =>
+      tuples.some(
+        (tuple) =>
+          permissionModeRank(mode) <=
+          permissionModeRank(tuple.maxPermissionMode),
+      ),
+    );
+  }, [
+    executionAgentTuples.length,
+    fixedPermissionMode,
+    permissionModes,
+    selectedModel,
+    selectedProviderTuples,
+  ]);
+  const allowedPermissionModes = useMemo(
+    () =>
+      policyPermissionModes.filter(
+        (mode) =>
+          permissionModeRank(mode) <= permissionModeRank(permissionCeiling),
+      ),
+    [permissionCeiling, policyPermissionModes],
+  );
+  const permissionModeOptions = useMemo(
+    () =>
+      PERMISSION_MODE_OPTIONS.filter((option) =>
+        policyPermissionModes.includes(option.value),
+      ).map((option) =>
+        permissionModeRank(option.value) > permissionModeRank(permissionCeiling)
+          ? {
+              ...option,
+              disabled: true,
+              disabledReason: PERMISSION_CEILING_REASON,
+            }
+          : option,
+      ),
+    [permissionCeiling, policyPermissionModes],
+  );
+  const supportsPermissionModeSelection =
+    !fixedExecution && policyPermissionModes.length > 1;
+
   const permissionMode = resolvePermissionModeSelection({
     rawPermissionMode,
     permissionModes:
       allowedPermissionModes.length > 0
         ? allowedPermissionModes
-        : permissionModes,
+        : policyPermissionModes,
   });
   const environmentSelectionValue = rawEnvironmentSelectionValue;
   const touchedFieldsPendingReset =
@@ -897,6 +1074,10 @@ export function useThreadCreationOptions(
 
   return {
     executionOptionsRouting,
+    agentOptions,
+    selectedAgentId,
+    fixedExecution,
+    setSelectedAgentId,
     selectedProviderId: effectiveProviderId,
     setSelectedProviderId,
     setProviderModelReasoning,

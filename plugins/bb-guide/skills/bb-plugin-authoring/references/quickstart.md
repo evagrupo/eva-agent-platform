@@ -43,7 +43,7 @@ the current engine values and the entries for its generated surfaces.
   `devDependencies` makes the plugin uninstallable from git, and unbuildable
   after any install that omits dev deps — including the packaged CLI's own,
   which runs npm under `NODE_ENV=production`. `devDependencies` is for types
-  and tooling only — including every package bb shims at runtime (sonner,
+  and tooling only — including every package EVA shims at runtime (sonner,
   vaul, the portal radix families, @pierre/diffs, clsx, tailwind-merge,
   class-variance-authority): the build never bundles them, but `tsc` still
   resolves their declarations through node_modules, so each one you import
@@ -65,7 +65,7 @@ the current engine values and the entries for its generated surfaces.
   plugin with `bb.host` must publish its host bundle and metadata. Users of
   prebuilt artifacts need no npm, but managed Git and npm installs need npm on
   `PATH`.
-- Building yourself (CI, or verifying a build without a running bb): add
+- Building yourself (CI, or verifying a build without a running EVA server): add
   `bb-app` to `devDependencies` and set `"build": "bb plugin build"`.
   `bb plugin build` needs no running server, but the manifest still needs
   `bb.server`. Depending on `bb-app@X` builds
@@ -85,15 +85,15 @@ the current engine values and the entries for its generated surfaces.
   identity. The top-level package `name` remains the package identity and
   source of the plugin id.
 - `bb.branding` (required) — declare `bb.branding.icon` as either the plugin's
-  canonical BB icon name, such as `Zap`, or a plugin-relative compact SVG path
+  canonical EVA icon name, such as `Zap`, or a plugin-relative compact SVG path
   such as `./assets/icon.svg`. A namespaced `"<pluginId>/<name>"` glyph is
   refused here: that form is how tool presentations and provider declarations
   name a declared icon, and the plugin's own mark points at its file directly.
-  BB validates path-shaped SVGs (well-formed XML with an `<svg>` root, no
+  EVA validates path-shaped SVGs (well-formed XML with an `<svg>` root, no
   doctype or processing instruction), hash-serves them, then renders them
   as CSS masks so their shape inherits the surrounding text color; SVG
   colors are ignored.
-  BB reuses this icon on roomy surfaces when no logo override is declared.
+  EVA reuses this icon on roomy surfaces when no logo override is declared.
   Add `logo.light` only for
   intentionally different rich/full-size identity artwork; optional
   `logo.dark` is preferred in dark mode. Logo paths are explicit
@@ -102,11 +102,11 @@ the current engine values and the entries for its generated surfaces.
   light logo fail the manifest. `bb plugin build` refuses an SVG logo that
   carries a script vector (a `script`, `handler` or `listener` element, an
   `on*` attribute, or a `javascript:` href). Manifest, build, and load checks
-  reject the invalid paths and SVGs described above. Every SVG BB serves
+  reject the invalid paths and SVGs described above. Every SVG EVA serves
   carries `nosniff` and a `default-src 'none'` CSP. There is
   no root logo auto-detection. Logo-only
   manifests remain supported for compatibility, so at least an icon or light
-  logo is required. BB uses a declared logo where space permits, such as roomy
+  logo is required. EVA uses a declared logo where space permits, such as roomy
   Settings rows and cards.
   Compact sidebar, menu, action, mention, and panel-title surfaces prefer the
   plugin-owned icon asset, then a named manifest icon, then a contribution's
@@ -133,7 +133,7 @@ the current engine values and the entries for its generated surfaces.
   Reference an entry by its namespaced glyph `"<pluginId>/<name>"` — in a
   bridge's `presentation.icon`,
   in `bb.agents.registerTool`'s `presentation.icon`, or as a
-  `bb.providers.register` `icon`. BB serves each file hashed from
+  `bb.providers.register` `icon`. EVA serves each file hashed from
   `/api/v1/plugins/<id>/assets/icons/<name>.svg`, lists them on the
   installed-plugin inventory as `icons`, and draws them as `currentColor`
   masks (web) or tinted SVG views (mobile), so ship monochrome shapes. A
@@ -146,9 +146,9 @@ the current engine values and the entries for its generated surfaces.
   row whose name is no longer declared, or whose plugin is uninstalled,
   draws the per-kind fallback glyph.
 - `engines.bb` — optional compatibility string checked during runtime and
-  update selection against the BB app version.
+  update selection against the EVA app version.
 - `engines.bbPluginSdk` — optional SDK compatibility string. The scaffold uses
-  the repository SDK version. BB validates this range before use. Absent means
+  the repository SDK version. EVA validates this range before use. Absent means
   a legacy manifest. Managed (`git:`/`npm:`) installs **refuse** a plugin that needs a
   newer SDK than the host provides, or one pinned to a different major; path
   installs surface it as `incompatible` at load.
@@ -170,7 +170,7 @@ the current engine values and the entries for its generated surfaces.
   manifest, or whose SDK major does not match the host.
 - Default to `bb-plugin-hello` for the package name. Scoped names such as
   `@acme/bb-plugin-hello` are also supported. The plugin id is the final
-  package-name component minus the `bb-plugin-` prefix. BB lowercases it,
+  package-name component minus the `bb-plugin-` prefix. EVA lowercases it,
   replaces non-alphanumeric runs with `-`, and trims separators. An empty
   result is invalid. Every bundled plugin id is reserved for its bundled
   source. The id namespaces routes, storage, settings, and CLI commands.

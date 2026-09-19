@@ -590,6 +590,7 @@ export function RootComposeView() {
       forkSeed === null
         ? undefined
         : {
+            agentId: forkSeed.agentId,
             providerId: forkSeed.providerId,
             model: forkSeed.model,
             reasoningLevel: forkSeed.reasoningLevel,

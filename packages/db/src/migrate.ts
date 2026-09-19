@@ -576,6 +576,116 @@ function markMigrationApplied(
     .run(migration.hash, migration.createdAt);
 }
 
+function hasColumns(
+  db: DbConnection,
+  tableName: string,
+  columnNames: readonly string[],
+): boolean {
+  return columnNames.every((columnName) =>
+    columnExists(db, tableName, columnName),
+  );
+}
+
+function repairMiniAppMigrationHistory(
+  db: DbConnection,
+  migrationsFolder: string,
+): void {
+  if (
+    !tableExists(db, "__drizzle_migrations") ||
+    !tableExists(db, "eva_mini_app_deployments") ||
+    !tableExists(db, "eva_mini_app_links") ||
+    !tableExists(db, "eva_mini_app_sessions")
+  ) {
+    return;
+  }
+
+  const expectedMigrations = readExpectedAppliedMigrations(migrationsFolder);
+  const appliedCreatedAts = readAppliedMigrationCreatedAts(db);
+  const initialMigration = requireExpectedAppliedMigration(
+    expectedMigrations,
+    "0133_colorful_orphan",
+  );
+  const finalMigration = requireExpectedAppliedMigration(
+    expectedMigrations,
+    "0134_happy_wild_pack",
+  );
+  const hasEarlierHistoryGap = expectedMigrations.some(
+    (migration) =>
+      migration.createdAt < initialMigration.createdAt &&
+      !appliedCreatedAts.has(migration.createdAt),
+  );
+  if (hasEarlierHistoryGap) return;
+
+  const hasInitialSchema =
+    hasColumns(db, "eva_mini_app_deployments", [
+      "id",
+      "app_id",
+      "display_name",
+      "loopback_port",
+      "created_by_user_id",
+      "revoked_at",
+      "created_at",
+      "updated_at",
+    ]) &&
+    hasColumns(db, "eva_mini_app_links", [
+      "id",
+      "deployment_id",
+      "created_by_user_id",
+      "user_id",
+      "group_id",
+      "agent_id",
+      "expires_at",
+      "revoked_at",
+      "created_at",
+      "updated_at",
+    ]) &&
+    hasColumns(db, "eva_mini_app_sessions", [
+      "id",
+      "link_id",
+      "deployment_id",
+      "user_id",
+      "core_session_id",
+      "token_hash",
+      "expires_at",
+      "revoked_at",
+      "created_at",
+      "last_seen_at",
+    ]) &&
+    (hasColumns(db, "eva_mini_app_links", [
+      "handoff_hash",
+      "handoff_expires_at",
+      "exchanged_at",
+    ]) ||
+      tableExists(db, "eva_mini_app_handoffs"));
+
+  if (!appliedCreatedAts.has(initialMigration.createdAt) && hasInitialSchema) {
+    markMigrationApplied(db, initialMigration);
+    appliedCreatedAts.add(initialMigration.createdAt);
+  }
+
+  const hasFinalSchema =
+    tableExists(db, "eva_mini_app_handoffs") &&
+    hasColumns(db, "eva_mini_app_handoffs", [
+      "id",
+      "link_id",
+      "user_id",
+      "core_session_id",
+      "token_hash",
+      "expires_at",
+      "exchanged_at",
+      "created_at",
+    ]) &&
+    !hasColumns(db, "eva_mini_app_links", [
+      "handoff_hash",
+      "handoff_expires_at",
+      "exchanged_at",
+    ]);
+
+  if (!appliedCreatedAts.has(finalMigration.createdAt) && hasFinalSchema) {
+    markMigrationApplied(db, finalMigration);
+  }
+}
+
 function applyMigrationStatements(
   db: DbConnection,
   migration: ExpectedAppliedMigration,
@@ -1585,6 +1695,7 @@ export function migrate(db: DbConnection, options: MigrateOptions = {}): void {
     const stagedThreadStorageDeletedAt =
       stageExistingThreadStorageDeletedAtColumn(db, migrationsFolder);
     try {
+      repairMiniAppMigrationHistory(db, migrationsFolder);
       drizzleMigrate(db, { migrationsFolder });
     } finally {
       if (stagedConnectMachineId) restoreStagedConnectMachineIdColumn(db);

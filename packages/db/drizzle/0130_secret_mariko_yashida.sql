@@ -1,0 +1,1 @@
+ALTER TABLE `auth_agent_grants` ADD `plugin_ids_json` text DEFAULT '[]' NOT NULL;

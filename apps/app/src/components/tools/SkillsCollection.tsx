@@ -54,7 +54,7 @@ function providerLabel(
   provider: SkillProvider | null,
   providerRoster: ProviderRoster,
 ): string {
-  if (provider === null) return "bb";
+  if (provider === null) return "EVA";
   return providerRoster.get(provider)?.displayName ?? provider;
 }
 
@@ -66,7 +66,7 @@ function providerFilterLabel(
   provider: ResourceProviderFilter,
   providerRoster: ProviderRoster,
 ): string {
-  return provider === "bb" ? "bb" : providerLabel(provider, providerRoster);
+  return provider === "bb" ? "EVA" : providerLabel(provider, providerRoster);
 }
 
 function skillSourceFilterId(skill: SkillSummary): ResourceSkillSourceFilter {
@@ -78,7 +78,7 @@ function skillSourceFilterId(skill: SkillSummary): ResourceSkillSourceFilter {
 function skillSourceFilterLabel(source: ResourceSkillSourceFilter): string {
   switch (source) {
     case "bb-official":
-      return "BB Official";
+      return "EVA Verified";
     case "included":
       return "Included in plugin";
     case "user":
@@ -234,11 +234,11 @@ const SKILLS_BROWSE_DESCRIPTION = (
     >
       skills.sh
     </a>
-    . Install one and every agent you use in bb can run it.
+    . Install one and every agent you use in EVA can run it.
   </>
 );
 const SKILLS_LIBRARY_DESCRIPTION =
-  "The skills on this bb host — yours, your providers', and those bundled with plugins. They work with every agent you use in bb.";
+  "The skills on this EVA workspace — yours, your providers', and those bundled with integrations. They work with every agent you use in EVA.";
 
 const PREFETCH_HOVER_INTENT_MS = 150;
 
@@ -280,7 +280,7 @@ function SkillRow({
         title={skill.name}
         titleMeta={
           skill.scope === "bb-builtin" ? (
-            <ProvenancePill label="BB Official" />
+            <ProvenancePill label="EVA Official" />
           ) : skill.scope === "plugin" ? (
             <ProvenancePill
               label="Included"
@@ -540,7 +540,7 @@ export function SkillsOverview({
               action={
                 <CreateWithTemplatesButton
                   kind="skill"
-                  label="New bb skill"
+                  label="New EVA skill"
                   onCreate={onCreateSkill}
                 />
               }
@@ -694,9 +694,9 @@ export function SkillDetailDialogView({
       titleBadge={
         skill.scope === "bb-builtin"
           ? {
-              label: "BB Official",
-              tooltip: "Ships with bb",
-              accessibleLabel: `${skill.name} is BB Official`,
+              label: "EVA Verified",
+              tooltip: "Ships with EVA",
+              accessibleLabel: `${skill.name} is EVA Verified`,
             }
           : bundledPluginName !== null
             ? {

@@ -41,7 +41,7 @@ export function SidebarUpdatesBadge({ onNavigate }: SidebarUpdatesBadgeProps) {
   const stuckDaemonCount = inventory.machines.filter(
     (machine) => machine.canRetryDaemonUpdate,
   ).length;
-  const bbUpdateCount =
+  const evaUpdateCount =
     (inventory.appUpdateAvailable ? 1 : 0) +
     (inventory.desktopUpdateReady ? 1 : 0) +
     stuckDaemonCount;
@@ -69,34 +69,36 @@ export function SidebarUpdatesBadge({ onNavigate }: SidebarUpdatesBadgeProps) {
     ),
   );
 
-  if (bbUpdateCount === 0 && staleProviders.length === 0) {
+  if (evaUpdateCount === 0 && staleProviders.length === 0) {
     return null;
   }
 
   const updatesRoutePath = getSettingsRoutePath("updates");
-  const bbLabel =
-    bbUpdateCount === 1 ? "bb update available" : "bb updates available";
+  const evaLabel =
+    evaUpdateCount === 1
+      ? "EVA platform update available"
+      : "EVA platform updates available";
   const providerLabel = `${joinNames(
     staleProviders.map((stale) => stale.displayName),
   )} ${staleProviders.length === 1 ? "update" : "updates"} available`;
 
   return (
     <SidebarMenuItem className="flex min-w-0 items-center gap-1">
-      {bbUpdateCount > 0 ? (
+      {evaUpdateCount > 0 ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Link
               to={updatesRoutePath}
               onClick={onNavigate}
-              aria-label={bbLabel}
+              aria-label={evaLabel}
               data-testid="sidebar-updates-badge-bb"
               className={CHIP_CLASS}
             >
               <Icon name="Download" className="size-3 text-muted-foreground" />
-              bb
+              EVA
             </Link>
           </TooltipTrigger>
-          <TooltipContent side="top">{bbLabel}</TooltipContent>
+          <TooltipContent side="top">{evaLabel}</TooltipContent>
         </Tooltip>
       ) : null}
       {staleProviders.length > 0 ? (

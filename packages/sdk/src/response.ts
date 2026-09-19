@@ -66,7 +66,7 @@ function formatRequestTimeoutDuration(timeoutMs: number): string {
 export class BbRequestTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(
-      `BB request timed out after ${formatRequestTimeoutDuration(timeoutMs)}.`,
+      `EVA request timed out after ${formatRequestTimeoutDuration(timeoutMs)}.`,
     );
     this.name = "BbRequestTimeoutError";
   }
@@ -143,7 +143,7 @@ export async function resolveResponse<TResponse extends SdkResponseLike>(
   } catch (error) {
     if (isTypeErrorWithCauseCode(error, "ECONNREFUSED")) {
       throw new Error(
-        "Cannot connect to BB server. Ensure it is running and BB_SERVER_URL is correct.",
+        "Cannot connect to EVA server. Ensure it is running and BB_SERVER_URL is correct.",
       );
     }
     throw error;
@@ -263,7 +263,7 @@ function isRequestTimeoutError(
 function validateRequestTimeoutMs(timeoutMs: number): void {
   if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
     throw new RangeError(
-      "BB request timeout must be a non-negative finite number.",
+      "EVA request timeout must be a non-negative finite number.",
     );
   }
 }

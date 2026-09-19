@@ -17,9 +17,9 @@ function publisherLabels(
 }
 
 describe("marketplace publisher labels", () => {
-  it("names each marketplace by its own display name", () => {
+  it("names each marketplace by its own product display name", () => {
     const labels = publisherLabels([
-      { marketplaceName: "bb-community", displayName: "BB Community" },
+      { marketplaceName: "bb-community", displayName: "EVA Integrations" },
       { marketplaceName: "acme", displayName: "Acme Plugins" },
     ]);
 
@@ -30,7 +30,7 @@ describe("marketplace publisher labels", () => {
         catalogMarketplaceName: "bb-community",
         labels,
       }),
-    ).toBe("BB Community");
+    ).toBe("EVA Integrations");
     expect(
       pluginPublisherLabel({
         sourceKind: "npm",
@@ -41,7 +41,7 @@ describe("marketplace publisher labels", () => {
     ).toBe("Acme Plugins");
   });
 
-  it("refuses a reserved label to a marketplace that is not BB's", () => {
+  it("refuses a reserved label to a marketplace that is not EVA's", () => {
     const labels = publisherLabels([
       { marketplaceName: "acme", displayName: "BB Official" },
     ]);
@@ -63,14 +63,14 @@ describe("marketplace publisher labels", () => {
     expect(
       marketplacePublisherLabel({
         marketplaceName: "bb-community",
-        displayName: "BB Community",
+        displayName: "EVA Integrations",
       }),
-    ).toBe("BB Community");
+    ).toBe("EVA Integrations");
   });
 
-  it("keeps a store-installed bundled plugin on BB Official", () => {
+  it("keeps a store-installed bundled plugin on EVA Official", () => {
     const labels = publisherLabels([
-      { marketplaceName: "bb-community", displayName: "BB Community" },
+      { marketplaceName: "bb-community", displayName: "EVA Integrations" },
     ]);
 
     expect(
@@ -80,10 +80,10 @@ describe("marketplace publisher labels", () => {
         catalogMarketplaceName: "bb-community",
         labels,
       }),
-    ).toBe("BB Official");
+    ).toBe("EVA Official");
   });
 
-  it("badges bundled plugins BB Official and user installs not at all", () => {
+  it("badges bundled plugins EVA Official and user installs not at all", () => {
     const labels = publisherLabels([]);
 
     expect(
@@ -93,7 +93,7 @@ describe("marketplace publisher labels", () => {
         catalogMarketplaceName: null,
         labels,
       }),
-    ).toBe("BB Official");
+    ).toBe("EVA Official");
     expect(
       pluginPublisherLabel({
         sourceKind: "git",
@@ -104,7 +104,7 @@ describe("marketplace publisher labels", () => {
     ).toBeNull();
   });
 
-  it("does not reuse BB Official for the marketplace bb curates", () => {
-    expect(BUNDLED_CURATED_MARKETPLACE.displayName).toBe("BB Community");
+  it("does not reuse EVA Official for the marketplace EVA curates", () => {
+    expect(BUNDLED_CURATED_MARKETPLACE.displayName).toBe("EVA Integrations");
   });
 });

@@ -123,14 +123,14 @@ export function createFullBbAppArtifactService(
       return {
         available: false,
         reason:
-          "This server runs from a source checkout, so it can't send its full bb-app package.",
+          "This server runs from a source checkout, so it can't send its full EVA app package.",
       };
     }
     for (const relativePath of REQUIRED_PACKAGE_PATHS) {
       if (!(await pathExists(join(resolved.root, relativePath)))) {
         return {
           available: false,
-          reason: `The installed bb-app package is missing ${relativePath}.`,
+          reason: `The installed EVA app package is missing ${relativePath}.`,
         };
       }
     }

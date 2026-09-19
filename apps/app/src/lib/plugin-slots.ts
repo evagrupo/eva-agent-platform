@@ -1,5 +1,6 @@
 import { setAppIcons } from "@bb/shared-ui/icon-registry";
 import { useSyncExternalStore } from "react";
+import { canUseCorePlugin, useCoreAuth } from "./core-auth";
 import type {
   ComposerCustomization,
   ExperimentalAppOverlayRegistration,
@@ -465,7 +466,42 @@ export function getPluginSlotSnapshot(): PluginSlotSnapshot {
 }
 
 export function usePluginSlots(): PluginSlotSnapshot {
-  return useSyncExternalStore(subscribePluginSlots, getPluginSlotSnapshot);
+  const auth = useCoreAuth();
+  const current = useSyncExternalStore(
+    subscribePluginSlots,
+    getPluginSlotSnapshot,
+  );
+  const filter = <T extends { pluginId: string }>(items: readonly T[]) =>
+    items.filter((item) => canUseCorePlugin(auth, item.pluginId));
+  return {
+    ...current,
+    homepageSections: filter(current.homepageSections),
+    settingsSections: filter(current.settingsSections),
+    appOverlays: filter(current.appOverlays),
+    navPanels: filter(current.navPanels),
+    threadPanelActions: filter(current.threadPanelActions),
+    newThreadPanelActions: filter(current.newThreadPanelActions),
+    composerCustomizations: filter(current.composerCustomizations),
+    pendingInteractions: filter(current.pendingInteractions),
+    sidebarFooterItems: filter(current.sidebarFooterItems),
+    experimentalSidebarNavigations: filter(
+      current.experimentalSidebarNavigations,
+    ),
+    threadLists: filter(current.threadLists),
+    threadHeaderActions: filter(current.threadHeaderActions),
+    browserToolbarActions: filter(current.browserToolbarActions),
+    fileOpeners: filter(current.fileOpeners),
+    sourceCodeRenderers: filter(current.sourceCodeRenderers),
+    diffRenderers: filter(current.diffRenderers),
+    messageDirectives: filter(current.messageDirectives),
+    messageActions: filter(current.messageActions),
+    commandPaletteActions: filter(current.commandPaletteActions),
+    providerIcons: filter(current.providerIcons),
+    icons: filter(current.icons),
+    timelineRenderers: filter(current.timelineRenderers),
+    environmentProviderInputs: filter(current.environmentProviderInputs),
+    machineProviderInputs: filter(current.machineProviderInputs),
+  };
 }
 
 export function resetPluginSlotStoreForTest(): void {

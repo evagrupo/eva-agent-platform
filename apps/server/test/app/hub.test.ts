@@ -505,6 +505,28 @@ describe("NotificationHub", () => {
     expect(otherHostSocket.messages).toHaveLength(0);
   });
 
+  it("rechecks resource access before delivering non-thread notifications", () => {
+    const hub = new NotificationHub();
+    const socket = createMockHubSocket();
+    let canReadProject = true;
+
+    hub.registerClient(socket, {
+      canReadThread: () => true,
+      canUsePlugin: () => true,
+      canReadTarget: (target) =>
+        canReadProject &&
+        target.kind === "project-detail" &&
+        target.projectId === "project-1",
+    });
+    hub.subscribe(socket, { kind: "project-list" });
+    hub.notifyProject("project-1", ["threads-changed"]);
+    expect(socket.messages).toHaveLength(1);
+
+    canReadProject = false;
+    hub.notifyProject("project-1", ["threads-changed"]);
+    expect(socket.messages).toHaveLength(1);
+  });
+
   it("broadcasts host-connected when a daemon registers", () => {
     const hub = new NotificationHub();
     const clientSocket = createMockHubSocket();

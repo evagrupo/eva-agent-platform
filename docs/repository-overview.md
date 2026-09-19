@@ -2,6 +2,13 @@
 
 This monorepo contains the packaged app plus the runtime services it bundles:
 
+The [EVA dedicated-server runbook](eva-systemd.md) documents the supported
+Linux systemd deployment for a source checkout.
+
+EVA agent workspace backup and migration is documented in [EVA workspace Git
+synchronization](eva-workspace-sync.md). It is separate from the EVA fork
+checkout and from a full `BB_DATA_DIR` backup.
+
 | Package or app                                                      | Role                                                                                                |
 | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | [`packages/bb-app`](../packages/bb-app)                             | Published npm package, `npx bb-app@latest` launcher, bundled `bb` CLI entry, and public SDK export. |
@@ -28,7 +35,7 @@ This monorepo contains the packaged app plus the runtime services it bundles:
 Some dependencies are pinned to an exact version for reasons that are not
 visible from `package.json` alone.
 
-| Dependency                     | Where         | Why                                                                                                                                                                                                                                                 |
-| ------------------------------ | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@opentelemetry/api` (`1.9.1`) | `apps/server` | Pi AI and Drizzle each pull in `@opentelemetry/api`. Without an exact direct pin, pnpm can resolve two copies and TypeScript sees two distinct type identities, which fails the server typecheck. Bump both consumers together, not this pin alone. |
-| Pi packages (`0.84.0`)         | Pi bridge and `bb-app` | Pi extensions import the host's Pi modules. The packaged bridge keeps this exact package tree on disk so extensions share one compatible runtime. Bump the Pi packages together. |
+| Dependency                     | Where                  | Why                                                                                                                                                                                                                                                 |
+| ------------------------------ | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@opentelemetry/api` (`1.9.1`) | `apps/server`          | Pi AI and Drizzle each pull in `@opentelemetry/api`. Without an exact direct pin, pnpm can resolve two copies and TypeScript sees two distinct type identities, which fails the server typecheck. Bump both consumers together, not this pin alone. |
+| Pi packages (`0.84.0`)         | Pi bridge and `bb-app` | Pi extensions import the host's Pi modules. The packaged bridge keeps this exact package tree on disk so extensions share one compatible runtime. Bump the Pi packages together.                                                                    |

@@ -1,6 +1,6 @@
 ---
 kind: instruction
-title: bb Guide — Environments
+title: EVA Guide — Environments
 summary: Command reference for environment setup, inspection, commits, and merges.
 intent: Provide complete environment command documentation for agents.
 editingNotes: Keep flags accurate against the CLI implementation.
@@ -12,16 +12,16 @@ Environments determine where threads run. Multiple threads can share an environm
 The first-party choices are Project checkout (the project's existing directory),
 Worktree (a fresh Git worktree), and Personal workspace (a projectless workspace).
 
-Making your repo work with bb:
+Making your repo work with EVA:
 
   If the default environment plugin is disabled or missing, creation fails
   before inserting a thread. Enable the plugin or explicitly choose another
-  environment; BB does not silently replace an isolated worktree with a checkout.
+  environment; EVA does not silently replace an isolated worktree with a checkout.
   Host-dependent preflight checks require the selected machine to be connected.
   Directory switching creates a core-owned attachment with no provider identity.
 
-  Commit a .bb-env-setup.sh script at the repo root when new bb worktrees need
-  repo-specific setup. After bb creates a new managed worktree environment, it
+  Commit a .bb-env-setup.sh script at the repo root when new EVA worktrees need
+  repo-specific setup. After EVA creates a new managed worktree environment, it
   looks for .bb-env-setup.sh inside that new workspace. If the file is absent,
   provisioning continues with no error.
 
@@ -29,10 +29,10 @@ Making your repo work with bb:
   files, so an untracked .bb-env-setup.sh in your source checkout will not be
   present and will not run.
 
-  BB runs the hook as `env bash .bb-env-setup.sh` with cwd set to the new
+  EVA runs the hook as `env bash .bb-env-setup.sh` with cwd set to the new
   workspace. POSIX shell setup scripts are not supported on Windows. The hook
   inherits the host daemon's sanitized environment: NODE_ENV and every BB_*
-  variable are removed, and bb does not inject BB_PROJECT_ID, BB_ENVIRONMENT_ID,
+  variable are removed, and EVA does not inject BB_PROJECT_ID, BB_ENVIRONMENT_ID,
   or BB_SOURCE_PATH.
 
   Core admits and claims the path before hooks, and runs hooks only
@@ -41,7 +41,7 @@ Making your repo work with bb:
   operation while the daemon remains alive. Hook state is held only in daemon
   memory; a daemon restart leaves an interrupted hook outcome unknown.
 
-  A non-zero exit, timeout, signal, or cancellation fails provisioning and bb
+  A non-zero exit, timeout, signal, or cancellation fails provisioning and EVA
   removes the new worktree after confirming the script has stopped. An unknown
   hook outcome blocks automatic cleanup and requires inspection before recovery.
   Keep optional setup steps non-fatal inside the
@@ -50,14 +50,14 @@ Making your repo work with bb:
   ".bb-env-setup.sh failed", or ".bb-env-setup.sh cancelled".
 
   Commit a .bb-env-teardown.sh script at the repo root when setup creates
-  resources outside the managed worktree. BB runs the hook as
+  resources outside the managed worktree. EVA runs the hook as
   `env bash .bb-env-teardown.sh` from the worktree before it removes the
   worktree. The hook receives the same sanitized environment as the setup
   hook, and stdin is closed.
 
   Teardown has a separate 15-minute timeout. A non-zero exit, timeout, or
-  signal reports failure in the destroy transcript, but bb removes the
-  worktree after script termination. If transport fails, bb cancels the hook
+  signal reports failure in the destroy transcript, but EVA removes the
+  worktree after script termination. If transport fails, EVA cancels the hook
   and confirms its process group has stopped before releasing the workspace.
   An unreachable daemon leaves cleanup pending for retry. If the daemon no
   longer knows the hook, cleanup remains blocked with an explicit unknown-outcome
@@ -67,7 +67,7 @@ Making your repo work with bb:
   New worktrees do not contain untracked files such as .env.local. To copy
   them from the source checkout, commit a .worktreeinclude file at the repo
   root. It uses gitignore syntax: one pattern per line, # for comments, ! to
-  negate an earlier pattern. bb copies each untracked file in the source
+  negate an earlier pattern. EVA copies each untracked file in the source
   checkout that matches a pattern:
 
     .env
@@ -75,10 +75,10 @@ Making your repo work with bb:
     !.env.example
     certs/
 
-  bb copies files only. It follows no symlinks, and it replaces nothing that
+  EVA copies files only. It follows no symlinks, and it replaces nothing that
   the worktree already has. The copy runs after `git worktree add` and before
   .bb-env-setup.sh, so the setup script can read the copied files. A pattern
-  that matches nothing, or a file bb cannot read, is reported in the
+  that matches nothing, or a file EVA cannot read, is reported in the
   provisioning transcript and does not fail provisioning.
 
   Large directories such as node_modules are copied file by file. Install
@@ -176,9 +176,9 @@ Every inspection command accepts an arbitrary environment ID and supports
 prints UTF-8 content directly and labels base64 binary content; diff and patch
 truncation markers are preserved.
 
-Remote access (bb connect):
+Remote access (EVA Connect):
 
-  Expose this bb server at <handle>.getbb.app so you can reach it from any
+  Expose this EVA server at <handle>.getbb.app so you can reach it from any
   browser. Claim a handle at https://getbb.app, copy the connect command it
   generates, then run it here to
   pair:
@@ -187,24 +187,24 @@ Remote access (bb connect):
     --code <code>          One-time pairing code from the dashboard
     --server <url>         https://<handle>.getbb.app (from the dashboard)
 
-  Pairing returns immediately: the bb SERVER redeems the code, stores the
-  credential, and holds the tunnel itself — so it stays up as long as bb is
+  Pairing returns immediately: the EVA server redeems the code, stores the
+  credential, and holds the tunnel itself — so it stays up as long as EVA is
   running and reconnects on restart (no foreground process).
-  Without an installed bb, pair via npm:
+  Without an installed EVA app, pair via npm:
   `npx -p bb-app@latest bb connect --code <code> --server <url>`.
 
   In a source checkout, `pnpm dev` automatically points the unpaired Connect
   settings and code-only pairing at that worktree's local Cloud origin through
   `BB_DEV_CONNECT_BASE_URL`. Explicit `--server` and `--base-url` targets still
-  win, so the dev bb can also pair with getbb.app.
+  win, so a development EVA app can also pair with getbb.app.
 
   bb connect status                       Show the server's connect status
   bb connect off                          Disconnect and forget the pairing
   bb connect expose <port> [--host <name-or-id>]    Share a host's HTTP port
   bb connect unexpose <port> [--host <name-or-id>]  Stop sharing on that host
   bb connect shares [--host <name-or-id>]           List that host's shares
-  bb connect servers                      List every bb on this account (handle, url, live)
-  bb connect machine-code                 Mint a one-time code that pairs the bb mobile app
+  bb connect servers                      List every EVA server on this account (handle, url, live)
+  bb connect machine-code                 Mint a one-time code that pairs the EVA mobile app
                                           (needs the mobileApp experiment)
 
   Port sharing works from threads on any enrolled host. In a thread,
@@ -220,7 +220,7 @@ Remote access (bb connect):
   `bb connect status` shows all shares with host + URL. `shares --json` returns
   the resolved `host` and rows with `hostId`, `hostName`, `port`, and `url`.
 
-  The bb mobile app pairs with a paired bb through bb connect. Turn on the
+  The EVA mobile app pairs with a paired EVA server through bb connect. Turn on the
   `mobileApp` experiment first (`bb settings experiment mobileApp true`, or
   Settings → Experiments → Mobile app); the surfaces below stay hidden without
   it. Settings → Remote access → Add mobile device shows a QR code plus the code as text;
@@ -244,9 +244,9 @@ Explicit environment or project deletion bypasses the retirement grace, includin
 
 `bb environment providers --project <id>` omits providers whose declared requirements are unmet on every persistent machine, and reports each provider's `machineAvailability` per machine in `--json`. Add `--machine <id>` to scope structural eligibility to that machine and print its availability: `available`, `setup-required`, `unavailable` with the plugin's reason, or `unknown` while the background probe has not answered. Listing never waits on a machine; probes run in the background, are cached for ten minutes per project and machine, and are checked afresh for the selected provider and machine during thread creation.
 
-BB source checkout startup
+EVA source checkout startup
 
-  In the BB repository, `pnpm start:worktree` prepares and serves production
+  In the EVA repository, `pnpm start:worktree` prepares and serves production
   artifacts using stable checkout-specific dev data and ports (no Vite).
   Add `--dryrun` to `pnpm start` or `pnpm start:worktree` to prepare through
   Turbo, print resolved paths/ports, and exit. It does not launch services,
@@ -258,4 +258,4 @@ BB source checkout startup
   instance still serves those paths. Keep the serving checkout path stable to
   preserve its data and ports. See `docs/debugging-and-qa.md` for the restart
   sequence and source programmatic helpers. These are repository maintenance
-  commands, not environment lifecycle hooks or installed `bb` commands.
+  commands, not environment lifecycle hooks or installed EVA commands.

@@ -2,7 +2,7 @@
 
 ## Environment Setup And Teardown Scripts
 
-- To make a repo work with bb worktrees, run `bb guide environments`. It
+- To make a repo work with EVA worktrees, run `bb guide environments`. It
   documents the repo-level `.bb-env-setup.sh` and `.bb-env-teardown.sh` hooks,
   and the `.worktreeinclude` file.
 - A new worktree checks out tracked files only. Commit a `.worktreeinclude`
@@ -31,12 +31,12 @@
 - Use `bb settings usage [--machine <id-or-name>]` for provider limits.
   `--host` is an alias for `--machine`.
 - Use `bb settings version [--force]` for release information.
-- Use `bb settings reload` to reload BB-managed configuration.
+- Use `bb settings reload` to reload EVA-managed configuration.
 - These commands support `--json`.
 
 ## Agent Instructions
 
-- Add `AGENTS.md` to the bb data dir (usually `~/.bb/AGENTS.md`) to inject
+- Add `AGENTS.md` to the EVA data dir (usually `~/.bb/AGENTS.md`) to inject
   user-level default instructions for every provider-backed thread across all
   projects.
 - Add `.bb/AGENTS.md` at a workspace root to inject repo-specific instructions
@@ -70,7 +70,7 @@
   `bb skill registry detail <registry-skill-id>`.
   Install with `bb skill install <registry-skill-id>`; never infer an install
   source from a display name.
-- `bb skill install-cli-skills` copies bb's built-in CLI skills into a machine's
+- `bb skill install-cli-skills` copies EVA's built-in CLI skills into a machine's
   global agent skill roots (`~/.agents/skills` and `~/.claude/skills`) so agents
   outside bb can drive bb. It targets every connected machine unless you pass
   the repeatable `--machine <id-or-name>`, and reports each machine's outcome.
@@ -79,9 +79,9 @@
 - `bb skill cli-skills-status` reports per machine whether the installed copy is
   `installed`, `outdated`, `missing`, or `unknown` (disconnected or unreachable).
 
-## BB guide instructions and skills
+## EVA guide instructions and skills
 
-Settings → Installed plugins → BB guide controls the BB introduction and the
+Settings → Installed plugins → EVA guide controls the EVA introduction and the
 four bundled skills. All settings default to true. Use
 `bb plugin config bb-guide set <key> true|false` with `introduction`, `skills`
 (the master skill switch), `bbCli`, `pluginAuthoring`, `skillCreator`, or `submitPlugin`.
@@ -89,9 +89,9 @@ Disabling the plugin removes its introduction and skills. Changes apply when
 agent configuration is next assembled; independently installed copies remain
 available through their own sources.
 
-## BB source runtime preparation
+## EVA source runtime preparation
 
-In the BB repository, add `--dryrun` to `pnpm start` or `pnpm start:worktree`
+In the EVA repository, add `--dryrun` to `pnpm start` or `pnpm start:worktree`
 to run Turbo preparation, print resolved paths/ports and exit. The dry run uses
 the same dotenv settings and runtime policy as normal startup. It does not start
 services, migrate instance data or require ports to be free, but still writes
@@ -110,7 +110,7 @@ uses the first registered access provider, or direct when none are registered.
 Inspect effective values
 with `bb settings show --json` and change them with `bb settings general`.
 `BB_DATA_DIR` selects isolated enrollment state. Local machine lifecycle commands
-treat it as an ownership assertion and refuse the default BB installation; see
+treat it as an ownership assertion and refuse the default EVA installation; see
 thread-creation.md and docs/configuration.md for the directory constraints.
 
 Machine enrollment v2 stores private `serverHeaders` in machine `config.json`.

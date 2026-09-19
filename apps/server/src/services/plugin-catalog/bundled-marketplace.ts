@@ -47,7 +47,7 @@ export function loadBundledMarketplace(
   const manifestPath = path.join(directory, BUNDLED_MARKETPLACE_FILENAME);
   if (!existsSync(manifestPath)) {
     throw new Error(
-      `the bundled marketplace document is missing at ${manifestPath}; run pnpm exec turbo run generate:bb-official-marketplace --filter=@bb/server`,
+      `the bundled integration catalog is missing at ${manifestPath}; run pnpm exec turbo run generate:bb-official-marketplace --filter=@bb/server before starting EVA`,
     );
   }
   const catalog = parseBundledMarketplaceManifestJson(

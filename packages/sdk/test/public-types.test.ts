@@ -224,6 +224,7 @@ type ExpectedBbSdkKey =
   | "experimental_desktopBrowsers"
   | "experimental_server"
   | "environments"
+  | "evaAgents"
   | "files"
   | "guide"
   | "hosts"

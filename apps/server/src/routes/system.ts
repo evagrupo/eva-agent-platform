@@ -85,11 +85,39 @@ import {
 import { environmentProviderMachineAvailability } from "../services/environments/provider-machine-availability.js";
 import { machineProviderAcceptsEmptyInputs } from "../services/machines/provider-availability.js";
 import { requirePublicProject } from "../services/lib/entity-lookup.js";
+import {
+  assertCoreCapability,
+  assertResourceAccess,
+  canAccessResource,
+  isAgentAllowedByPolicy,
+  isModelAllowedByPolicyForAgent,
+  isProviderAllowedByPolicy,
+  isProviderAllowedByPolicyForAgent,
+  permissionCeilingForPolicyForAgent,
+  reasoningLevelsAllowedByPolicyForAgent,
+  getCoreAuthContext,
+  isPluginAllowedByPolicy,
+  allowedPluginIdsForContext,
+} from "../access-policy.js";
+import type { AvailableModel, PermissionMode } from "@bb/domain";
 
 const LEADING_ENVIRONMENT_PROVIDER_IDS: readonly string[] = [
   "project-checkout",
   "git-worktree",
 ];
+
+const permissionModeRank: Record<PermissionMode, number> = {
+  "accept-edits": 0,
+  auto: 1,
+  full: 2,
+};
+
+function lowerPermissionMode(
+  left: PermissionMode,
+  right: PermissionMode,
+): PermissionMode {
+  return permissionModeRank[left] <= permissionModeRank[right] ? left : right;
+}
 
 interface SystemConfigRequest {
   url: string;
@@ -147,6 +175,211 @@ export function registerSystemRoutes(
 
   const themeRoot = resolveThemeRootPath(deps.config.dataDir);
 
+  function pluginVisible(context: object, pluginId: string): boolean {
+    const authContext = getCoreAuthContext(context);
+    return (
+      authContext === null ||
+      isPluginAllowedByPolicy(authContext.policy, pluginId)
+    );
+  }
+
+  function requireAdministratorForMutation(context: object): void {
+    const authContext = getCoreAuthContext(context);
+    if (authContext !== null && authContext.role !== "admin") {
+      throw new ApiError(403, "policy_denied", "Administrator access required");
+    }
+  }
+
+  function providerVisible(
+    context: object,
+    providerId: string,
+    agentId?: string,
+  ): boolean {
+    const authContext = getCoreAuthContext(context);
+    if (authContext === null) return true;
+    const registration = deps.providerRegistry.get(providerId);
+    if (
+      registration !== null &&
+      !pluginVisible(context, registration.pluginId)
+    ) {
+      return false;
+    }
+    if (agentId !== undefined) {
+      return isProviderAllowedByPolicyForAgent(
+        authContext.policy,
+        agentId,
+        providerId,
+        authContext.evaAgents === undefined
+          ? undefined
+          : new Set(authContext.evaAgents.map((agent) => agent.id)),
+        authContext.evaAgentProviderIds,
+      );
+    }
+    if (authContext.policy.agentExecutionTuples !== undefined) {
+      return authContext.role === "admin";
+    }
+    return isProviderAllowedByPolicy(authContext.policy, providerId);
+  }
+
+  function requireExecutionAgent(
+    context: object,
+    agentId: string | undefined,
+  ): string | undefined {
+    const authContext = getCoreAuthContext(context);
+    if (authContext === null) return agentId;
+    if (agentId === undefined) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "Execution options require an explicit agent selection",
+      );
+    }
+    if (
+      !isAgentAllowedByPolicy(
+        authContext.policy,
+        agentId,
+        authContext.evaAgents === undefined
+          ? undefined
+          : new Set(authContext.evaAgents.map((agent) => agent.id)),
+      )
+    ) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "Agent is not available under your policy",
+      );
+    }
+    return agentId;
+  }
+
+  function filterModelForAgent(
+    model: AvailableModel,
+    policy: NonNullable<ReturnType<typeof getCoreAuthContext>>["policy"],
+    agentId: string,
+    providerId: string,
+    knownAgentIds?: ReadonlySet<string>,
+    agentProviderIds?: ReadonlyMap<string, readonly string[]>,
+  ): AvailableModel | null {
+    if (
+      !isModelAllowedByPolicyForAgent(
+        policy,
+        agentId,
+        providerId,
+        model.model,
+        knownAgentIds,
+        agentProviderIds,
+      )
+    ) {
+      return null;
+    }
+    const allowedReasoningLevels = reasoningLevelsAllowedByPolicyForAgent(
+      policy,
+      agentId,
+      providerId,
+      model.model,
+      knownAgentIds,
+      agentProviderIds,
+    );
+    const allowedReasoning = new Set(allowedReasoningLevels);
+    const supportedReasoningEfforts = model.supportedReasoningEfforts.filter(
+      (effort) => allowedReasoning.has(effort.reasoningEffort),
+    );
+    if (supportedReasoningEfforts.length === 0) return null;
+    const defaultReasoningEffort = allowedReasoning.has(
+      model.defaultReasoningEffort,
+    )
+      ? model.defaultReasoningEffort
+      : supportedReasoningEfforts[0]!.reasoningEffort;
+    return {
+      ...model,
+      supportedReasoningEfforts,
+      defaultReasoningEffort,
+    };
+  }
+
+  function filterExecutionOptionsResponse(
+    context: object,
+    query: { agentId?: string; providerId?: string },
+    result: Awaited<ReturnType<typeof resolveSystemExecutionOptions>>,
+  ) {
+    const authContext = getCoreAuthContext(context);
+    if (authContext === null) return result;
+    const agentId = requireExecutionAgent(context, query.agentId)!;
+    const providers = result.providers.filter((provider) =>
+      providerVisible(context, provider.id, agentId),
+    );
+    if (query.providerId === undefined) {
+      return {
+        ...result,
+        providers,
+        models: [],
+        selectedOnlyModels: [],
+      };
+    }
+    const allowedProvider = providerVisible(context, query.providerId, agentId);
+    if (!allowedProvider) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "Provider is not available for the selected EVA agent",
+      );
+    }
+    const models = result.models
+      .map((model) =>
+        filterModelForAgent(
+          model,
+          authContext.policy,
+          agentId,
+          query.providerId!,
+          authContext.evaAgents === undefined
+            ? undefined
+            : new Set(authContext.evaAgents.map((agent) => agent.id)),
+          authContext.evaAgentProviderIds,
+        ),
+      )
+      .filter((model): model is AvailableModel => model !== null);
+    const selectedOnlyModels = result.selectedOnlyModels
+      .map((model) =>
+        filterModelForAgent(
+          model,
+          authContext.policy,
+          agentId,
+          query.providerId!,
+          authContext.evaAgents === undefined
+            ? undefined
+            : new Set(authContext.evaAgents.map((agent) => agent.id)),
+          authContext.evaAgentProviderIds,
+        ),
+      )
+      .filter((model): model is AvailableModel => model !== null);
+    const permissionCeiling = permissionCeilingForPolicyForAgent(
+      authContext.policy,
+      agentId,
+      query.providerId,
+      authContext.evaAgents === undefined
+        ? undefined
+        : new Set(authContext.evaAgents.map((agent) => agent.id)),
+      authContext.evaAgentProviderIds,
+    );
+    if (permissionCeiling === null) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "Execution is not available under your policy",
+      );
+    }
+    return {
+      ...result,
+      providers,
+      models,
+      selectedOnlyModels,
+      permissionCeiling: lowerPermissionMode(
+        result.permissionCeiling,
+        permissionCeiling,
+      ),
+    };
+  }
+
   get(routes.attention, (context) =>
     context.json({ hasAttention: hasActiveThreadAttention(deps.db) }),
   );
@@ -166,7 +399,16 @@ export function registerSystemRoutes(
   async function resolveSelectedTheme(
     themeId: string,
     faviconColor: AppTheme["faviconColor"],
+    context: object,
   ): Promise<AppTheme> {
+    const pluginTheme = themeId.match(/^plugin:([^:]+):/u);
+    if (pluginTheme !== null && !pluginVisible(context, pluginTheme[1]!)) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "Theme is not available under your policy",
+      );
+    }
     const pluginCss = await pluginService.readThemeCss(themeId);
     if (pluginCss !== null) {
       return {
@@ -182,9 +424,19 @@ export function registerSystemRoutes(
     return resolveAppTheme(themeRoot, themeId, faviconColor);
   }
 
-  async function buildSystemConfigResponse(serverUrl: string) {
+  async function buildSystemConfigResponse(serverUrl: string, context: object) {
     const keybindingOverrides = readAppKeybindingOverrides();
-    const primaryHostId = resolvePrimaryHostId(deps);
+    const resolvedPrimaryHostId = resolvePrimaryHostId(deps);
+    const primaryHostId =
+      resolvedPrimaryHostId !== null &&
+      canAccessResource(
+        deps.db,
+        getCoreAuthContext(context),
+        "host",
+        resolvedPrimaryHostId,
+      )
+        ? resolvedPrimaryHostId
+        : null;
     const localHelperPorts = [
       ...new Set([
         deps.config.hostDaemonPort,
@@ -204,9 +456,12 @@ export function registerSystemRoutes(
       appearance: await resolveSelectedTheme(
         getStoredThemeId(deps.db),
         getStoredFaviconColor(deps.db),
+        context,
       ),
       customThemes: listCustomThemeNames(themeRoot),
-      pluginThemes: pluginService.listThemes(),
+      pluginThemes: pluginService
+        .listThemes()
+        .filter((theme) => pluginVisible(context, theme.pluginId)),
       featureFlags: deps.config.featureFlags,
       hostDaemonPort: deps.config.hostDaemonPort,
       localHelperPorts,
@@ -221,20 +476,23 @@ export function registerSystemRoutes(
         inference: deps.config.inferenceModel,
         inferenceFallback: deps.config.inferenceFallbackModel,
         transcription: deps.config.transcriptionModel,
-        services: deps.aiServices.list().map((service) => ({
-          id: service.id,
-          displayName: service.displayName,
-          kinds: [...service.kinds],
-          pluginId: service.pluginId,
-        })),
+        services: deps.aiServices
+          .list()
+          .filter((service) => pluginVisible(context, service.pluginId))
+          .map((service) => ({
+            id: service.id,
+            displayName: service.displayName,
+            kinds: [...service.kinds],
+            pluginId: service.pluginId,
+          })),
       },
-      dataDir: deps.config.dataDir,
+      dataDir: "",
     };
   }
 
   get(routes.config, async (context) => {
     const serverUrl = resolveSystemServerUrl(context.req, deps.config);
-    return context.json(await buildSystemConfigResponse(serverUrl));
+    return context.json(await buildSystemConfigResponse(serverUrl, context));
   });
 
   function compatibleGeneralSettings() {
@@ -245,6 +503,8 @@ export function registerSystemRoutes(
     };
   }
   post(routes.setMachineEnvironmentVariable, async (context, payload) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
     if (getGateAuthKind(context) === "machine")
       throw new ApiError(
         403,
@@ -265,6 +525,8 @@ export function registerSystemRoutes(
   });
 
   del(routes.deleteMachineEnvironmentVariable, async (context, payload) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
     if (getGateAuthKind(context) === "machine")
       throw new ApiError(
         403,
@@ -279,10 +541,15 @@ export function registerSystemRoutes(
     );
   });
 
-  get(routes.machineEnvironment, async (context) =>
-    context.json(await machineEnvironmentView(deps.db, deps.config.dataDir)),
-  );
+  get(routes.machineEnvironment, async (context) => {
+    assertCoreCapability(context, "settings");
+    return context.json(
+      await machineEnvironmentView(deps.db, deps.config.dataDir),
+    );
+  });
   put(routes.replaceMachineEnvironment, async (context, payload) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
     if (getGateAuthKind(context) === "machine")
       throw new ApiError(
         403,
@@ -298,6 +565,8 @@ export function registerSystemRoutes(
   });
 
   put(routes.generalSettings, (context, payload) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
     const { showUnhandledProviderEvents, ...settings } = payload;
     const current = getAppSettings(deps.db);
     const diagnosticValue =
@@ -321,12 +590,16 @@ export function registerSystemRoutes(
   });
 
   put(routes.keyboardSettings, (context, payload) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
     setAppKeybindingOverrides(deps.db, payload);
     deps.hub.notifySystem(["config-changed"]);
     return context.json(getAppKeybindingOverrides(deps.db));
   });
 
   put(routes.experiments, (context, payload) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
     setExperiments(deps.db, { ...getExperiments(deps.db), ...payload });
     deps.hub.notifySystem(["config-changed"]);
     return context.json(getExperiments(deps.db));
@@ -352,34 +625,49 @@ export function registerSystemRoutes(
   }
 
   put(routes.appearance, async (context, payload) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
     const { themeId, faviconColor } = payload;
     await requireKnownTheme(themeId);
     setStoredAppearance(deps.db, { themeId, faviconColor });
     deps.hub.notifySystem(["config-changed"]);
-    return context.json(await resolveSelectedTheme(themeId, faviconColor));
-  });
-
-  get(routes.resolveTheme, async (context) => {
-    const themeId = context.req.param("id");
-    await requireKnownTheme(themeId);
     return context.json(
-      await resolveSelectedTheme(themeId, getStoredFaviconColor(deps.db)),
+      await resolveSelectedTheme(themeId, faviconColor, context),
     );
   });
 
-  get(routes.themes, async (context) =>
-    context.json({
+  get(routes.resolveTheme, async (context) => {
+    assertCoreCapability(context, "settings");
+    const themeId = context.req.param("id");
+    await requireKnownTheme(themeId);
+    return context.json(
+      await resolveSelectedTheme(
+        themeId,
+        getStoredFaviconColor(deps.db),
+        context,
+      ),
+    );
+  });
+
+  get(routes.themes, async (context) => {
+    assertCoreCapability(context, "settings");
+    return context.json({
       dir: themeRoot,
       custom: listCustomThemeNames(themeRoot),
-      plugins: pluginService.listThemes(),
+      plugins: pluginService
+        .listThemes()
+        .filter((theme) => pluginVisible(context, theme.pluginId)),
       active: await resolveSelectedTheme(
         getStoredThemeId(deps.db),
         getStoredFaviconColor(deps.db),
+        context,
       ),
-    }),
-  );
+    });
+  });
 
   post(routes.reloadConfig, async (context) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
     try {
       await deps.bbAppManagedConfig.reload({ notify: true });
     } catch (error) {
@@ -389,35 +677,49 @@ export function registerSystemRoutes(
     return context.json({ ok: true });
   });
 
-  get(routes.cliSkillsStatus, async (context, query) =>
-    context.json(
+  get(routes.cliSkillsStatus, async (context, query) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
+    return context.json(
       await readGlobalCliSkillStatus(deps, {
         hostIds:
           query.hostIds === undefined
             ? listInstallableMachineIds(deps)
             : query.hostIds.split(",").filter((hostId) => hostId.length > 0),
       }),
-    ),
-  );
+    );
+  });
 
-  post(routes.installCliSkills, async (context, body) =>
-    context.json(await installGlobalCliSkills(deps, { hostIds: body.hostIds })),
-  );
+  post(routes.installCliSkills, async (context, body) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
+    return context.json(
+      await installGlobalCliSkills(deps, { hostIds: body.hostIds }),
+    );
+  });
 
   get(routes.environmentProviders, async (context, query) => {
+    assertCoreCapability(context, "environments");
     const project =
       query.projectId === undefined
         ? null
         : requirePublicProject(deps.db, query.projectId);
+    if (project !== null) {
+      assertResourceAccess(deps.db, context, "project", project.id, "read");
+    }
+    if (query.hostId !== undefined) {
+      assertResourceAccess(deps.db, context, "host", query.hostId, "read");
+    }
     return context.json({
       providers: (
         await Promise.all(
           listEnvironmentProviders()
             .filter(
               (record) =>
-                project === null ||
-                record.provider.requires.projectless ===
-                  (project.id === PERSONAL_PROJECT_ID),
+                pluginVisible(context, record.pluginId) &&
+                (project === null ||
+                  record.provider.requires.projectless ===
+                    (project.id === PERSONAL_PROJECT_ID)),
             )
             .sort((left, right) => {
               const leftIndex = LEADING_ENVIRONMENT_PROVIDER_IDS.indexOf(
@@ -492,8 +794,9 @@ export function registerSystemRoutes(
             ? []
             : (
                 await Promise.all(
-                  listEnvironmentCompositions().map(
-                    async ({ pluginId, composition, icon }) => {
+                  listEnvironmentCompositions()
+                    .filter(({ pluginId }) => pluginVisible(context, pluginId))
+                    .map(async ({ pluginId, composition, icon }) => {
                       const record = getEnvironmentProvider(
                         composition.environmentProviderId,
                       );
@@ -542,8 +845,7 @@ export function registerSystemRoutes(
                         availability: null,
                         machineAvailability: {},
                       };
-                    },
-                  ),
+                    }),
                 )
               ).filter((provider) => provider !== null),
         ),
@@ -551,36 +853,50 @@ export function registerSystemRoutes(
   });
 
   get(routes.machineProviders, async (context) => {
+    assertCoreCapability(context, "hosts");
     return context.json({
       providers: await Promise.all(
-        listMachineProviders().map(async (record) => ({
-          id: record.provider.id,
-          displayName: record.provider.displayName,
-          description: record.provider.description,
-          icon: record.provider.icon,
-          logoUrl:
-            record.icon === undefined
-              ? null
-              : providerLogoUrl(
-                  "machine",
-                  record.provider.id,
-                  record.icon.hash,
-                ),
-          pluginId: record.pluginId,
-          inputs: record.provider.inputsJsonSchema,
-          acceptsEmptyInputs: await machineProviderAcceptsEmptyInputs(record),
-          supportsSuspend: record.provider.suspend !== null,
-        })),
+        listMachineProviders()
+          .filter((record) => pluginVisible(context, record.pluginId))
+          .map(async (record) => ({
+            id: record.provider.id,
+            displayName: record.provider.displayName,
+            description: record.provider.description,
+            icon: record.provider.icon,
+            logoUrl:
+              record.icon === undefined
+                ? null
+                : providerLogoUrl(
+                    "machine",
+                    record.provider.id,
+                    record.icon.hash,
+                  ),
+            pluginId: record.pluginId,
+            inputs: record.provider.inputsJsonSchema,
+            acceptsEmptyInputs: await machineProviderAcceptsEmptyInputs(record),
+            supportsSuspend: record.provider.suspend !== null,
+          })),
       ),
     });
   });
 
   get(routes.providers, async (context, query) =>
-    context.json(await listSystemProviderInfos(deps, query)),
+    context.json(
+      (await listSystemProviderInfos(deps, query)).filter((provider) =>
+        providerVisible(context, provider.id, query.agentId),
+      ),
+    ),
   );
 
   get(routes.providerLogo, async (context) => {
     const providerId = context.req.param("id");
+    if (!providerVisible(context, providerId)) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "Provider is not available under your policy",
+      );
+    }
     const registration = providerId.startsWith("environment:")
       ? (getEnvironmentProvider(providerId.slice("environment:".length)) ??
         listEnvironmentCompositions().find(
@@ -604,17 +920,42 @@ export function registerSystemRoutes(
     );
   });
 
-  get(routes.providerStates, async (context, query) =>
-    context.json(await getProviderStates(deps, query)),
-  );
+  get(routes.providerStates, async (context, query) => {
+    assertCoreCapability(context, "hosts");
+    const result = await getProviderStates(
+      deps,
+      query,
+      (provider) => providerVisible(context, provider.id, query.agentId),
+      allowedPluginIdsForContext(context, query.agentId),
+    );
+    return context.json({
+      providers: result.providers,
+    });
+  });
 
-  get(routes.usageLimits, async (context, query) =>
-    context.json(await getProviderUsageLimits(deps, query)),
-  );
+  get(routes.usageLimits, async (context, query) => {
+    assertCoreCapability(context, "settings");
+    if (
+      query.providerId !== undefined &&
+      !providerVisible(context, query.providerId)
+    ) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "Provider usage is not available under your policy",
+      );
+    }
+    return context.json(
+      await getProviderUsageLimits(deps, query, (provider) =>
+        providerVisible(context, provider.id),
+      ),
+    );
+  });
 
-  get(routes.executionOptions, async (context, query) =>
-    context.json(await resolveSystemExecutionOptions(deps, query)),
-  );
+  get(routes.executionOptions, async (context, query) => {
+    const result = await resolveSystemExecutionOptions(deps, query);
+    return context.json(filterExecutionOptionsResponse(context, query, result));
+  });
 
   post(routes.voiceTranscription, async (context) => {
     const formData = await context.req.formData();

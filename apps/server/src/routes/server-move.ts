@@ -20,6 +20,7 @@ import {
   getGateAuthKind,
   type GateAuthHeaderReader,
 } from "../request-context.js";
+import { getCoreAuthContext } from "../access-policy.js";
 import { callHostOnlineRpc } from "../services/hosts/online-rpc.js";
 import {
   assertUsableHostId,
@@ -43,10 +44,18 @@ function assertServerManagementAllowed(context: GateAuthHeaderReader): void {
       "Machine credentials cannot move, export, or clean up the server",
     );
   }
+  const authContext = getCoreAuthContext(context);
+  if (authContext !== null && authContext.role !== "admin") {
+    throw new ApiError(
+      403,
+      "policy_denied",
+      "Administrator access required for server management",
+    );
+  }
 }
 
 export const SERVER_MOVE_EXPERIMENT_DISABLED_MESSAGE =
-  'Moving the server is off. Turn on the "Server move" experiment in Settings → Experiments, or run bb settings experiment serverMove true, then try again.';
+  'Moving the server is off. Turn on the "Server move" experiment in Settings → Experiments, then try again.';
 
 function assertServerMoveExperimentEnabled(deps: AppDeps): void {
   if (!getExperiments(deps.db).serverMove) {

@@ -223,7 +223,7 @@ export function resolveLocalDataDir(dataDirOption: string | undefined): string {
 async function assertNoServerDatabase(dataDir: string): Promise<void> {
   if (await pathExists(join(dataDir, SERVER_DATABASE_FILE_NAME))) {
     throw new Error(
-      `${dataDir} already has a bb server database (${SERVER_DATABASE_FILE_NAME}). Import into a data directory without a server, such as --data-dir ~/.bb-imported.`,
+      `${dataDir} already has an EVA server database (${SERVER_DATABASE_FILE_NAME}). Import into a data directory without a server, such as --data-dir ~/.bb-imported.`,
     );
   }
 }
@@ -232,7 +232,7 @@ async function assertNoRunningBb(dataDir: string): Promise<void> {
   const runtime = await readBbAppRuntimeFile(dataDir);
   if (runtime !== null && isProcessRunning(runtime.pid)) {
     throw new Error(
-      `bb is running from ${dataDir} (pid ${String(runtime.pid)}). Stop it with bb-app stop or quit the desktop app, then try again.`,
+      `EVA is running from ${dataDir} (pid ${String(runtime.pid)}). Stop it with bb-app stop or quit the desktop app, then try again.`,
     );
   }
 }
@@ -283,8 +283,8 @@ export async function importServerArchive(
   if (
     !(await args.confirm(
       interruptedImport
-        ? `Roll back the interrupted import in ${dataDir}, then import the bb server from ${archivePath}?`
-        : `Import the bb server from ${archivePath} into ${dataDir}?`,
+        ? `Roll back the interrupted import in ${dataDir}, then import the EVA server from ${archivePath}?`
+        : `Import the EVA server from ${archivePath} into ${dataDir}?`,
     ))
   ) {
     return null;
@@ -312,7 +312,7 @@ export async function importServerArchive(
     }
     if (isNewerBbVersion(manifest.bbVersion, args.cliVersion)) {
       throw new Error(
-        `This export came from bb ${manifest.bbVersion}; install that version or newer before importing.`,
+        `This export came from EVA ${manifest.bbVersion}; install that version or newer before importing.`,
       );
     }
     const installed = await installImportedServerFiles({
@@ -407,7 +407,7 @@ function parseManagedConfigText(
     const detail =
       error instanceof z.ZodError ? z.prettifyError(error) : String(error);
     throw new Error(
-      `${path} is not a valid bb-app config. Fix it, then unlock again.\n${detail}`,
+      `${path} is not a valid EVA app config. Fix it, then unlock again.\n${detail}`,
     );
   }
   return { raw: managedConfigObjectSchema.parse(raw), config };

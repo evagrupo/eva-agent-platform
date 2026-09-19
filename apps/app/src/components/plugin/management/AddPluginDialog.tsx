@@ -49,7 +49,7 @@ function catalogInstallDescription(
   publisherLabel: string,
 ): string {
   if (source.startsWith("builtin:")) {
-    return "Install this plugin, bundled with BB.";
+    return "Install this integration, bundled with EVA.";
   }
   if (source.startsWith("npm:")) {
     return `Install this ${publisherLabel} plugin from its listed npm package.`;
@@ -189,7 +189,7 @@ function ThirdPartySourceDisclosure({
       <p className="text-2xs text-subtle-foreground">
         Listed by{" "}
         <span className="text-foreground">{plan.marketplaceDisplayName}</span>,
-        a third-party marketplace that BB does not review.
+        an external catalog that EVA does not review.
       </p>
       <dl className="space-y-0.5">
         <div className="flex gap-2">
@@ -294,7 +294,7 @@ function AddPluginDialogContent({
           {initial === null
             ? "Install from npm, a Git repository, or a local path."
             : thirdParty
-              ? "Install this plugin from the source its marketplace lists."
+              ? "Install this integration from the source listed in the catalog."
               : catalogInstallDescription(
                   initial.source,
                   initial.publisherLabel,
@@ -322,7 +322,7 @@ function AddPluginDialogContent({
             <Input
               value={sourceText}
               autoFocus
-              placeholder="https://github.com/owner/bb-plugin-name"
+              placeholder="https://github.com/owner/eva-integration-name"
               aria-label="Plugin source"
               className="h-8 font-mono text-xs"
               onChange={(event) => setSourceText(event.target.value)}

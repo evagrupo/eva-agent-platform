@@ -480,17 +480,32 @@ type SystemUsageLimitsQueryKey = readonly [
   string | null,
   string | null,
 ];
-type SystemProviderStatesQueryKey = readonly [
-  typeof SYSTEM_PROVIDER_STATES_QUERY_KEY,
-  string | null,
-  string | null,
-];
-type SystemExecutionOptionsQueryKey = readonly [
-  typeof SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
-  string | null,
-  string | null,
-  string | null,
-];
+type SystemProviderStatesQueryKey =
+  | readonly [
+      typeof SYSTEM_PROVIDER_STATES_QUERY_KEY,
+      string | null,
+      string | null,
+    ]
+  | readonly [
+      typeof SYSTEM_PROVIDER_STATES_QUERY_KEY,
+      string | null,
+      string | null,
+      string,
+    ];
+type SystemExecutionOptionsQueryKey =
+  | readonly [
+      typeof SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
+      string | null,
+      string | null,
+      string | null,
+    ]
+  | readonly [
+      typeof SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
+      string | null,
+      string | null,
+      string | null,
+      string,
+    ];
 type AllSystemExecutionOptionsQueryKeyPrefix = readonly [
   typeof SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
 ];
@@ -1154,28 +1169,43 @@ export function systemUsageLimitsQueryKey(
 }
 
 export function systemProviderStatesQueryKey(
-  args: Pick<SystemExecutionOptionsQueryKeyArgs, "environmentId" | "hostId">,
+  args: Pick<
+    SystemExecutionOptionsQueryKeyArgs,
+    "environmentId" | "hostId" | "agentId"
+  >,
 ): SystemProviderStatesQueryKey {
-  return [SYSTEM_PROVIDER_STATES_QUERY_KEY, args.environmentId, args.hostId];
+  return args.agentId === undefined || args.agentId === null
+    ? [SYSTEM_PROVIDER_STATES_QUERY_KEY, args.environmentId, args.hostId]
+    : [
+        SYSTEM_PROVIDER_STATES_QUERY_KEY,
+        args.environmentId,
+        args.hostId,
+        args.agentId,
+      ];
 }
 
 interface SystemExecutionOptionsQueryKeyArgs {
   environmentId: string | null;
   hostId: string | null;
   providerId: string | null;
+  agentId?: string | null;
 }
 
 export function systemExecutionOptionsQueryKey({
   environmentId,
   hostId,
   providerId,
+  agentId,
 }: SystemExecutionOptionsQueryKeyArgs): SystemExecutionOptionsQueryKey {
-  return [
-    SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
-    environmentId,
-    hostId,
-    providerId,
-  ];
+  return agentId === undefined || agentId === null
+    ? [SYSTEM_EXECUTION_OPTIONS_QUERY_KEY, environmentId, hostId, providerId]
+    : [
+        SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
+        environmentId,
+        hostId,
+        providerId,
+        agentId,
+      ];
 }
 
 export function allSystemExecutionOptionsQueryKeyPrefix(): AllSystemExecutionOptionsQueryKeyPrefix {

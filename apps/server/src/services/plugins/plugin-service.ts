@@ -372,14 +372,17 @@ export interface PluginService {
   resolveAgentConfiguration(args: {
     context: Omit<PluginAgentConfigurationContext, "pluginMetadata">;
     skillIdsByPlugin: ReadonlyMap<string, readonly string[]>;
+    allowedPluginIds?: ReadonlySet<string>;
   }): Promise<PluginResolvedAgentConfiguration>;
   resolveProviderEnv(args: {
     providerId: string;
     context: ExperimentalPluginProviderEnvContext;
+    allowedPluginIds?: ReadonlySet<string>;
   }): Promise<PluginResolvedProviderEnv>;
   resolveProviderEnvHealth(args: {
     providerId: string;
     context: ExperimentalPluginProviderEnvHealthContext;
+    allowedPluginIds?: ReadonlySet<string>;
   }): Promise<PluginResolvedProviderEnvHealth | null>;
   listInstructionContributions(): PluginInstructionContribution[];
   findAgentTool(
@@ -397,6 +400,7 @@ export interface PluginService {
     query: string;
     projectId: string | null;
     threadId: string | null;
+    allowedPluginIds?: ReadonlySet<string>;
   }): Promise<PluginMentionSearchGroup[]>;
   resolveMention(args: {
     pluginId: string;
@@ -1958,7 +1962,11 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       );
     },
 
-    async resolveAgentConfiguration({ context, skillIdsByPlugin }) {
+    async resolveAgentConfiguration({
+      context,
+      skillIdsByPlugin,
+      allowedPluginIds,
+    }) {
       const allTools = collectAgentTools();
       const tools: PluginAgentToolContribution[] = [];
       const selectedSkillIdsByPlugin = new Map<string, ReadonlySet<string>>();
@@ -1970,7 +1978,13 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
           provider: plugin.handle.agentConfigurationProvider,
         }));
       const configuringPluginIds = plugins
-        .filter(({ provider }) => provider !== null)
+        .filter(
+          ({ pluginId, provider }) =>
+            provider !== null &&
+            (allowedPluginIds === undefined ||
+              allowedPluginIds.has("*") ||
+              allowedPluginIds.has(pluginId)),
+        )
         .map(({ pluginId }) => pluginId);
       const metadataByPluginId = new Map<string, JsonObject>();
       for (const row of listThreadPluginMetadataRows(
@@ -1988,6 +2002,13 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       }
 
       for (const { pluginId, provider } of plugins) {
+        if (
+          allowedPluginIds !== undefined &&
+          !allowedPluginIds.has("*") &&
+          !allowedPluginIds.has(pluginId)
+        ) {
+          continue;
+        }
         const pluginTools = allTools.filter(
           (entry) => entry.pluginId === pluginId,
         );
@@ -2047,10 +2068,17 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       return { tools, selectedSkillIdsByPlugin, dynamicInstructions };
     },
 
-    async resolveProviderEnv({ providerId, context }) {
+    async resolveProviderEnv({ providerId, context, allowedPluginIds }) {
       const entries: PluginResolvedProviderEnv["entries"] = [];
       const ownerByName = new Map<string, string>();
       for (const [pluginId, plugin] of loaded) {
+        if (
+          allowedPluginIds !== undefined &&
+          !allowedPluginIds.has("*") &&
+          !allowedPluginIds.has(pluginId)
+        ) {
+          continue;
+        }
         const resolve = plugin.handle.providerEnvResolvers.get(providerId);
         if (resolve === undefined) continue;
         const outcome = await invokeWrapped(
@@ -2087,8 +2115,15 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       return { entries };
     },
 
-    async resolveProviderEnvHealth({ providerId, context }) {
+    async resolveProviderEnvHealth({ providerId, context, allowedPluginIds }) {
       for (const [pluginId, plugin] of loaded) {
+        if (
+          allowedPluginIds !== undefined &&
+          !allowedPluginIds.has("*") &&
+          !allowedPluginIds.has(pluginId)
+        ) {
+          continue;
+        }
         if (!plugin.handle.providerEnvResolvers.has(providerId)) continue;
         const resolve =
           plugin.handle.providerEnvHealthResolvers.get(providerId);
@@ -2190,6 +2225,13 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       if (entries.length === 0) return [];
       const tasks: Array<Promise<PluginMentionSearchGroup | null>> = [];
       for (const [id, plugin] of entries) {
+        if (
+          args.allowedPluginIds !== undefined &&
+          !args.allowedPluginIds.has("*") &&
+          !args.allowedPluginIds.has(id)
+        ) {
+          continue;
+        }
         for (const record of [...plugin.handle.mentionProviders]) {
           if (!record.triggers.includes(args.trigger)) continue;
           tasks.push(

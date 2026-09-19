@@ -1,6 +1,6 @@
 ---
 kind: instruction
-title: bb Guide — Machines
+title: EVA Guide — Machines
 summary: Command reference for listing and targeting execution machines.
 intent: Explain execution-machine discovery and selection from the CLI.
 editingNotes: Keep the user-facing noun machine; internal APIs and types use Host.
@@ -14,22 +14,22 @@ host is a machine, including existing machines enrolled with the built-in
 `manual` provider (Manual machine setup). Add machines under Settings → Machines
 or from the composer machine picker.
 
-One machine runs the bb server. It stores threads, the database, and settings,
+One machine runs the EVA server. It stores threads, the database, and settings,
 and every other machine and app connects to it. Settings → Machines badges it
 `server` once there are several persistent machines, and `bb machine list` shows
 `server` in its Role column. Keep the server machine on: while it is asleep or
-off, nothing can reach bb and running threads may stop. The server machine
+off, nothing can reach EVA and running threads may stop. The server machine
 cannot be removed.
 
 The server listens on loopback by default. Remote execution machines need
-a server access provider: paired bb Connect, or a configured direct URL reachable
+a server access provider: paired EVA Connect, or a configured direct URL reachable
 from the target, such as a private Tailscale Serve URL. A configured URL alone
 does not prove reachability.
 
-The Settings installer first uses the exact `bb-app` tarball served by that bb
+The Settings installer first uses the exact `bb-app` tarball served by that EVA
 server at `/install/bb-app.tgz`; only servers that do not implement the route
 (HTTP 404) fall back to the npm registry. npm installs bb-app under this
-machine enrollment's bb data directory, so the installer needs neither `sudo`
+machine enrollment's EVA data directory, so the installer needs neither `sudo`
 nor a global npm configuration. Installed launchd/systemd services pass
 `--auto-update`. On a newer server protocol mismatch, the daemon downloads that
 same artifact, updates its private install, and exits for the service manager to
@@ -125,7 +125,7 @@ install/update, one at a time
 --machine <id-or-name> Limit to one machine
 --json Print per-target results as JSON
 
-`bb updates apply` covers provider CLIs only. Update bb-app itself with the
+`bb updates apply` covers provider CLIs only. Update the EVA app itself with the
 printed upgrade command (`npx bb-app@latest`) or the desktop app's relaunch;
 connected daemons then follow the server version automatically.
 
@@ -201,7 +201,7 @@ checkouts stay on the machines that own them.
   bb server move --to <id-or-name>        Stop all work and move the server
     --check                               Print the checklist and stop
     --address <url>                       New server address (direct setups)
-    --archive-existing-data               Move bb server data on the target aside
+    --archive-existing-data               Move EVA server data on the target aside
     --yes                                 Skip the confirmation
     --json                                Print the final move status
   bb server move status                   Show the steps, or the last move
@@ -212,20 +212,20 @@ checkouts stay on the machines that own them.
     --data-dir <dir>                      Target data directory
   bb server unlock                        Let this computer's old copy start again
     --force                               Skip the new-server health check
-  bb server allow-connect                 Turn bb connect on for an imported copy
+  bb server allow-connect                 Turn EVA Connect on for an imported copy
   bb server delete-old-copy               Delete the old copy a move left here
 
 When the target never confirms that it took over, the move waits in
-`recovery_required`: the old server stays up and read-only, and bb finishes the
+`recovery_required`: the old server stays up and read-only, and EVA finishes the
 move on its own once the target answers. `bb server move` and
 `bb server move status` exit 2 in that state and name the exits:
 `bb server move cancel` abandons the move and keeps the server here (it asks
 first, since abandoning while the target took over leaves two servers; `--yes`
 skips the question), and `bb server unlock` recovers an old copy that stopped.
 
-`--check` exits nonzero while a blocker remains. With bb connect, machines and
+`--check` exits nonzero while a blocker remains. With EVA Connect, machines and
 apps keep the same URL. A direct-address server needs `--address`: the URL every
-machine and app will use to reach the new server. Existing bb server data on the
+machine and app will use to reach the new server. Existing EVA server data on the
 target is archived to `<dir>.before-move-<date>` only with
 `--archive-existing-data`; it is never merged. The move follows the steps until
 the new server takes over; SIGINT stops following while the move continues.
@@ -236,29 +236,29 @@ it matches the SHA-256 digest the server sent. The archive is not encrypted and
 holds the server's credentials and plugin secrets, so keep it private; `--json`
 prints `path`, `sizeBytes`, `sha256`, and that `warning`.
 `bb server import` works offline: it refuses a data directory that has `bb.db`
-or a running bb, refuses an export made by a newer bb or by a server with the
+or a running EVA app, refuses an export made by a newer EVA release or by a server with the
 `serverMove` experiment off, asks you to re-export an archive encrypted by an
-older bb, and applies path fixups when the imported server first starts. If an
+older EVA release, and applies path fixups when the imported server first starts. If an
 import was interrupted, rerunning `bb server import` rolls it back first from
 `server-import-journal.json` (`--json` reports `rolledBackInterruptedImport:
 true`), and a server move to that machine does the same;
-until then bb refuses to start a server on that directory. Stop the original
-server before starting the imported one; two servers holding the same bb
+until then EVA refuses to start a server on that directory. Stop the original
+server before starting the imported one; two servers holding the same EVA
 connect credential take each other's tunnel.
 
-An imported server starts with bb connect off (`server-connect-hold.json`).
+An imported server starts with EVA Connect off (`server-connect-hold.json`).
 `bb server allow-connect [--data-dir <dir>] [--yes] [--json]` removes the hold
 once the original server is stopped (`--json` prints `dataDir` and
-`connectHoldRemoved`); bb connect starts the next time that server starts.
+`connectHoldRemoved`); EVA Connect starts the next time that server starts.
 
 After a move, the old computer's data directory keeps `server-moved.json`, so
-bb there refuses to start the old server and runs as a regular machine.
+EVA there refuses to start the old server and runs as a regular machine.
 `bb server delete-old-copy` deletes the server files left behind and keeps that
 lock. `bb server unlock` removes the lock as a last resort: everything since
 the move is lost on that copy, and the new server must be stopped first. It
 refuses while the new server still answers (`<serverUrl>/health`, or
-`/api/v1/system/version` with this computer's machine grant for bb connect)
-unless `--force` is passed, and bb on that computer starts the old server within a few
+`/api/v1/system/version` with this computer's machine grant for EVA Connect)
+unless `--force` is passed, and EVA on that computer starts the old server within a few
 seconds. It also
 removes `serverUrl`, `serverHeaders`, `machineCredential`, and
 `connectMachineId` from that directory's `config.json`. Both
@@ -276,7 +276,7 @@ primitives; `bb machine remove` asks the server to remove the provider resource.
 They verify the canonical installer-owned directory, enrolled identity, and
 service or process ownership before acting. Stop and uninstall safely succeed
 when no matching installation exists; start requires an installation. They
-refuse the default BB data directory. Stopping a daemon is distinct from
+refuse the default EVA data directory. Stopping a daemon is distinct from
 `bb machine suspend`, which invokes provider suspension and polls until the machine
 is paused. `bb machine resume` likewise waits for provider restore and bootstrap.
 
@@ -313,7 +313,7 @@ never. `status` and `cost` show live inventory and estimates; all accept `--json
 Powered-off droplets still bill; snapshot storage bills per GB. See
 https://docs.digitalocean.com/products/droplets/details/pricing/ and
 https://docs.digitalocean.com/products/snapshots/details/pricing/ . Configure a
-weekday schedule from the plugin settings or CLI on an always-on BB server.
+weekday schedule from the plugin settings or CLI on an always-on EVA server.
 The latest missed action within eight days runs after recovery; busy sleep
 retries each minute until superseded. See the plugin skill for DST and cleanup.
 

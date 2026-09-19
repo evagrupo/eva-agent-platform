@@ -22,7 +22,7 @@
   - `bb theme show [id] [--css]` — print the active palette, or resolve a
     built-in, custom, or plugin theme by id without activating it. For a custom
     or plugin theme, `--css` prints its CSS. For a built-in theme, it reports
-    that BB bundles the CSS. Settings → Appearance previews a palette live on
+    that EVA bundles the CSS. Settings → Appearance previews a palette live on
     hover without saving; this command is the CLI counterpart.
   - `bb theme reset` — back to `default` while preserving the favicon color.
   - `bb theme favicon set <color>` — set the favicon color while preserving the
@@ -33,7 +33,7 @@
 
 ### Creating or editing a custom theme
 
-This is the BB habit: custom app-theme work belongs in
+This is the EVA habit: custom app-theme work belongs in
 `<bb-data-dir>/theme/<name>/theme.css` — never a stray `.css` file elsewhere.
 
 1. Find the directory: `bb theme dir` (e.g. `~/.bb/theme`).

@@ -325,7 +325,7 @@ export function registerSpawnCommand(
     )
     .option(
       "--base-branch <branch>",
-      "Exact Git ref; omit for bb's project default (use origin/<branch> for a remote ref)",
+      "Exact Git ref; omit for EVA's project default (use origin/<branch> for a remote ref)",
     )
     .option(
       "--machine <id-or-name>",

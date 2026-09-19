@@ -193,3 +193,16 @@ describe("/api/v1 browser origin guard", () => {
     ).toBe(200);
   });
 });
+
+describe("cookie-auth browser origin guard", () => {
+  it("rejects foreign browser origins before Better Auth handles the request", async () => {
+    server = await startTestServer();
+
+    expect(
+      await statusFor(server.baseUrl, {
+        path: "/api/auth/get-session",
+        headers: { origin: "http://127.0.0.1:3009" },
+      }),
+    ).toBe(403);
+  });
+});

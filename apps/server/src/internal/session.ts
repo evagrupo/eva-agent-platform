@@ -83,7 +83,7 @@ export function registerInternalSessionRoutes(
       throw new ApiError(
         410,
         SERVER_MOVED_ERROR_CODE,
-        `This bb server moved to ${movedTo.toHostName} (${movedTo.serverUrl})`,
+        `This EVA server moved to ${movedTo.toHostName} (${movedTo.serverUrl})`,
         { details: movedTo, retryable: false },
       );
     }
@@ -113,7 +113,7 @@ export function registerInternalSessionRoutes(
           daemonProtocolVersion: compatibility.data.protocolVersion,
           serverProtocolVersion: HOST_DAEMON_PROTOCOL_VERSION,
         },
-        "Rejecting daemon session: protocol version mismatch. An older auto-update-enabled daemon will install this server's bb-app; a newer daemon requires the server to be updated.",
+        "Rejecting daemon session: protocol version mismatch. An older auto-update-enabled daemon will install this server's application; a newer daemon requires the server to be updated.",
       );
       throw new ApiError(
         400,

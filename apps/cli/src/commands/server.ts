@@ -72,7 +72,7 @@ interface UnlockCommandOptions extends LocalServerCommandOptions {
 }
 
 const SERVER_EXPORT_UNENCRYPTED_WARNING =
-  "This export is not encrypted and holds the server's credentials and plugin secrets. Keep it private; bb wrote it with mode 0600.";
+  "This export is not encrypted and holds the server's credentials and plugin secrets. Keep it private; EVA wrote it with mode 0600.";
 
 function startServerHint(dataDir: string): string {
   return isDefaultDataDir(dataDir)
@@ -215,7 +215,7 @@ async function runServerMove(
   if (
     !opts.yes &&
     !(await confirmDestructiveAction(
-      `Stop all running work and move the bb server to ${check.targetHostName}?`,
+      `Stop all running work and move the EVA server to ${check.targetHostName}?`,
     ))
   ) {
     return;
@@ -265,11 +265,11 @@ export function registerServerCommands(
 ): void {
   const server = program
     .command("server")
-    .description("Move, export, and import the bb server");
+    .description("Move, export, and import the EVA server");
 
   const move = server
     .command("move")
-    .description("Move the bb server to another machine")
+    .description("Move the EVA server to another machine")
     .option("--to <machine>", "Machine ID or name that should run the server")
     .option(
       "--address <url>",
@@ -278,7 +278,7 @@ export function registerServerCommands(
     .option("--check", "Print the checklist without moving")
     .option(
       "--archive-existing-data",
-      "Move existing bb server data on the target aside before the move",
+      "Move existing EVA server data on the target aside before the move",
     )
     .option("--yes", "Skip the confirmation prompt")
     .option("--json", "Print machine-readable JSON output")
@@ -351,7 +351,7 @@ export function registerServerCommands(
 
   server
     .command("export")
-    .description("Export the bb server's data to an archive")
+    .description("Export the EVA server's data to an archive")
     .requiredOption("--out <file>", "Write the archive to this file")
     .option("--json", "Print machine-readable JSON output")
     .action(
@@ -377,7 +377,7 @@ export function registerServerCommands(
         };
         if (outputJson(opts, result)) return;
         console.log(
-          `Exported the bb server to ${outPath} (${formatServerDataSize(exported.sizeBytes)})`,
+          `Exported the EVA server to ${outPath} (${formatServerDataSize(exported.sizeBytes)})`,
         );
         console.error(SERVER_EXPORT_UNENCRYPTED_WARNING);
       }),
@@ -413,14 +413,14 @@ export function registerServerCommands(
           console.log(`Rolled back an interrupted import in ${dataDir}.`);
         }
         console.log(
-          `Imported the bb server into ${dataDir} (${String(result.importedEntries.length)} files from ${result.sourceDataDir}, exported by bb ${result.bbVersion}).`,
+          `Imported the EVA server into ${dataDir} (${String(result.importedEntries.length)} files from ${result.sourceDataDir}, exported by EVA ${result.bbVersion}).`,
         );
         console.log("");
         console.log(
-          "Stop the original bb server before you start this one. Two servers holding the same bb connect credential take each other's tunnel.",
+          "Stop the original EVA server before you start this one. Two servers holding the same EVA connect credential take each other's tunnel.",
         );
         console.log(
-          `bb connect stays off in this copy until you run ${allowConnectCommand(dataDir)}.`,
+          `EVA connect stays off in this copy until you run ${allowConnectCommand(dataDir)}.`,
         );
         console.log(`Then start it with ${startServerHint(dataDir)}.`);
       }),
@@ -454,14 +454,14 @@ export function registerServerCommands(
         }
         if (lock.oldCopyEntries.length === 0) {
           throw new Error(
-            `The old server copy in ${dataDir} was deleted, so there is nothing to unlock. Unlocking would start an empty bb server.`,
+            `The old server copy in ${dataDir} was deleted, so there is nothing to unlock. Unlocking would start an empty EVA server.`,
           );
         }
         if (!opts.force) {
           const probe = await probeMovedServer({ dataDir, lock });
           if (probe.kind === "running") {
             throw new Error(
-              `The server at ${lock.serverUrl} is running. Unlocking now would run two servers with the same data and bb connect credential. Stop it first, or pass --force.`,
+              `The server at ${lock.serverUrl} is running. Unlocking now would run two servers with the same EVA connect credential. Stop it first, or pass --force.`,
             );
           }
           if (probe.kind === "unconfirmed") {
@@ -471,18 +471,18 @@ export function registerServerCommands(
           }
         }
         console.error(
-          `This bb server moved to ${lock.toHostName} (${lock.serverUrl}) on ${new Date(lock.movedAt).toLocaleString()}.`,
+          `This EVA server moved to ${lock.toHostName} (${lock.serverUrl}) on ${new Date(lock.movedAt).toLocaleString()}.`,
         );
         console.error(
           `Unlocking starts this old copy again. Everything since the move is lost here: threads, settings, and plugin data changed on ${lock.toHostName} stay there.`,
         );
         console.error(
-          `Stop the bb server on ${lock.toHostName} first. Two servers holding the same bb connect credential take each other's tunnel.`,
+          `Stop the EVA server on ${lock.toHostName} first. Two servers holding the same EVA connect credential take each other's tunnel.`,
         );
         if (
           !opts.yes &&
           !(await confirmDestructiveAction(
-            `Unlock the old bb server copy in ${dataDir}?`,
+            `Unlock the old EVA server copy in ${dataDir}?`,
           ))
         ) {
           return;
@@ -496,7 +496,7 @@ export function registerServerCommands(
           );
         }
         console.log(
-          `Unlocked ${dataDir}. bb on this computer starts the old server again within a few seconds; if bb isn't running, start it with ${startServerHint(dataDir)}.`,
+          `Unlocked ${dataDir}. EVA on this computer starts the old server again within a few seconds; if EVA isn't running, start it with ${startServerHint(dataDir)}.`,
         );
       }),
     );
@@ -504,7 +504,7 @@ export function registerServerCommands(
   server
     .command("allow-connect")
     .description(
-      "Let bb connect start from an imported server copy (does not call a server)",
+      "Let EVA connect start from an imported server copy (does not call a server)",
     )
     .option(
       "--data-dir <dir>",
@@ -517,17 +517,17 @@ export function registerServerCommands(
         const dataDir = resolveLocalDataDir(opts.dataDir);
         if (!existsSync(join(dataDir, SERVER_CONNECT_HOLD_FILE_NAME))) {
           if (!outputJson(opts, { dataDir, connectHoldRemoved: false })) {
-            console.log(`${dataDir} has no bb connect hold.`);
+            console.log(`${dataDir} has no EVA connect hold.`);
           }
           return;
         }
         console.error(
-          "Stop the original bb server first. Two servers holding the same bb connect credential take each other's tunnel.",
+          "Stop the original EVA server first. Two servers holding the same EVA connect credential take each other's tunnel.",
         );
         if (
           !opts.yes &&
           !(await confirmDestructiveAction(
-            `Let bb connect start from the imported bb server in ${dataDir}?`,
+            `Let EVA connect start from the imported EVA server in ${dataDir}?`,
           ))
         ) {
           return;
@@ -535,7 +535,7 @@ export function registerServerCommands(
         const connectHoldRemoved = await removeServerConnectHoldFile(dataDir);
         if (outputJson(opts, { dataDir, connectHoldRemoved })) return;
         console.log(
-          `Removed the bb connect hold from ${dataDir}. bb connect starts the next time this server starts; restart bb if it's already running.`,
+          `Removed the EVA connect hold from ${dataDir}. EVA connect starts the next time this server starts; restart EVA if it's already running.`,
         );
       }),
     );
@@ -569,7 +569,7 @@ export function registerServerCommands(
         if (
           !opts.yes &&
           !(await confirmDestructiveAction(
-            `Delete the old bb server copy in ${dataDir} (${String(lock.oldCopyEntries.length)} entries)? The server now runs on ${lock.toHostName}; this cannot be undone.`,
+            `Delete the old EVA server copy in ${dataDir} (${String(lock.oldCopyEntries.length)} entries)? The server now runs on ${lock.toHostName}; this cannot be undone.`,
           ))
         ) {
           return;
@@ -577,7 +577,7 @@ export function registerServerCommands(
         const result = await deleteOldServerCopy(dataDir, lock);
         if (outputJson(opts, result)) return;
         console.log(
-          `Deleted the old bb server copy from ${dataDir} (${String(result.deletedEntries.length)} entries). This computer keeps running as a regular machine.`,
+          `Deleted the old EVA server copy from ${dataDir} (${String(result.deletedEntries.length)} entries). This computer keeps running as a regular machine.`,
         );
       }),
     );

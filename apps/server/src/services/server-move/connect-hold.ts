@@ -4,7 +4,7 @@ import type { PluginLoadHold } from "../plugins/plugin-runtime.js";
 import { CONNECT_PLUGIN_SOURCE } from "./mode.js";
 
 export const CONNECT_HOLD_DETAIL =
-  "Off after bb server import so this server can't take the original server's tunnel. Stop the original server, run bb server allow-connect, then restart bb.";
+  "Off after EVA server import so this server can't take the original server's tunnel. Stop the original server, run the EVA server allow-connect command, then restart EVA.";
 
 export interface CreateConnectHoldArgs {
   dataDir: string;
@@ -21,7 +21,7 @@ export function createConnectHold(args: CreateConnectHoldArgs): PluginLoadHold {
       } catch (error) {
         args.logger.warn(
           { err: error },
-          "Could not read server-connect-hold.json, so bb connect stays off",
+          "Could not read server-connect-hold.json, so EVA connect stays off",
         );
         return true;
       }

@@ -124,6 +124,33 @@ function parseOptionalUrlEnvValue(args: EnvVarParseArgs): string {
   return validateOptionalUrl(args.name, args.value);
 }
 
+function parseMiniAppsPublicDomain(args: EnvVarParseArgs): string {
+  const value = toOptionalString(args.value);
+  if (value === undefined) return "";
+  let parsed: URL;
+  try {
+    parsed = new URL(`https://${value}`);
+  } catch {
+    throw new Error(
+      `${args.name} must be a hostname with an optional port and no path`,
+    );
+  }
+  if (
+    parsed.username.length > 0 ||
+    parsed.password.length > 0 ||
+    parsed.pathname !== "/" ||
+    parsed.search.length > 0 ||
+    parsed.hash.length > 0 ||
+    parsed.hostname.length === 0 ||
+    parsed.hostname.includes("*")
+  ) {
+    throw new Error(
+      `${args.name} must be a hostname with an optional port and no path`,
+    );
+  }
+  return `${parsed.hostname.toLowerCase()}${parsed.port ? `:${parsed.port}` : ""}`;
+}
+
 function parseLogLevelValue(args: EnvVarParseArgs): string {
   return validateLogLevel(args.value);
 }
@@ -203,6 +230,13 @@ export const BB_EXTERNAL_URL_ENV = defineEnvVar<string>({
     "Internet-facing HTTPS base URL used for generated public links. Does not control which host or port the server binds to.",
   name: "BB_EXTERNAL_URL",
   parse: parseOptionalUrlEnvValue,
+});
+
+export const BB_MINI_APPS_PUBLIC_DOMAIN_ENV = defineEnvVar<string>({
+  description:
+    "Trusted base domain for internal mini-app links, without a wildcard prefix or scheme, such as apps.example.com",
+  name: "BB_MINI_APPS_PUBLIC_DOMAIN",
+  parse: parseMiniAppsPublicDomain,
 });
 
 export const BB_MARKETPLACE_URL_ENV = defineEnvVar<string>({
@@ -356,6 +390,7 @@ export const DEFAULT_BB_APP_SURFACE = APP_SURFACE_WEB;
 export const DEFAULT_BB_APP_URL = "";
 export const DEFAULT_BB_SERVER_BIND_HOST: ServerBindHost = BB_LOOPBACK_HOST;
 export const DEFAULT_BB_EXTERNAL_URL = "";
+export const DEFAULT_BB_MINI_APPS_PUBLIC_DOMAIN = "";
 export const DEFAULT_OPENAI_API_KEY = "";
 export const DEFAULT_BB_POSTHOG_API_KEY =
   "phc_tejoYoNLV6vG8QAd5eYXXvcsENFYnP4brpZDGqG7zvpy";

@@ -275,7 +275,7 @@ describe("server move checks", () => {
         afterDelete.response.items.find(
           (item) => item.id === "target-has-server-data",
         )?.title,
-      ).toBe("Desktop already has bb server data");
+      ).toBe("Desktop already has EVA server data");
     }));
 
   it("requires an address other machines can reach in direct mode", () => {
@@ -437,14 +437,14 @@ describe("server move checks", () => {
       expect(byId.get("target-update")).toEqual({
         id: "target-update",
         severity: "info",
-        title: "bb 0.0.0-test will be installed on Desktop",
+        title: "EVA 0.0.0-test will be installed on Desktop",
         detail: "The update stays on Desktop even if the move is cancelled.",
       });
       expect(byId.get("managed-config-replaced")).toEqual({
         id: "managed-config-replaced",
         severity: "info",
         title:
-          "This server's bb skill settings and other configuration will replace matching settings on Desktop",
+          "This server's EVA skill settings and other configuration will replace matching settings on Desktop",
         detail: null,
       });
 
@@ -458,7 +458,7 @@ describe("server move checks", () => {
       ]);
     }));
 
-  it("blocks a target that runs a newer bb than this server", () =>
+  it("blocks a target that runs a newer EVA release than this server", () =>
     withTestHarness(async (harness) => {
       seedHost(harness.deps, { id: OLD, name: "Laptop" });
       seedPrimaryHost(harness.deps, OLD);
@@ -486,9 +486,9 @@ describe("server move checks", () => {
       ).toEqual({
         id: "target-newer-version",
         severity: "blocker",
-        title: "Desktop runs a newer bb than this server",
+        title: "Desktop runs a newer EVA release than this server",
         detail:
-          "Desktop runs bb 0.0.1 and this server runs bb 0.0.0-test. Update the server to bb 0.0.1 first, then check again.",
+          "Desktop runs EVA 0.0.1 and this server runs EVA 0.0.0-test. Update the server to EVA 0.0.1 first, then check again.",
       });
     }));
 
@@ -811,7 +811,7 @@ describe("server move checks", () => {
       expect(
         connect.response.items.find((item) => item.id === "offline-machines")
           ?.detail,
-      ).toContain("bb connect");
+      ).toContain("EVA Connect");
 
       const unavailable = await runServerMoveCheck(
         checkEnvironment(harness, {

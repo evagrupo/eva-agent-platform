@@ -312,7 +312,35 @@ function dropThreadConversationOutlinesTable(db: DbConnection): void {
   db.$client.prepare("DROP TABLE IF EXISTS thread_conversation_outlines").run();
 }
 
+function dropCoreAuthFoundationSchema(db: DbConnection): void {
+  db.$client.exec(
+    "DROP TABLE IF EXISTS auth_resource_access; DROP TABLE IF EXISTS auth_invitations; DROP TABLE IF EXISTS auth_instructions; DROP TABLE IF EXISTS auth_audit_events; DROP TABLE IF EXISTS auth_thread_access; DROP TABLE IF EXISTS auth_agent_grants; DROP TABLE IF EXISTS auth_group_members; DROP TABLE IF EXISTS auth_principals; DROP TABLE IF EXISTS auth_groups; DROP TABLE IF EXISTS auth_policies; DROP TABLE IF EXISTS session; DROP TABLE IF EXISTS account; DROP TABLE IF EXISTS verification;",
+  );
+  db.$client.exec("DROP INDEX IF EXISTS threads_owner_user_id_idx");
+  db.$client.exec("DROP INDEX IF EXISTS threads_agent_idx");
+  const threadColumns = db.$client
+    .prepare<[], TableInfoRow>("PRAGMA table_info(threads)")
+    .all();
+  if (threadColumns.some((column) => column.name === "owner_user_id")) {
+    db.$client.prepare("ALTER TABLE threads DROP COLUMN owner_user_id").run();
+  }
+  if (threadColumns.some((column) => column.name === "agent_id")) {
+    db.$client.prepare("ALTER TABLE threads DROP COLUMN agent_id").run();
+  }
+}
+
+function dropMiniAppSchema(db: DbConnection): void {
+  db.$client.exec(
+    "DROP TABLE IF EXISTS eva_mini_app_sessions; DROP TABLE IF EXISTS eva_mini_app_handoffs; DROP TABLE IF EXISTS eva_mini_app_links; DROP TABLE IF EXISTS eva_mini_app_deployments;",
+  );
+  db.$client
+    .prepare("DELETE FROM __drizzle_migrations WHERE created_at IN (?, ?)")
+    .run(1789680195335, 1789680247218);
+}
+
 function dropRewindAddedTables(db: DbConnection): void {
+  dropMiniAppSchema(db);
+  dropCoreAuthFoundationSchema(db);
   rewindEnvironmentRowFactsMigration(db);
   rewindEnvironmentProvidersMigration(db);
   dropThreadConversationOutlinesTable(db);
@@ -647,6 +675,7 @@ function dropOnboardingCompletedAtColumn(db: DbConnection): void {
 }
 
 function resetMigrationsAfterThreadSearch(db: DbConnection): void {
+  dropMiniAppSchema(db);
   restoreLegacyThreadOriginColumn(db);
   dropRewindAddedTables(db);
   db.$client
@@ -854,6 +883,8 @@ function rewindEnvironmentRowFactsMigration(db: DbConnection): void {
 }
 
 function rewindMachineProvidersMigration(db: DbConnection): void {
+  dropMiniAppSchema(db);
+  dropCoreAuthFoundationSchema(db);
   db.$client.exec("DROP TABLE IF EXISTS thread_pruning_cursors");
   db.$client.exec("DROP TABLE IF EXISTS project_attachment_threads");
   db.$client.exec("DROP TABLE IF EXISTS project_attachments");
@@ -1089,6 +1120,7 @@ function dropQueuedMessageSenderThreadIdColumn(db: DbConnection): void {
 }
 
 function dropPost0023Tables(db: DbConnection): void {
+  dropMiniAppSchema(db);
   dropEventParentToolCallIdColumn(db);
   dropQueueReworkSchema(db);
   dropEnvironmentRetireRequestedAtColumn(db);
@@ -1260,6 +1292,7 @@ function runMigrationFile(args: RunMigrationFileArgs): void {
 }
 
 function markEventLargeValuesMigrationUnapplied(db: DbConnection): void {
+  dropMiniAppSchema(db);
   db.$client.prepare("DROP TABLE IF EXISTS event_large_values").run();
   restoreEnvironmentCleanupModeColumn(db);
   restoreEnvironmentCleanupRequestedAtColumn(db);

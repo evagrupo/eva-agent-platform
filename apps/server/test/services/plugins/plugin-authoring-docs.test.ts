@@ -791,8 +791,8 @@ describe("bb-plugin-authoring skill", () => {
     expect(skill).toContain("branding.icon");
     expect(skill).toContain("./assets/icon.svg");
     expect(skill).toContain("CSS mask");
-    expect(skill).toContain("canonical BB icon name");
-    expect(skill).toContain("BB reuses this icon on roomy");
+    expect(skill).toContain("canonical EVA icon name");
+    expect(skill).toContain("EVA reuses this icon on roomy");
     expect(skill).toContain("Logo-only");
     expect(skill).toContain("manifests remain supported");
     expect(skill).toContain("Do not duplicate");

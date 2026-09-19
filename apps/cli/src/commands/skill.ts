@@ -380,7 +380,7 @@ export function registerSkillCommands(
 
   skill
     .command("install <registry-skill-id>")
-    .description("Install a canonical skills.sh entry into bb user skills")
+    .description("Install a canonical skills.sh entry into EVA user skills")
     .option("--json", "Print machine-readable JSON output")
     .action(
       action(async (registrySkillId: string, options: JsonOutputOptions) => {
@@ -395,7 +395,7 @@ export function registerSkillCommands(
   skill
     .command("cli-skills-status")
     .description(
-      "Show whether each machine has bb's built-in CLI skills installed",
+      "Show whether each machine has EVA's built-in CLI skills installed",
     )
     .option(
       "--machine <id-or-name>",
@@ -435,7 +435,7 @@ export function registerSkillCommands(
   skill
     .command("install-cli-skills")
     .description(
-      "Install bb's built-in CLI skills into ~/.agents/skills and ~/.claude/skills on a machine",
+      "Install EVA's built-in CLI skills into ~/.agents/skills and ~/.claude/skills on a machine",
     )
     .option(
       "--machine <id-or-name>",

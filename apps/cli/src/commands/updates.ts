@@ -152,11 +152,11 @@ export function registerUpdatesCommands(
 ): void {
   const updates = program
     .command("updates")
-    .description("Inspect and apply bb and provider CLI updates");
+    .description("Inspect and apply EVA and provider CLI updates");
 
   updates
     .command("status", { isDefault: true })
-    .description("Show bb and provider CLI update status across machines")
+    .description("Show EVA and provider CLI update status across machines")
     .option("--machine <id-or-name>", "Limit to one machine")
     .option("--json", "Print machine-readable JSON output")
     .action(
@@ -228,7 +228,7 @@ export function registerUpdatesCommands(
           );
           console.log(
             hasManualUpdates
-              ? "No updates bb can apply. Run bb updates status for manual updates."
+              ? "No EVA updates can be applied. Run bb updates status for manual updates."
               : "Everything is up to date.",
           );
           return;

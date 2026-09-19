@@ -24,6 +24,7 @@ export async function readExecutionOptions(
     transport.api.v1.system["execution-options"].$get(
       {
         query: {
+          agentId: input.agentId,
           environmentId: input.environmentId,
           hostId: input.hostId,
           providerId: input.providerId,

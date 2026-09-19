@@ -9,6 +9,8 @@ import {
 } from "./injected-skills.js";
 
 interface ResolveSkillCatalogSourcesArgs {
+  includeGeneratedPluginCommands?: boolean;
+  pluginSkillRoots?: readonly { pluginId: string; rootPath: string }[];
   pluginSkillSelections?: ReadonlyMap<string, ReadonlySet<string>>;
   projectSkillSources?: readonly ProjectInjectedSkillSource[];
   sharedSkillSources?: readonly SharedInjectedSkillSource[];
@@ -21,10 +23,13 @@ export function resolveSkillCatalog(
   return resolveSkillCatalogEntries(deps.logger, {
     additionalSkillsRootPaths: [
       ...deps.config.inheritedSkillsRootPaths,
-      generatedSkillsRootPath(deps.config.dataDir),
+      ...(args.includeGeneratedPluginCommands === false
+        ? []
+        : [generatedSkillsRootPath(deps.config.dataDir)]),
     ],
     dataDir: deps.config.dataDir,
-    pluginSkillRoots: getPluginSkillRootContributions(),
+    pluginSkillRoots:
+      args.pluginSkillRoots ?? getPluginSkillRootContributions(),
     ...(args.pluginSkillSelections !== undefined
       ? { pluginSkillSelections: args.pluginSkillSelections }
       : {}),

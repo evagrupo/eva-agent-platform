@@ -83,6 +83,7 @@ const systemProviderHostQueryFields = {
 export const systemProvidersQuerySchema = z
   .object({
     ...systemProviderHostQueryFields,
+    agentId: z.string().min(1),
     capability: z.enum(["usage"]),
   })
   .partial()
@@ -92,6 +93,7 @@ export type SystemProvidersQuery = z.infer<typeof systemProvidersQuerySchema>;
 export const systemExecutionOptionsQuerySchema = z
   .object({
     ...systemProviderHostQueryFields,
+    agentId: z.string().min(1),
     providerId: z.string().min(1),
   })
   .partial()

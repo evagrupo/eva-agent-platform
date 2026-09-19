@@ -12,6 +12,7 @@ import { getPluginConfigurationRoutePath } from "@/lib/route-paths";
 import { useSettingsNavState } from "./settings-nav";
 import type { SettingsNavState } from "./settings-nav";
 import { getSettingsSectionRoutePath } from "./settings-sections";
+import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
 
 interface SettingsSidebarProps {
   onResizeMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void;
@@ -130,6 +131,24 @@ export function SettingsSidebarContent({
 }
 
 export function SettingsSidebar({
+  onResizeMouseDown,
+  isResizing,
+  appRoutePath,
+  mobileHosted,
+}: SettingsSidebarProps) {
+  const auth = useCoreAuth();
+  if (!canUseCoreCapability(auth, "settings")) return null;
+  return (
+    <AuthorizedSettingsSidebar
+      appRoutePath={appRoutePath}
+      isResizing={isResizing}
+      mobileHosted={mobileHosted}
+      onResizeMouseDown={onResizeMouseDown}
+    />
+  );
+}
+
+function AuthorizedSettingsSidebar({
   onResizeMouseDown,
   isResizing,
   appRoutePath,

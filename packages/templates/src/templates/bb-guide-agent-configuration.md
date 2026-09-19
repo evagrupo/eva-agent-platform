@@ -1,47 +1,47 @@
 ---
 kind: instruction
-title: bb Guide — Agent Configuration
+title: EVA Guide — Agent Configuration
 summary: User and workspace files that customize agent instructions and skills.
 intent: Document the user and workspace files that shape agent behavior for threads.
 editingNotes: Keep accurate against the server's agent-instructions reader and skill loader.
 ---
 Agent configuration
 
-bb reads agent configuration from the app data dir and from a project's .bb/
+EVA reads agent configuration from the app data dir and from a project's .bb/
 directory. These files shape how agents behave in provider-backed threads.
 
 User instructions (<dataDir>/AGENTS.md):
 
-  Add an AGENTS.md file to the bb data dir (usually ~/.bb/AGENTS.md) to give
+  Add an AGENTS.md file to the EVA data dir (usually ~/.bb/AGENTS.md) to give
   every provider-backed thread across all projects default user-level
-  instructions. bb reads <dataDir>/AGENTS.md and appends its contents to the
+  instructions. EVA reads <dataDir>/AGENTS.md and appends its contents to the
   thread system prompt for all providers when a provider session starts.
 
 Workspace instructions (.bb/AGENTS.md):
 
   Add a .bb/AGENTS.md file to a workspace to give every thread that runs there
-  repo-specific instructions. bb reads <workspace>/.bb/AGENTS.md and appends its
+  repo-specific instructions. EVA reads <workspace>/.bb/AGENTS.md and appends its
   contents to the thread system prompt for all providers, after any
   <dataDir>/AGENTS.md instructions, when a provider session starts. Track it with
   git so fresh managed worktrees include it.
 
   Only the plural AGENTS.md is read, only from the exact data-dir and
-  workspace-root .bb/ locations above (bb does not walk parent directories), and
-  an empty file is ignored. This is bb's own provider-agnostic instruction
+  workspace-root .bb/ locations above (EVA does not walk parent directories), and
+  an empty file is ignored. This is EVA's own provider-agnostic instruction
   injection, separate from provider-native files such as CLAUDE.md or a
   repo-root AGENTS.md.
 
 Skills (.bb/skills/):
 
-  A skill is a reusable instruction file that bb injects into a thread and
+  A skill is a reusable instruction file that EVA injects into a thread and
   exposes to the agent as a slash command. Place project skills under
   .bb/skills/<name>/SKILL.md in a workspace. Each SKILL.md has YAML frontmatter
   with `name` (lowercase, hyphenated, matching the directory) and `description`,
   followed by the instruction body.
 
-  bb resolves skills from three sources, in increasing precedence:
+  EVA resolves skills from three sources, in increasing precedence:
 
-    plugin     Skills from enabled plugins, including the bundled BB guide.
+    plugin     Skills from enabled plugins, including the bundled EVA guide.
     user       <dataDir>/skills (e.g. ~/.bb/skills).
     project    <workspace>/.bb/skills.
 
@@ -59,12 +59,12 @@ Skills (.bb/skills/):
   Use `bb skill search` to browse skills.sh, `bb skill registry detail
   <registry-skill-id>` to inspect metadata and the bounded file preview, and
   `bb skill install <registry-skill-id>` to install that canonical registry
-  identity into bb user skills. Registry commands are server-wide and do not
+  identity into EVA user skills. Registry commands are server-wide and do not
   accept workspace selectors.
 
-  Use `bb skill install-cli-skills` to copy bb's built-in CLI skills into a
+  Use `bb skill install-cli-skills` to copy EVA's built-in CLI skills into a
   machine's global agent skill roots (`~/.agents/skills` and
-  `~/.claude/skills`) so agents running outside bb can drive it. It installs on
+  `~/.claude/skills`) so agents running outside EVA can drive it. It installs on
   every connected machine unless you pass `--machine <id-or-name>`, which is
   repeatable. Settings → Skills exposes the same action; it asks which machines
   only when more than one is enrolled. Machines install independently, so the
@@ -76,11 +76,11 @@ Skills (.bb/skills/):
 
   Use the skill-creator skill to author and iterate on skills.
 
-BB guide plugin:
+EVA guide plugin:
 
-  The enabled-by-default BB guide plugin owns the BB introduction and the
+  The enabled-by-default EVA guide plugin owns the EVA introduction and the
   bb-cli, bb-plugin-authoring, skill-creator, and submit-a-plugin skills. Settings → Installed
-  plugins → BB guide exposes introduction, a master skills switch, and one
+  plugins → EVA guide exposes introduction, a master skills switch, and one
   switch per skill. All default to true. Use:
 
     bb plugin config bb-guide set introduction false

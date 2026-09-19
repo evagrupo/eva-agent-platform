@@ -77,6 +77,17 @@ export {
 } from "@bb/client-core";
 export type { ThreadRoutePathArgs } from "@bb/client-core";
 
+export const EVA_AGENTS_ROUTE_PATH = "/agents";
+export const EVA_AGENT_DETAIL_ROUTE_PATH = "/agents/:agentId";
+
+export function getEvaAgentsRoutePath(): string {
+  return EVA_AGENTS_ROUTE_PATH;
+}
+
+export function getEvaAgentDetailRoutePath(agentId: string): string {
+  return `${EVA_AGENTS_ROUTE_PATH}/${encodeURIComponent(agentId)}`;
+}
+
 export function getPluginPanelRoutePluginId(pathname: string): string | null {
   return matchPath(PLUGIN_PANEL_ROUTE_PATH, pathname)?.params.pluginId ?? null;
 }
@@ -123,6 +134,12 @@ const ABSOLUTE_HTTP_URL_PATTERN = /^https?:\/\//iu;
 
 export function isRoutePath({ path }: IsRoutePathArgs): boolean {
   const pathname = stripRoutePathSuffix(path);
+  if (
+    pathname === EVA_AGENTS_ROUTE_PATH ||
+    matchPath(EVA_AGENT_DETAIL_ROUTE_PATH, pathname) !== null
+  ) {
+    return true;
+  }
   return ROUTE_PATTERNS.some(
     (pattern) => matchPath(pattern, pathname) !== null,
   );

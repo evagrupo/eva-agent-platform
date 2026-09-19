@@ -1,11 +1,20 @@
 import type { PromptInput } from "@bb/domain";
+import type { DbConnection } from "@bb/db";
 import { ApiError } from "../../errors.js";
+import { assertPluginAllowedForUser } from "../../access-policy.js";
 import { resolvePluginMention } from "./plugin-agent-contributions.js";
 
 type PluginMentionResource = Extract<
   Extract<PromptInput, { type: "text" }>["mentions"][number]["resource"],
   { kind: "plugin" }
 >;
+
+export interface PluginMentionAuthorization {
+  db?: DbConnection;
+  ownerUserId?: string | null;
+  allowedPluginIds?: ReadonlySet<string>;
+  agentId?: string;
+}
 
 function collectPluginMentionResources(
   input: readonly PromptInput[],
@@ -28,11 +37,36 @@ function collectPluginMentionResources(
 
 export async function resolvePluginMentionContextInputs(
   input: readonly PromptInput[],
+  authorization?: PluginMentionAuthorization,
 ): Promise<PromptInput[]> {
   const resources = collectPluginMentionResources(input);
   if (resources.length === 0) return [];
   const contextInputs: PromptInput[] = [];
   for (const resource of resources) {
+    if (authorization?.allowedPluginIds !== undefined) {
+      const allowed =
+        authorization.allowedPluginIds.has("*") ||
+        authorization.allowedPluginIds.has(resource.pluginId);
+      if (!allowed) {
+        throw new ApiError(
+          403,
+          "policy_denied",
+          `Plugin "${resource.pluginId}" is not allowed by policy`,
+        );
+      }
+    }
+    if (
+      authorization?.db !== undefined &&
+      authorization.ownerUserId !== undefined &&
+      authorization.ownerUserId !== null
+    ) {
+      assertPluginAllowedForUser(
+        authorization.db,
+        authorization.ownerUserId,
+        resource.pluginId,
+        authorization.agentId,
+      );
+    }
     const result = await resolvePluginMention({
       pluginId: resource.pluginId,
       itemId: resource.itemId,

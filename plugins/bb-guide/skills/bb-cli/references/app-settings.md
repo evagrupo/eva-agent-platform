@@ -1,4 +1,4 @@
-# bb app settings reference
+# EVA app settings reference
 
 Server-backed preferences in Settings. They are persisted on the server, so
 every window and client sees the same value.
@@ -36,14 +36,14 @@ every window and client sees the same value.
   disable the shortcuts themselves.
 - Settings → Keyboard records sparse per-command chord overrides. `Mod` means
   Command on macOS and Control on Windows/Linux.
-- Reset removes the override and follows bb's current default. Clear stores an
+- Reset removes the override and follows EVA's current default. Clear stores an
   explicit disabled value.
 - Bindings for non-native actions apply in browser and desktop clients. Command
   contexts and native-only availability remain server-owned. Reusing a chord
   can be intentional when contexts do not overlap; the UI identifies reuse.
 - New Thread, New Window, New Tab, Close, and Settings in the desktop menu use
   the same resolved shortcuts as renderer commands.
-- The complete default table is in `docs/configuration.md` in the bb source
+- The complete default table is in `docs/configuration.md` in the EVA source
   repository.
 
 ## Diagnostic events
@@ -91,9 +91,9 @@ every window and client sees the same value.
 - A prefix does not need a trailing slash. `sawyer/wt-` gives
   `sawyer/wt-fix-login-flow-thr_ab12cd34ef`, and an empty prefix gives
   `fix-login-flow-thr_ab12cd34ef`.
-- bb rejects a prefix that cannot start a valid git branch name, such as one
+- EVA rejects a prefix that cannot start a valid git branch name, such as one
   with a space or a leading `-`. The maximum length is 64 characters.
-- The new prefix applies to branches bb creates after the change. It does not
+- The new prefix applies to branches EVA creates after the change. It does not
   rename an existing branch or worktree.
 
 ## Provider order and default
@@ -126,12 +126,12 @@ every window and client sees the same value.
 
 ## Provider session release
 
-- BB releases restorable provider sessions after 30 idle minutes.
+- EVA releases restorable provider sessions after 30 idle minutes.
 - Active turns, commands, agents, workflows, and monitors keep sessions loaded.
 
 ## Mobile app
 
-- The `mobileApp` experiment defaults to false while the bb mobile app is in
+- The `mobileApp` experiment defaults to false while the EVA mobile app is in
   early access.
 - Enable it with `bb settings experiment mobileApp true`. It shows the
   **Add mobile device** card under Settings → Remote access.

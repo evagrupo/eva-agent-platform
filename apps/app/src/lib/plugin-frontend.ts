@@ -493,20 +493,20 @@ async function mountWithTimeout(
             if (controller.signal.aborted) return;
             if (typeof threadId !== "string") {
               deps.warn(
-                `bb plugin "${pluginId}": contentScript.experimental_setThreadRowStatus: "threadId" must be a non-empty string`,
+                `EVA plugin "${pluginId}": contentScript.experimental_setThreadRowStatus: "threadId" must be a non-empty string`,
               );
               return;
             }
             const normalizedThreadId = threadId.trim();
             if (normalizedThreadId.length === 0) {
               deps.warn(
-                `bb plugin "${pluginId}": contentScript.experimental_setThreadRowStatus: "threadId" must be a non-empty string`,
+                `EVA plugin "${pluginId}": contentScript.experimental_setThreadRowStatus: "threadId" must be a non-empty string`,
               );
               return;
             }
             const normalizedStatus = normalizePluginThreadRowStatus(
               status,
-              (reason) => deps.warn(`bb plugin "${pluginId}": ${reason}`),
+              (reason) => deps.warn(`EVA plugin "${pluginId}": ${reason}`),
             );
             if (normalizedStatus === undefined) return;
             setPluginThreadRowStatus(
@@ -698,7 +698,7 @@ async function reconcileCandidates(
         const definition = record.module.default;
         if (!isPluginAppDefinition(definition)) {
           throw new Error(
-            "the bundle's default export is not definePluginApp(...) from @get-bb/plugin-sdk/app",
+            "the bundle's default export is not a valid EVA plugin app definition",
           );
         }
         collected = collectPluginAppRegistrations(definition, (reason) => {

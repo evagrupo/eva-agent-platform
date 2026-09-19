@@ -256,7 +256,9 @@ function upsertThreadTitleSearchSegments(
 
 export interface CreateThreadInput {
   projectId: string;
+  ownerUserId?: string | null;
   environmentId?: string | null;
+  agentId?: string | null;
   providerId: string;
   title?: string | null;
   titleFallback?: string | null;
@@ -312,7 +314,9 @@ export function createThread(
         .values({
           id,
           projectId: input.projectId,
+          ownerUserId: input.ownerUserId ?? null,
           environmentId: input.environmentId ?? null,
+          agentId: input.agentId ?? null,
           providerId: input.providerId,
           title: input.title ?? null,
           titleFallback: input.titleFallback ?? null,
@@ -590,7 +594,10 @@ function resolvePinnedThreadNeighbor(
   );
 }
 
-export interface ThreadWithPendingInteractionState extends ThreadRow {
+export interface ThreadWithPendingInteractionState
+  extends Omit<ThreadRow, "ownerUserId" | "agentId"> {
+  ownerUserId?: string | null;
+  agentId?: string | null;
   environmentBranchName: string | null;
   environmentHostId: string | null;
   environmentIsWorktree: boolean | null;

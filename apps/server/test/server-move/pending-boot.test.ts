@@ -542,7 +542,7 @@ describe("interrupted server import at boot", () => {
     await writeFile(join(dataDir, "bb.db"), "partial database");
     await writeJournal(dataDir, ["plugins/npm", "bb.db"]);
     const logger = { error: vi.fn() };
-    const message = `bb server import into ${dataDir} was interrupted, so this server won't start on partial data. Run bb server import <file> --data-dir ${dataDir} again; it rolls back the interrupted import first.`;
+    const message = `EVA server import into ${dataDir} was interrupted, so this server won't start on partial data. Run bb server import <file> --data-dir ${dataDir} again; it rolls back the interrupted import first.`;
 
     await expect(
       refuseInterruptedServerImport({ dataDir, logger }),

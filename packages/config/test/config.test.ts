@@ -661,6 +661,36 @@ describe("consumer-specific config", () => {
     expect(serverConfig.BB_EXTERNAL_URL).toBe("");
   });
 
+  it("normalizes and validates the internal mini-app public domain", () => {
+    expect(
+      loadServerConfig({
+        env: createServerRuntimeEnv({
+          BB_MINI_APPS_PUBLIC_DOMAIN: "Apps.Example.Test",
+        }),
+      }).BB_MINI_APPS_PUBLIC_DOMAIN,
+    ).toBe("apps.example.test");
+    expect(
+      loadServerConfig({
+        env: createServerRuntimeEnv({
+          BB_MINI_APPS_PUBLIC_DOMAIN: "apps.example.test:8443",
+        }),
+      }).BB_MINI_APPS_PUBLIC_DOMAIN,
+    ).toBe("apps.example.test:8443");
+    for (const value of [
+      "https://apps.example.test",
+      "*.apps.example.test",
+      "apps.example.test/path",
+    ]) {
+      expect(() =>
+        loadServerConfig({
+          env: createServerRuntimeEnv({
+            BB_MINI_APPS_PUBLIC_DOMAIN: value,
+          }),
+        }),
+      ).toThrow(/BB_MINI_APPS_PUBLIC_DOMAIN/u);
+    }
+  });
+
   it("validates app and external URLs independently", () => {
     const serverConfig = loadServerConfig({
       env: createServerRuntimeEnv({

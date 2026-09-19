@@ -262,7 +262,7 @@ export async function generateBbOfficialMarketplace(args: {
         description: manifest.bb.description,
         icon: marketplaceIcon(plugin.name, declaredIcon),
         tags: [],
-        author: { name: "BB" },
+        author: { name: "EVA" },
         source: { bundled: { plugin: plugin.name } },
         category: catalog.category,
         screenshots: catalog.screenshots,
@@ -274,13 +274,13 @@ export async function generateBbOfficialMarketplace(args: {
   const document = {
     schemaVersion: 2,
     name: BUNDLED_MARKETPLACE_NAME,
-    displayName: "BB Official",
-    description: "Plugins that ship with bb.",
+    displayName: "EVA Official",
+    description: "Plugins that ship with EVA.",
     categories: PLUGIN_CATALOG_CATEGORIES,
     collections: [
       {
         id: "bb-official",
-        displayName: "BB Official",
+        displayName: "EVA Official",
         pluginIds: entries.map((entry) => entry.id),
       },
     ],

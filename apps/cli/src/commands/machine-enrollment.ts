@@ -139,7 +139,7 @@ export async function enrollMachine(
   );
   if (dataDir === resolve(home, ".bb"))
     throw new Error(
-      "Machine enrollment cannot use the default BB data directory",
+      "Machine enrollment cannot use the default EVA data directory",
     );
   const existingAuth = await readOptional(join(dataDir, "auth.json"));
   if (existingAuth !== null) {

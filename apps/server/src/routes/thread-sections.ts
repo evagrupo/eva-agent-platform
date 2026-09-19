@@ -12,6 +12,10 @@ import {
 import type { Hono } from "hono";
 import type { AppDeps } from "../types.js";
 import { ApiError } from "../errors.js";
+import {
+  assertCoreCapability,
+  assertThreadCreationAllowed,
+} from "../access-policy.js";
 
 function requireSectionName(name: string): string {
   const normalized = normalizeThreadSectionName(name);
@@ -36,6 +40,8 @@ export function registerThreadSectionRoutes(app: Hono, deps: AppDeps): void {
   const routes = publicApiRoutes.threadSections;
 
   post(routes.create, (context, payload) => {
+    assertCoreCapability(context, "threadInfo");
+    assertThreadCreationAllowed(context);
     const result = createThreadSection(deps.db, deps.hub, {
       name: requireSectionName(payload.name),
     });
@@ -46,6 +52,8 @@ export function registerThreadSectionRoutes(app: Hono, deps: AppDeps): void {
   });
 
   patch(routes.update, (context, payload) => {
+    assertCoreCapability(context, "threadInfo");
+    assertThreadCreationAllowed(context);
     const result = renameThreadSection(deps.db, deps.hub, {
       id: payload.id,
       name: requireSectionName(payload.name),
@@ -60,6 +68,8 @@ export function registerThreadSectionRoutes(app: Hono, deps: AppDeps): void {
   });
 
   del(routes.delete, (context, payload) => {
+    assertCoreCapability(context, "threadInfo");
+    assertThreadCreationAllowed(context);
     const result = deleteThreadSection(deps.db, deps.hub, { id: payload.id });
     if (!result) {
       throw new ApiError(404, "section_not_found", "Section not found");

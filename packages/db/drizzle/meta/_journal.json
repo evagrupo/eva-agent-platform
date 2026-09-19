@@ -883,6 +883,76 @@
       "when": 1789588549270,
       "tag": "0125_silent_guardian",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "6",
+      "when": 1789597814737,
+      "tag": "0126_boring_thaddeus_ross",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "6",
+      "when": 1789599142299,
+      "tag": "0127_rapid_wiccan",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "6",
+      "when": 1789640428796,
+      "tag": "0128_next_yellow_claw",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "6",
+      "when": 1789642138715,
+      "tag": "0129_mean_absorbing_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "6",
+      "when": 1789660785996,
+      "tag": "0130_secret_mariko_yashida",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "6",
+      "when": 1789669135906,
+      "tag": "0131_thankful_moon_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "6",
+      "when": 1789675101381,
+      "tag": "0132_eager_doctor_faustus",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "6",
+      "when": 1789680195335,
+      "tag": "0133_colorful_orphan",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "6",
+      "when": 1789680247218,
+      "tag": "0134_happy_wild_pack",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "6",
+      "when": 1789817626952,
+      "tag": "0135_dazzling_lila_cheney",
+      "breakpoints": true
     }
   ]
 }

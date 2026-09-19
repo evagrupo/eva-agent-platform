@@ -88,7 +88,11 @@ import {
 } from "./marketplace-source.js";
 import { BUNDLED_CURATED_MARKETPLACE } from "./curated-marketplace.js";
 import { loadBundledMarketplace } from "./bundled-marketplace.js";
-import { marketplacePublisherLabel } from "./marketplace-publishers.js";
+import {
+  evaProductLabel,
+  marketplaceDisplayNameForProduct,
+  marketplacePublisherLabel,
+} from "./marketplace-publishers.js";
 import { createKeyedLock } from "../lib/async-deduper.js";
 
 const MARKETPLACE_REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1_000;
@@ -299,7 +303,10 @@ export function createPluginCatalogService(deps: {
     const catalog = catalogOf(row);
     return {
       name: row.name,
-      displayName: catalog?.displayName ?? row.name,
+      displayName: marketplaceDisplayNameForProduct({
+        marketplaceName: row.name,
+        displayName: catalog?.displayName,
+      }),
       description: catalog?.description ?? null,
       official: isReservedMarketplace(row.name),
       sourceKind: row.sourceKind,
@@ -336,7 +343,10 @@ export function createPluginCatalogService(deps: {
         }
         marketplacesByExposedId.set(collection.id, row.name);
         const collectionKey = catalogEntryKey(row.name, collection.id);
-        collectionsByKey.set(collectionKey, collection);
+        collectionsByKey.set(collectionKey, {
+          ...collection,
+          displayName: evaProductLabel(collection.displayName),
+        });
         collection.pluginIds.forEach((pluginId, rank) => {
           const entryKey = catalogEntryKey(row.name, pluginId);
           const memberships = membershipsByEntry.get(entryKey) ?? [];
@@ -493,7 +503,10 @@ export function createPluginCatalogService(deps: {
       source: entrySourceDisplay(entry),
       repositoryUrl: entryRepositoryUrl(entry),
       marketplace: row.name,
-      marketplaceDisplayName: catalog.displayName,
+      marketplaceDisplayName: marketplaceDisplayNameForProduct({
+        marketplaceName: row.name,
+        displayName: catalog.displayName,
+      }),
       publisherKey: row.name,
       publisherLabel: marketplacePublisherLabel({
         marketplaceName: row.name,
@@ -1004,7 +1017,7 @@ export function createPluginCatalogService(deps: {
           const name = materialized.catalog.name;
           if (isReservedMarketplace(name)) {
             throw new Error(
-              `marketplace name "${name}" is reserved for a marketplace that ships with bb`,
+              `catalog name "${name}" is reserved for an integration catalog that ships with EVA`,
             );
           }
           if (getPluginMarketplace(deps.db, name) !== undefined) {
@@ -1188,7 +1201,10 @@ export function createPluginCatalogService(deps: {
         pluginId: entry.id,
         displayName: entry.displayName,
         marketplace: row.name,
-        marketplaceDisplayName: catalogOf(row)?.displayName ?? row.name,
+        marketplaceDisplayName: marketplaceDisplayNameForProduct({
+          marketplaceName: row.name,
+          displayName: catalogOf(row)?.displayName,
+        }),
         official,
         author: entryAuthor(entry),
         source: resolvedEntrySource(entry).source,

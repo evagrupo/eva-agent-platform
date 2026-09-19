@@ -274,6 +274,7 @@ function EmbeddedThreadChatWithComposer({
     environmentId: composer.executionEnvironmentId,
     environmentHostId: composer.executionEnvironmentHostId,
     resetKey: composer.executionResetKey,
+    initialAgentId: threadQuery.data?.agentId ?? providerId,
     initialProviderId: providerId,
     initialModel: defaultExecutionOptions?.model,
     initialServiceTier: defaultExecutionOptions?.serviceTier,
@@ -281,12 +282,15 @@ function EmbeddedThreadChatWithComposer({
     initialPermissionMode: defaultExecutionOptions?.permissionMode,
   });
   const {
+    agentOptions,
+    fixedExecution,
     executionOptionsRouting,
     selectedProviderId,
     providerOptions,
     hasMultipleProviders,
     selectedProviderComposerActions,
     selectedModel,
+    selectedAgentId,
     setSelectedModel,
     serviceTier,
     setServiceTier,
@@ -903,6 +907,11 @@ function EmbeddedThreadChatWithComposer({
   const bottomExecutionConfig = useMemo<ExecutionControlsProps>(
     () => ({
       providerRouting: executionOptionsRouting,
+      fixedExecution,
+      agent: {
+        options: agentOptions,
+        selectedId: selectedAgentId,
+      },
       provider: {
         options: providerOptions,
         selectedId: selectedProviderId,
@@ -933,7 +942,9 @@ function EmbeddedThreadChatWithComposer({
     }),
     [
       activeModel,
+      agentOptions,
       executionOptionsRouting,
+      fixedExecution,
       hasMultipleProviders,
       isLoadingModels,
       modelLoadFailed,
@@ -944,6 +955,7 @@ function EmbeddedThreadChatWithComposer({
       reasoningLevel,
       reasoningOptions,
       selectedModel,
+      selectedAgentId,
       selectedProviderId,
       serviceTier,
       serviceTierSupportByProvider,
@@ -994,16 +1006,17 @@ function EmbeddedThreadChatWithComposer({
             value: snapshotPermissionMode,
             options: permissionModeOptions,
             onChange: () => {},
-            supported: supportsPermissionModeSelection,
+            supported: supportsPermissionModeSelection && !fixedExecution,
           }
         : {
             value: permissionMode,
             options: permissionModeOptions,
             onChange: setPermissionMode,
-            supported: supportsPermissionModeSelection,
+            supported: supportsPermissionModeSelection && !fixedExecution,
           },
     [
       composer.permissionPolicy,
+      fixedExecution,
       permissionMode,
       permissionModeOptions,
       setPermissionMode,

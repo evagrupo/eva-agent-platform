@@ -135,8 +135,11 @@ export function PluginProviderModelPicker({
     [emit, value.serviceTier],
   );
 
+  if (controller.fixedExecution) return null;
+
   return (
     <ModelReasoningPicker
+      agentId={controller.selectedAgentId ?? undefined}
       providerOptions={controller.providerOptions}
       providerRouting={controller.executionOptionsRouting}
       selectedProviderId={controller.selectedProviderId}

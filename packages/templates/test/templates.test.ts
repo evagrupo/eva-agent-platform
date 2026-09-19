@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   renderTemplate,
@@ -7,6 +8,17 @@ import {
 import { templateDefinitions } from "../src/generated/templates.generated.js";
 
 describe("@bb/templates", () => {
+  it("keeps built-in guide and agent templates on the EVA product surface", () => {
+    const templateDirectory = new URL("../src/templates/", import.meta.url);
+    const upstreamProductPattern =
+      /BB CLI|BB Official|BB Community|bundled with BB|reviewed by BB|Manage BB|requires newer bb|running bb|this bb|update bb|restart bb|reinstall bb|compatible with your bb|cannot connect to bb|bb's (SDK|project|built-in)|(?:the|a|an|local|on|connected) bb (?:server|data|thread|machines|browser|apps|plugins|guide|CLI|system)|from bb server|into bb server|moving the bb server|exported by bb server|bb provides|bb shims|__bb__/iu;
+    for (const fileName of readdirSync(templateDirectory)) {
+      if (!fileName.endsWith(".md")) continue;
+      const source = readFileSync(new URL(fileName, templateDirectory), "utf8");
+      expect(source, fileName).not.toMatch(upstreamProductPattern);
+    }
+  });
+
   it("documents project creation machine routing", () => {
     const guide = renderTemplate("bbGuideProjects", {});
 
@@ -53,9 +65,11 @@ describe("@bb/templates", () => {
   it("renders standardAgentAppendInstructions without user-question guidance", () => {
     const rendered = renderTemplate("standardAgentAppendInstructions", {});
 
-    expect(rendered).toContain("You are working inside bb");
+    expect(rendered).toContain("You are working inside EVA");
     expect(rendered).toContain("agentic IDE");
-    expect(rendered).toContain("Reference a BB thread as `@thread:thr_abc123`");
+    expect(rendered).toContain(
+      "Reference an EVA thread as `@thread:thr_abc123`",
+    );
     expect(rendered).toContain("Do not construct thread URLs manually");
     expect(rendered).not.toContain(
       "Ask the user a blocking question only when",

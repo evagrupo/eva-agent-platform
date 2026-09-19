@@ -10,6 +10,7 @@ import type {
   PluginCatalogService,
 } from "../services/plugin-catalog/plugin-catalog-service.js";
 import { errorMessage } from "../services/lib/error-log-fields.js";
+import { assertAllPluginsAllowed } from "../access-policy.js";
 import { hashedAssetCacheControl } from "./plugin-image-response.js";
 
 function entrySelector(
@@ -27,18 +28,21 @@ export function registerPluginCatalogRoutes(
   app: Hono,
   catalog: PluginCatalogService,
 ): void {
-  app.get("/plugin-catalog", (context) =>
-    context.json({ catalog: catalog.status() }),
-  );
+  app.get("/plugin-catalog", (context) => {
+    assertAllPluginsAllowed(context);
+    return context.json({ catalog: catalog.status() });
+  });
 
-  app.get("/plugin-catalog/search", async (context) =>
-    context.json({
+  app.get("/plugin-catalog/search", async (context) => {
+    assertAllPluginsAllowed(context);
+    return context.json({
       results: await catalog.search(context.req.query("q") ?? ""),
       collections: catalog.collections(),
-    }),
-  );
+    });
+  });
 
   app.get("/plugin-catalog/icons/:marketplace/:entryId", async (context) => {
+    assertAllPluginsAllowed(context);
     const icon = await catalog.icon(
       context.req.param("marketplace"),
       context.req.param("entryId"),
@@ -59,6 +63,7 @@ export function registerPluginCatalogRoutes(
   });
 
   app.get("/plugin-catalog/install-plan", async (context) => {
+    assertAllPluginsAllowed(context);
     const selector = entrySelector(
       context.req.query("entryId"),
       context.req.query("marketplace"),
@@ -77,6 +82,7 @@ export function registerPluginCatalogRoutes(
   });
 
   app.post("/plugin-catalog/install", async (context) => {
+    assertAllPluginsAllowed(context);
     const json: unknown = await context.req.json().catch(() => null);
     const body = pluginCatalogInstallRequestSchema.safeParse(json);
     if (!body.success) {
@@ -98,11 +104,13 @@ export function registerPluginCatalogRoutes(
     }
   });
 
-  app.get("/marketplaces", (context) =>
-    context.json({ marketplaces: catalog.listMarketplaces() }),
-  );
+  app.get("/marketplaces", (context) => {
+    assertAllPluginsAllowed(context);
+    return context.json({ marketplaces: catalog.listMarketplaces() });
+  });
 
   app.post("/marketplaces", async (context) => {
+    assertAllPluginsAllowed(context);
     const json: unknown = await context.req.json().catch(() => null);
     const body = pluginMarketplaceAddRequestSchema.safeParse(json);
     if (!body.success) {
@@ -119,6 +127,7 @@ export function registerPluginCatalogRoutes(
   });
 
   app.post("/marketplaces/refresh", async (context) => {
+    assertAllPluginsAllowed(context);
     const json: unknown = await context.req.json().catch(() => null);
     const body = pluginMarketplaceRefreshRequestSchema.safeParse(json ?? {});
     if (!body.success) {
@@ -134,6 +143,7 @@ export function registerPluginCatalogRoutes(
   });
 
   app.delete("/marketplaces/:name", async (context) => {
+    assertAllPluginsAllowed(context);
     const parsedName = pluginMarketplaceNameSchema.safeParse(
       context.req.param("name"),
     );

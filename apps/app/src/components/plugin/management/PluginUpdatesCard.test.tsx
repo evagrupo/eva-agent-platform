@@ -79,7 +79,9 @@ describe("PluginDetailReleaseControl", () => {
     });
     expect(update).toBeTruthy();
     expect(update.querySelector('[data-icon="Download"]')).not.toBeNull();
-    expect(screen.queryByText("Compatible with your bb.")).toBeNull();
+    expect(
+      screen.queryByText("Compatible with your EVA workspace."),
+    ).toBeNull();
   });
 
   it("shows a blocked update inline without a modal or disabled action", () => {
@@ -90,7 +92,7 @@ describe("PluginDetailReleaseControl", () => {
           updateState: {
             ...EMPTY_PLUGIN_UPDATE_STATE,
             blockedVersion: "1.9.0",
-            blockedReasons: ["requires bb >= 0.15"],
+            blockedReasons: ["requires EVA >= 0.15"],
           },
         })}
       />,
@@ -101,12 +103,12 @@ describe("PluginDetailReleaseControl", () => {
       name: "Update blocked",
     });
     expect(screen.queryByText("Update blocked")).toBeNull();
-    expect(blockedStatus.textContent).toContain("Requires bb >= 0.15.");
+    expect(blockedStatus.textContent).toContain("Requires EVA >= 0.15.");
     expect(blockedStatus.textContent).toContain("1.6.2 remains installed");
     expect(blockedStatus.textContent).toContain(
       "check again when a compatible plugin version is available",
     );
-    expect(blockedStatus.textContent).not.toContain("Update bb");
+    expect(blockedStatus.textContent).not.toContain("Update EVA");
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -119,7 +121,7 @@ describe("PluginDetailReleaseControl", () => {
           updateState: {
             ...EMPTY_PLUGIN_UPDATE_STATE,
             blockedVersion: "1.9.0",
-            blockedReasons: ["requires bb < 0.20, running bb is 0.21.0"],
+            blockedReasons: ["requires EVA < 0.20, running EVA is 0.21.0"],
           },
         })}
       />,
@@ -129,8 +131,8 @@ describe("PluginDetailReleaseControl", () => {
     const blockedStatus = screen.getByRole("status", {
       name: "Update blocked",
     });
-    expect(blockedStatus.textContent).toContain("Requires bb < 0.20");
-    expect(blockedStatus.textContent).not.toContain("Update bb");
+    expect(blockedStatus.textContent).toContain("Requires EVA < 0.20");
+    expect(blockedStatus.textContent).not.toContain("Update EVA");
   });
 
   it("retries a failed update from the release action without opening a modal", async () => {
@@ -192,7 +194,7 @@ describe("PluginDetailReleaseControl", () => {
     const failedStatus = screen.getByRole("status", { name: "Update failed" });
     expect(screen.queryByText("Update failed")).toBeNull();
     expect(failedStatus.textContent).toContain(
-      "bb couldn’t activate 1.9.0. It restored 1.6.2 and its data.",
+      "EVA couldn’t activate 1.9.0. It restored 1.6.2 and its data.",
     );
     expect(screen.queryByText("Technical details")).toBeNull();
     expect(screen.queryByText("The plugin failed to load.")).toBeNull();

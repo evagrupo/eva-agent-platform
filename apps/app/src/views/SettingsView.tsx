@@ -71,7 +71,6 @@ import { MachinesSettingsSection } from "@/components/settings/MachinesSettingsS
 import { ProjectsSettingsSection } from "@/components/settings/ProjectsSettingsSection";
 import { ArchivedThreadsSettingsSection } from "@/components/settings/ArchivedThreadsSettingsSection";
 import { CliSkillsSettingsSection } from "@/components/settings/CliSkillsSettingsSection";
-import { MarketplacesSettingsSection } from "@/components/settings/MarketplacesSettingsSection";
 import {
   useUpdateGeneralSettings,
   useUpdateAppearance,
@@ -88,6 +87,11 @@ import { useOpenLinksInAppBrowserPreference } from "@/lib/in-app-browser-link-pr
 import { useRewriteLocalhostLinksPreference } from "@/lib/localhost-link-rewrite-preference";
 import { useRichTextEditingPreference } from "@/lib/rich-text-editing-preference";
 import {
+  canUseCoreCapability,
+  canUseCorePlugin,
+  useCoreAuth,
+} from "@/lib/core-auth";
+import {
   SETTINGS_ROUTE_PATH,
   getRootComposeRoutePath,
 } from "@/lib/route-paths";
@@ -103,10 +107,6 @@ import {
 } from "@/lib/workspace-open-target-preference";
 import { getWorkspaceOpenTargetFallbackLabel } from "@/components/workspace-open-target/workspace-open-target-display";
 import type { LocalHostDaemonAccessState } from "@/lib/local-host-daemon-access";
-import { openUrlInExternalBrowser } from "@/lib/url-open-routing";
-
-const LOCAL_EDITOR_INTEGRATION_DOCS_URL =
-  "https://github.com/get-bb/bb/blob/main/docs/multiple-devices.md#open-bb-from-another-browser";
 
 interface ThemePreferenceOption {
   label: string;
@@ -250,9 +250,9 @@ const SETTINGS_DROPDOWN_CONTENT_CLASS =
   "min-w-[var(--radix-dropdown-menu-trigger-width)]";
 
 const CREATE_CUSTOM_PALETTE_PROMPT =
-  "Create a custom bb palette. First run `bb theme dir` to find the custom theme directory. Ask me for the palette name and visual direction, then create `<theme-dir>/<name>/theme.css` with light and dark theme variables compatible with bb's theme tokens.";
+  "Create a custom EVA palette. Ask me for the palette name and visual direction, then create a theme.css with light and dark theme variables compatible with EVA's theme tokens.";
 const PALETTE_SETTING_DESCRIPTION =
-  "Palettes change bb's colors, including syntax colors in diffs and file previews. Choose a built-in palette or create one from a prompt.";
+  "Palettes change EVA's colors, including syntax colors in diffs and file previews. Choose a built-in palette or create one from a prompt.";
 
 interface PaletteMenuItemProps {
   active: boolean;
@@ -499,10 +499,10 @@ export function LocalOpenTargetSettingsSection({
     const accessDenied = accessState === "denied";
     const accessAvailable = accessState === "available";
     const descriptionText = accessDenied
-      ? "Your browser blocked access to bb on this device. Allow local network access for this site in browser settings, then reload bb."
+      ? "Your browser blocked access to EVA on this device. Allow local network access for this site in browser settings, then reload EVA."
       : accessAvailable
-        ? "bb couldn’t connect to its local editor helper. Make sure the bb desktop app or CLI is running on this device, then retry. If it is already running, a remote browser origin may need to be configured."
-        : "Connect this browser to bb on this device so it can discover installed editors. bb only contacts the local helper after you choose Enable; your browser may ask for local network access.";
+        ? "EVA couldn’t connect to its local editor helper. Make sure the EVA desktop app or command line helper is running on this device, then retry. If it is already running, a remote browser origin may need to be configured."
+        : "Connect this browser to EVA on this device so it can discover installed editors. EVA only contacts the local helper after you choose Enable; your browser may ask for local network access.";
     const buttonLabel = accessRequestPending
       ? accessAvailable
         ? "Retrying…"
@@ -518,26 +518,7 @@ export function LocalOpenTargetSettingsSection({
         <SettingsWithControl
           label="Local editor integration"
           description={
-            <>
-              {descriptionText}{" "}
-              <a
-                href={LOCAL_EDITOR_INTEGRATION_DOCS_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-0.5 rounded-sm underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                onClick={(event) => {
-                  event.preventDefault();
-                  openUrlInExternalBrowser(LOCAL_EDITOR_INTEGRATION_DOCS_URL);
-                }}
-              >
-                Setup guide
-                <Icon
-                  name="ExternalLink"
-                  className="size-3 shrink-0"
-                  aria-hidden
-                />
-              </a>
-            </>
+            <>{descriptionText} Setup is managed by your administrator.</>
           }
         >
           <Button
@@ -633,7 +614,7 @@ function ManagedBranchPrefixSetting({
       label={MANAGED_BRANCH_PREFIX_SETTING_LABEL}
       description={
         valid ? (
-          `bb puts this in front of every branch it creates for a worktree, such as ${draft}${MANAGED_BRANCH_PREFIX_EXAMPLE_SLUG}. Leave it empty for no prefix.`
+          `EVA puts this in front of every branch it creates for a worktree, such as ${draft}${MANAGED_BRANCH_PREFIX_EXAMPLE_SLUG}. Leave it empty for no prefix.`
         ) : (
           <span className="text-destructive" role="alert">
             This prefix cannot start a valid git branch name.
@@ -931,7 +912,7 @@ export function GeneralSettingsSection({
           {desktopBrowserAvailable ? (
             <SettingsWithControl
               label={IN_APP_BROWSER_LINK_SETTING_LABEL}
-              description="Open web links inside bb."
+              description="Open web links inside EVA."
             >
               <Switch
                 checked={openLinksInAppBrowser}
@@ -992,7 +973,7 @@ export function PrivacySettingsSection({
 
         <SettingsWithControl
           label="Share anonymous usage data"
-          description="Send anonymous app starts, thread and message counts, and plugin installs to help improve BB. Turning this off takes effect immediately for this server."
+          description="Send anonymous app starts, thread and message counts, and approved integration installs to help improve EVA. Turning this off takes effect immediately for this server."
         >
           <Switch
             checked={telemetryEnabled}
@@ -1030,7 +1011,7 @@ const EXPERIMENT_DEFINITIONS: Record<
   mobileApp: {
     label: "Mobile app",
     description:
-      "Pair the bb mobile app over bb connect: shows Add mobile device under Remote access and enables bb connect machine-code.",
+      "Pair the EVA mobile app through the configured remote access service: shows Add mobile device under Remote access.",
   },
   multiMachinePicker: {
     label: "Multi-machine picker",
@@ -1040,7 +1021,7 @@ const EXPERIMENT_DEFINITIONS: Record<
   serverMove: {
     label: "Server move",
     description:
-      "Move the bb server to another machine from Settings → Machines, and export or import server data with bb server.",
+      "Move the EVA server to another machine from Settings → Machines, and export or import server data with the EVA server tools.",
   },
   sidebarProgressiveDisclosure: {
     label: "Sidebar progressive disclosure",
@@ -1089,6 +1070,15 @@ export function ExperimentsSettingsSection({
 }
 
 export function SettingsView() {
+  const auth = useCoreAuth();
+  if (!canUseCoreCapability(auth, "settings")) {
+    return <Navigate to="/" replace />;
+  }
+  return <SettingsViewContent />;
+}
+
+function SettingsViewContent() {
+  const auth = useCoreAuth();
   const navigate = useNavigate();
   const themePreference = useThemePreference();
   const systemConfigQuery = useSystemConfig();
@@ -1120,7 +1110,12 @@ export function SettingsView() {
   const location = useLocation();
   const { activePluginId, activeSection, hasUnknownSection } =
     useSettingsNavState();
+  const routePluginId = matchPath(SETTINGS_PLUGIN_ROUTE_PATH, location.pathname)
+    ?.params.pluginId;
   if (hasUnknownSection) {
+    return <Navigate to={SETTINGS_ROUTE_PATH} replace />;
+  }
+  if (routePluginId !== undefined && !canUseCorePlugin(auth, routePluginId)) {
     return <Navigate to={SETTINGS_ROUTE_PATH} replace />;
   }
 
@@ -1246,8 +1241,6 @@ export function SettingsView() {
         }
       />
     );
-  } else if (activeSection === "marketplaces") {
-    content = <MarketplacesSettingsSection />;
   } else if (activeSection === "community") {
     content = <CommunitySettingsSection />;
   } else if (activeSection === "archived") {

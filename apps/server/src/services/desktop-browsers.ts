@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { getStoredThreadTabs, replaceStoredThreadTabs } from "@bb/db";
+import {
+  getEnvironment,
+  getStoredThreadTabs,
+  replaceStoredThreadTabs,
+} from "@bb/db";
 import type { DesktopBrowserTab } from "@bb/host-daemon-contract";
 import {
   threadTabsSchema,
@@ -19,6 +23,10 @@ import {
   requirePublicThread,
   requireNonDestroyedHostWithStatus,
 } from "./lib/entity-lookup.js";
+import {
+  assertResourceAccess,
+  currentCoreAuthRequest,
+} from "../access-policy.js";
 import {
   callHostOnlineRpc,
   callHostOnlineRpcForWork,
@@ -55,7 +63,18 @@ function authorize(
   deps: WorkSessionDeps,
   scope: ExperimentalDesktopBrowserScope,
 ) {
-  requirePublicThread(deps.db, scope.threadId);
+  const thread = requirePublicThread(deps.db, scope.threadId);
+  if (thread.environmentId !== null) {
+    const environment = getEnvironment(deps.db, thread.environmentId);
+    if (environment === null || environment.hostId !== scope.hostId) {
+      throw new ApiError(
+        403,
+        "desktop_control_scope",
+        "The desktop browser is not attached to this thread",
+      );
+    }
+  }
+  assertResourceAccess(deps.db, {}, "host", scope.hostId, "read");
   requireNonDestroyedHostWithStatus(deps, scope.hostId);
 }
 
@@ -75,14 +94,24 @@ function requireLease(
   deps: WorkSessionDeps,
   input: ExperimentalDesktopBrowserLeaseRequest,
 ) {
-  authorize(deps, input);
   const entry = registry(deps).get(input.leaseId);
-  if (
-    !entry ||
-    !entry.active ||
-    entry.lease.expiresAt <= Date.now() ||
-    !sameScope(entry.lease, input)
-  ) {
+  if (!entry) {
+    authorize(deps, input);
+    throw new ApiError(
+      409,
+      "desktop_control_expired",
+      "Browser control has expired or belongs to a different desktop/thread",
+    );
+  }
+  if (!sameScope(entry.lease, input)) {
+    throw new ApiError(
+      409,
+      "desktop_control_expired",
+      "Browser control has expired or belongs to a different desktop/thread",
+    );
+  }
+  authorize(deps, input);
+  if (!entry.active || entry.lease.expiresAt <= Date.now()) {
     throw new ApiError(
       409,
       "desktop_control_expired",
@@ -204,6 +233,7 @@ export async function listDesktopBrowserInstances(
   deps: WorkSessionDeps,
   hostId: string,
 ) {
+  assertResourceAccess(deps.db, {}, "host", hostId, "read");
   requireNonDestroyedHostWithStatus(deps, hostId);
   const result = await callHostOnlineRpc(deps, {
     hostId,
@@ -271,6 +301,7 @@ export async function releaseDesktopBrowserControl(
       "desktop_control_scope",
       "Browser control belongs to a different desktop/thread",
     );
+  if (currentCoreAuthRequest()?.authContext !== null) authorize(deps, input);
   entry.active = false;
   clearTimeout(entry.timer);
   registry(deps).delete(input.leaseId);
@@ -458,6 +489,7 @@ export async function listDesktopBrowserImportSources(
   deps: WorkSessionDeps,
   input: ExperimentalDesktopBrowserInstanceRequest,
 ) {
+  assertResourceAccess(deps.db, {}, "host", input.hostId, "read");
   requireNonDestroyedHostWithStatus(deps, input.hostId);
   return callHostOnlineRpc(deps, {
     hostId: input.hostId,
@@ -474,6 +506,7 @@ export async function importDesktopBrowserCookies(
   deps: WorkSessionDeps,
   input: ExperimentalDesktopBrowserImportCookiesRequest,
 ) {
+  assertResourceAccess(deps.db, {}, "host", input.hostId, "write");
   requireNonDestroyedHostWithStatus(deps, input.hostId);
   return callHostOnlineRpc(deps, {
     hostId: input.hostId,

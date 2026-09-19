@@ -140,8 +140,8 @@ function recovering(): ServerMoveStatus {
 }
 
 const RECOVERY_GUIDANCE = [
-  "bb couldn't confirm that desktop took over (desktop disconnected before confirming).",
-  "This server stays up but read-only, and bb finishes the move on its own as soon as desktop answers.",
+  "EVA couldn't confirm that desktop took over (desktop disconnected before confirming).",
+  "This server stays up but read-only, and EVA finishes the move on its own as soon as desktop answers.",
   "If desktop isn't running the server, run bb server move cancel --yes to abandon the move and keep the server here.",
   "If this server stops, run bb server unlock on this computer.",
 ];
@@ -188,7 +188,7 @@ describe("bb server move", () => {
     });
     expect(startMove).not.toHaveBeenCalled();
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      "Moving the bb server to desktop (bb connect)",
+      "Moving the EVA server to desktop (bb connect)",
       "Target data directory: /home/me/.bb-machines/laptop",
       "",
       "Warnings",
@@ -267,7 +267,7 @@ describe("bb server move", () => {
 
     expect(startMove).not.toHaveBeenCalled();
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
-      "Error: This bb server uses a direct address, so the new server needs one too. Re-run with --address <url>: the URL every machine and app will use to reach bb on desktop, such as a Tailscale Serve URL.",
+      "Error: This EVA server uses a direct address, so the new server needs one too. Re-run with --address <url>: the URL every machine and app will use to reach EVA on desktop, such as a Tailscale Serve URL.",
     ]);
   });
 
@@ -292,7 +292,7 @@ describe("bb server move", () => {
 
     expect(startMove).not.toHaveBeenCalled();
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
-      "Error: desktop already has bb server data at /home/me/.bb (5.0 MB). Re-run with --archive-existing-data to move it aside to a .before-move-<date> directory; it is never merged.",
+      "Error: desktop already has EVA server data at /home/me/.bb (5.0 MB). Re-run with --archive-existing-data to move it aside to a .before-move-<date> directory; it is never merged.",
     ]);
   });
 
@@ -384,7 +384,7 @@ describe("bb server move", () => {
     );
 
     expect(readlineMocks.question).toHaveBeenCalledWith(
-      "Stop all running work and move the bb server to desktop? [y/N] ",
+      "Stop all running work and move the EVA server to desktop? [y/N] ",
     );
     expect(startMove).toHaveBeenCalledWith({
       json: {
@@ -401,7 +401,7 @@ describe("bb server move", () => {
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
       "[running] Stop running work",
       "[done] Stop running work",
-      "[skipped] Update bb on desktop",
+      "[skipped] Update EVA on desktop",
       "[done] Export server data",
       "[running] Send data to desktop: Sent 212 MB of 480 MB",
       "[done] Send data to desktop",
@@ -522,7 +522,7 @@ describe("bb server move", () => {
       "v1.server.move.$get": vi.fn(async () =>
         errorResponse(410, {
           code: "server_moved",
-          message: "This bb server moved to desktop",
+          message: "This EVA server moved to desktop",
           details: {
             serverUrl: "https://me.getbb.app",
             toHostName: "desktop",
@@ -628,7 +628,7 @@ describe("bb server move", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(collectLogPayloads(vi.mocked(console.error)).at(-1)).toBe(
-      "Error: The bb server no longer reports this move. A server restart before the switch abandons the move and keeps the server where it was.",
+      "Error: The EVA server no longer reports this move. A server restart before the switch abandons the move and keeps the server where it was.",
     );
   });
 
@@ -649,7 +649,7 @@ describe("bb server move", () => {
 
     expect(getStatus).toHaveBeenCalledTimes(5);
     expect(collectLogPayloads(vi.mocked(console.error)).at(-1)).toBe(
-      "Error: Lost contact with the bb server before the switch (socket hang up). Run bb server move status once it answers again.",
+      "Error: Lost contact with the EVA server before the switch (socket hang up). Run bb server move status once it answers again.",
     );
   });
 
@@ -751,7 +751,7 @@ describe("bb server move status and cancel", () => {
     await runCommand(["server", "move", "status"], register);
 
     const payloads = collectLogPayloads(vi.mocked(console.log));
-    expect(payloads[0]).toBe("Moving the bb server to desktop (preparing)");
+    expect(payloads[0]).toBe("Moving the EVA server to desktop (preparing)");
     expect(payloads).toContain("  done     Stop running work");
     expect(payloads).toContain(
       "  running  Export server data: Snapshotting bb.db",
@@ -804,7 +804,7 @@ describe("bb server move status and cancel", () => {
 
     const payloads = collectLogPayloads(vi.mocked(console.log));
     expect(payloads[0]).toBe(
-      "Moving the bb server to desktop (recovery required)",
+      "Moving the EVA server to desktop (recovery required)",
     );
     expect(payloads).toContain(
       "  running  Switch machines over: Waiting for desktop to confirm it took over",
@@ -869,7 +869,7 @@ describe("bb server move status and cancel", () => {
     );
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
       "The move to desktop wasn't confirmed. Abandoning rolls back the switch and keeps the server on this computer.",
-      "If desktop already took over, two servers will run with the same data and bb connect credential. Stop the server on desktop first.",
+      "If desktop already took over, two servers will run with the same data and EVA connect credential. Stop the server on desktop first.",
     ]);
   });
 

@@ -42,6 +42,7 @@ const TEST_SERVER_HOST = "127.0.0.1";
 export interface TestAppHarness {
   app: ReturnType<typeof createApp>["app"];
   config: ServerRuntimeConfig;
+  coreAuth: ReturnType<typeof createApp>["coreAuth"];
   db: DbConnection;
   deps: ServerAppDeps;
   hub: NotificationHub;
@@ -279,13 +280,15 @@ export async function createTestAppHarness(
     sharedPorts,
     workspaceReadCaches,
   };
-  const { app, pluginCatalogService, pluginService, serverMove } =
+  const { app, coreAuth, pluginCatalogService, pluginService, serverMove } =
     createApp(deps);
+  deps.coreAuth = coreAuth;
   installDefaultEnvironmentProviders();
 
   return {
     app,
     config,
+    coreAuth,
     db,
     deps,
     hub,

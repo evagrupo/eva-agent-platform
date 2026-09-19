@@ -18,6 +18,12 @@ import {
   writeCachedProviderList,
 } from "@/lib/provider-list-cache";
 import { makeProviderInfo } from "@bb/test-helpers/domain-fixtures";
+import {
+  useCoreAuth,
+  type CoreAuthAgent,
+  type CoreAuthAgentExecutionTuple,
+  type CoreAuthState,
+} from "@/lib/core-auth";
 
 const PROJECT_ID = "proj_prompt_defaults";
 const GLOBAL_PROVIDER_ID = "global-provider";
@@ -31,6 +37,12 @@ vi.mock("@/lib/sdk", () => ({
     },
   },
 }));
+
+vi.mock("@/lib/core-auth", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/core-auth")>("@/lib/core-auth");
+  return { ...actual, useCoreAuth: vi.fn() };
+});
 
 function readyProviderStates(providerId: string): SystemProviderStatesResponse {
   return {
@@ -272,6 +284,79 @@ function claudeThreadCreationArgs(resetKey: string, initialModel: string) {
   };
 }
 
+function fixedAgentAuthState(): CoreAuthState {
+  const agent: CoreAuthAgent = {
+    id: "creative",
+    displayName: "Creative",
+    description: "Creative EVA agent",
+    providerIds: [GLOBAL_PROVIDER_ID],
+    reasoningLevels: ["max"],
+    permissionModes: ["accept-edits"],
+    defaultProviderId: GLOBAL_PROVIDER_ID,
+    defaultModel: "eva-model",
+    defaultReasoningLevel: "max",
+    defaultPermissionMode: "accept-edits",
+    fixedExecution: true,
+  };
+  const tuple: CoreAuthAgentExecutionTuple = {
+    agentId: agent.id,
+    providerIds: [GLOBAL_PROVIDER_ID],
+    models: ["eva-model"],
+    reasoningLevels: ["max"],
+    defaultProviderId: GLOBAL_PROVIDER_ID,
+    defaultModel: "eva-model",
+    defaultReasoningLevel: "max",
+    defaultPermissionMode: "accept-edits",
+    fixed: true,
+    maxPermissionMode: "accept-edits",
+    terminalAccess: "none",
+    toolIds: [],
+    pluginIds: [],
+  };
+  return {
+    status: "ready",
+    authenticated: true,
+    required: true,
+    user: { id: "user-1", role: "user" },
+    bootstrap: {
+      policyRevision: 2,
+      capabilities: {
+        core: {
+          workspaceBootstrap: true,
+          sidebarFooter: false,
+          settings: false,
+          threadInfo: false,
+          secondaryPanelTabs: false,
+          terminalRead: false,
+          terminalControl: false,
+          terminalFull: false,
+          files: false,
+          environments: false,
+          hosts: false,
+          projects: true,
+          plugins: false,
+          pluginData: false,
+          threadOwnRead: true,
+          threadAllRead: false,
+          threadOwnWrite: true,
+          threadAllWrite: false,
+        },
+        execution: {
+          agents: [agent],
+          agentTuples: [tuple],
+          defaultAgentId: agent.id,
+        },
+      },
+      plugins: { allowedIds: [] },
+    },
+    accessPending: false,
+    error: null,
+    refresh: vi.fn(async () => undefined),
+    signIn: vi.fn(async () => null),
+    signOut: vi.fn(async () => undefined),
+  };
+}
+
 function setProjectScopedValue(baseKey: string, value: string): void {
   window.localStorage.setItem(
     getProjectScopedStorageKey(baseKey, PROJECT_ID),
@@ -281,6 +366,7 @@ function setProjectScopedValue(baseKey: string, value: string): void {
 
 beforeEach(() => {
   window.sessionStorage.clear();
+  vi.mocked(useCoreAuth).mockReturnValue(null);
   vi.mocked(sdk.system.executionOptions).mockResolvedValue(
     executionOptionsResponse(),
   );
@@ -294,6 +380,45 @@ afterEach(() => {
 });
 
 describe("useThreadCreationOptions", () => {
+  it("uses the assigned default agent and locks its complete execution tuple", async () => {
+    vi.mocked(useCoreAuth).mockReturnValue(fixedAgentAuthState());
+    const base = executionOptionsResponse();
+    const baseModel = base.models[0];
+    if (baseModel === undefined) {
+      throw new Error("execution-options fixture has no model");
+    }
+    vi.mocked(sdk.system.executionOptions).mockResolvedValue({
+      ...base,
+      models: [
+        {
+          ...baseModel,
+          id: "eva-model",
+          model: "eva-model",
+          displayName: "EVA model",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "max", description: "" },
+          ],
+          defaultReasoningEffort: "max",
+        },
+      ],
+    });
+
+    const { result } = renderHook(
+      () => useThreadCreationOptions({ scope: "new-thread" }),
+      { wrapper: createQueryClientTestHarness().wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.selectedAgentId).toBe("creative");
+      expect(result.current.fixedExecution).toBe(true);
+      expect(result.current.selectedProviderId).toBe(GLOBAL_PROVIDER_ID);
+      expect(result.current.selectedModel).toBe("eva-model");
+      expect(result.current.reasoningLevel).toBe("max");
+      expect(result.current.permissionMode).toBe("accept-edits");
+      expect(result.current.supportsPermissionModeSelection).toBe(false);
+    });
+  });
+
   it("keeps the selected remembered provider branded while models load", () => {
     window.localStorage.setItem("bb.promptbox.provider", "codex");
     writeCachedProviderList(

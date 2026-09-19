@@ -29,7 +29,7 @@ function resolveThreadPaneTarget(id: string | undefined): ResolvedId {
     return { id: context, source: "env" };
   }
   throw new Error(
-    "Missing thread ID. Pass <threadId> or run inside a BB thread.",
+    "Missing thread ID. Pass <threadId> or run inside an EVA thread.",
   );
 }
 
@@ -39,13 +39,13 @@ export function registerPaneCommand(
 ): void {
   parent
     .command("pane")
-    .description("Control an open thread pane in connected BB apps")
+    .description("Control an open thread pane in connected EVA apps")
     .usage("<maximize|restore|toggle|spotlight|clear-spotlight> [id] [options]")
     .argument(
       "<action>",
       "Pane action: maximize, restore, toggle, spotlight, or clear-spotlight",
     )
-    .argument("[id]", "Thread ID. Omit inside a BB thread.")
+    .argument("[id]", "Thread ID. Omit inside an EVA thread.")
     .option("--json", "Print machine-readable JSON output")
     .action(
       action(

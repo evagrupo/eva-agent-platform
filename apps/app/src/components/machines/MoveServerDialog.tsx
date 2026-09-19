@@ -377,7 +377,7 @@ function ServerAddressField({
           aria-describedby={hintId}
           className="min-w-0 flex-1"
           value={value}
-          placeholder="https://bb.example.com"
+          placeholder="https://eva.example.com"
           inputMode="url"
           autoCapitalize="off"
           autoCorrect="off"
@@ -491,10 +491,10 @@ function ArchiveExistingDataConfirmation({
       />
       <span className="min-w-0 flex-1">
         <span className="block text-sm break-words text-foreground">
-          Archive the existing bb data at {path}
+          Archive the existing EVA data at {path}
         </span>
         <span className="block text-xs text-subtle-foreground">
-          {formatServerDataSize(sizeBytes)}. bb renames it to a backup folder
+          {formatServerDataSize(sizeBytes)}. EVA renames it to a backup folder
           next to it and never merges it.
         </span>
       </span>

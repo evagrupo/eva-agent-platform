@@ -289,7 +289,7 @@ describe("HostSharedPortCoordinator", () => {
     expect(unenrolledError).toMatchObject({
       body: {
         code: "connect_host_unenrolled",
-        message: expect.stringContaining("enroll it via Connect"),
+        message: expect.stringContaining("enroll it in Settings > Machines"),
       },
     });
 
@@ -569,7 +569,7 @@ describe("daemon session connect shares", () => {
           ports: [4173],
         }),
       ).toThrow(
-        'cannot share ports from host "Host" (host-1) because it has no bb connect machine credential; enroll it via Connect in Settings > Machines',
+        'cannot share ports from host "Host" (host-1) because it has no EVA machine credential; enroll it in Settings > Machines',
       );
       expect(daemonSocket.messages).toEqual(messagesBeforeDeclaration);
       expect(

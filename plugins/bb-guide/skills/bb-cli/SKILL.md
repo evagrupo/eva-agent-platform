@@ -1,11 +1,11 @@
 ---
 name: bb-cli
-description: "Inspect or manage BB state with the bb CLI; use for BB commands and configuration."
+description: "Inspect or manage EVA state with the EVA CLI; use for EVA commands and configuration."
 ---
 
-# BB CLI
+# EVA CLI
 
-Use bb for BB state and actions. Inspect context when the target project, host,
+Use bb for EVA state and actions. Inspect context when the target project, host,
 workspace, or execution selection is not already established.
 
 ## Start with context
@@ -74,7 +74,7 @@ BB_HOST_DAEMON_PORT only for an intentional non-default target.
 - Use `bb machine enroll` for a private core-prepared bundle. Local lifecycle is
   handled by `install-machine.sh --start|--stop|--uninstall --host-id <id>`;
   see references/thread-creation.md for ownership checks.
-- Move the bb server to another machine with
+- Move the EVA server to another machine with
   `bb server move --to <machine> --check`, then the same command without
   `--check`; it stops all running work. `bb server export --out <file>` backs
   up a running server. `bb server import`, `unlock`, `allow-connect`, and
@@ -97,6 +97,11 @@ list`, `get`, `set`, and `reset`.
 - Prefer non-interactive commands and machine-readable output for automation.
 - Pass `--yes` for a confirmed destructive command in a non-interactive shell.
 - Treat plugin commands as normal top-level commands after installation.
+- Use `bb eva list --json` to inspect policy-approved EVA agents. Use `bb eva
+show <agent-id>` and `bb eva workspace <agent-id>` for bounded mandate and
+  workspace manifests, then `bb eva start`, `delegate`, or `message` for
+  approved conversations. Delegation requires an owned `--parent-thread` and
+  never accepts arbitrary workspace paths or credentials.
 
 - Inspect real status, logs, API results, or diffs instead of assumptions.
 - For launcher startup errors and console output, read `logs/server-stdio.log`
@@ -134,13 +139,13 @@ skill for its commands, configuration meanings, and operating constraints.
 Discover contributed command paths through `bb plugin list`, the generated
 `plugin-commands` skill, or `bb plugin run <id> --help`.
 
-Keep this skill and its references focused on core BB commands. Plugin-specific
+Keep this skill and its references focused on core EVA commands. Plugin-specific
 behavior belongs in the owning plugin’s `skills/` directory, including built-in
 plugins; do not add plugin command manuals here.
 
 ## Built-in browser control
 
-Use `bb browser instances --host <host-id> --json` to discover a desktop. Commands `tabs`, `create`, `acquire`, `connection`, `release`, `reveal`, `capture`, `close`, and `watch` require explicit `--host`, `--instance`, `--generation`, and `--thread`. See `bb guide browser` and `bb browser --help` for flags. New tabs use separate automation profiles; personal-tab control needs an explicit handoff. Revealing tabs or acquiring control opens the side panel and selects the tab only in the already focused thread, without switching threads or activating the desktop window. Connection credentials are written with `connection --output <new-file>` and work only on the browser host; keep them out of chat and public port shares. `import-sources` and `import-cookies --from <source> --profile <dir> [--into personal|automation:<id>]` copy signed-in cookies from an installed browser into a BB browser profile; they need `--host`, `--instance`, and `--generation` only, and the source browser must be quit first.
+Use `bb browser instances --host <host-id> --json` to discover a desktop. Commands `tabs`, `create`, `acquire`, `connection`, `release`, `reveal`, `capture`, `close`, and `watch` require explicit `--host`, `--instance`, `--generation`, and `--thread`. See `bb guide browser` and `bb browser --help` for flags. New tabs use separate automation profiles; personal-tab control needs an explicit handoff. Revealing tabs or acquiring control opens the side panel and selects the tab only in the already focused thread, without switching threads or activating the desktop window. Connection credentials are written with `connection --output <new-file>` and work only on the browser host; keep them out of chat and public port shares. `import-sources` and `import-cookies --from <source> --profile <dir> [--into personal|automation:<id>]` copy signed-in cookies from an installed browser into an EVA browser profile; they need `--host`, `--instance`, and `--generation` only, and the source browser must be quit first.
 
 `bb machine show <id-or-name> --json` includes provider-owned inventory and
 estimates in `providerDetails` when available. Provider inventory failures are

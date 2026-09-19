@@ -28,7 +28,7 @@ sendAt?, reason? })`.
   thread remains stopping; inspect its status before treating Stop as confirmed.
 - Use `bb thread compact <id>` to send the built-in `/compact` command to an idle or errored thread. Completion or failure appears in the timeline. Provider support varies; consult its skill and reported capabilities.
 - Use `bb thread clear <id>` on an idle or failed thread to reset its active
-  timeline and model context in place while keeping the same BB thread,
+  timeline and model context in place while keeping the same EVA thread,
   workspace, durable event history, and sticky execution settings.
 - A send that fails with `provider_session_unavailable` means the thread's
   recorded provider session belongs to another thread (`details.reason:

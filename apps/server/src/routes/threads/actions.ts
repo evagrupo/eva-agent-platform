@@ -41,6 +41,7 @@ import {
   requireConnectedHostSession,
   requirePublicThread,
 } from "../../services/lib/entity-lookup.js";
+import { filterThreadsForContext } from "../../access-policy.js";
 import { parseSafeRelativeRoutePath } from "../relative-route-path.js";
 import { validatePromptAttachmentReferences } from "../../services/projects/attachments.js";
 import {
@@ -191,10 +192,13 @@ function toQueuedMessageGroupBoundaryResponse(
 
 function buildActivePinnedThreadRootListResponse(
   deps: AppDeps,
+  context: object,
 ): ThreadListResponse {
   return toThreadListEntryResponses(deps, {
-    threads: listActiveVisiblePinnedThreadRootsWithPendingInteractionState(
+    threads: filterThreadsForContext(
       deps.db,
+      context,
+      listActiveVisiblePinnedThreadRootsWithPendingInteractionState(deps.db),
     ),
   });
 }
@@ -346,6 +350,7 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
   });
 
   del(routes.deleteQueuedMessage, (context) => {
+    requirePublicThread(deps.db, context.req.param("id"));
     const queuedMessage = getQueuedThreadMessage(
       deps.db,
       context.req.param("queuedMessageId"),
@@ -536,7 +541,7 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
         nextThreadId: payload.nextThreadId,
       }),
     );
-    return context.json(buildActivePinnedThreadRootListResponse(deps));
+    return context.json(buildActivePinnedThreadRootListResponse(deps, context));
   });
 
   post(routes.archiveAll, (context) => {

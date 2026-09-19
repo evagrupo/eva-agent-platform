@@ -864,7 +864,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       return undefined;
     }
     if (!semver.satisfies(version, manifest.bbEngineRange)) {
-      return `requires bb ${manifest.bbEngineRange}, this is ${version.version}`;
+      return `requires EVA ${manifest.bbEngineRange}, this is ${version.version}`;
     }
     return undefined;
   }
@@ -1515,7 +1515,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       callPluginHost: (args) => {
         if (hostArtifactCandidate === null) {
           throw new Error(
-            `plugin "${row.id}" does not declare a bb.host entry`,
+            `plugin "${row.id}" does not declare an EVA host entry (bb.host)`,
           );
         }
         if (!deps.callPluginHost) {
@@ -1631,7 +1631,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       discardCandidateHandle(handle);
       let message = error instanceof Error ? error.message : String(error);
       if (/ERR_DLOPEN_FAILED|\.node/.test(message)) {
-        message += " (native dependencies are not supported in BB plugins)";
+        message += " (native dependencies are not supported in EVA plugins)";
       }
       if (previous !== undefined) {
         setStatus(row.id, "running", `reload failed: ${message}`);

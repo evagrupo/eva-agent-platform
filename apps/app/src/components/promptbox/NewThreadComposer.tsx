@@ -114,6 +114,7 @@ import {
 type NewThreadComposerSelectionScope = "new-thread" | "component-local";
 
 export interface NewThreadComposerSeed {
+  agentId?: string;
   providerId?: string;
   model?: string;
   reasoningLevel?: ReasoningLevel;
@@ -553,6 +554,7 @@ export function NewThreadComposer({
   const seedSignature = JSON.stringify([
     projectId,
     resetKey ?? null,
+    seed?.agentId ?? null,
     seed?.providerId ?? null,
     seed?.model ?? null,
     seed?.reasoningLevel ?? null,
@@ -712,6 +714,7 @@ export function NewThreadComposer({
     preferenceProjectId: projectId,
     resetKey: `${projectId}\0${seedSignature}`,
     resolveProviderRouting,
+    initialAgentId: seed?.agentId,
     initialProviderId: seed?.providerId ?? projectDefaults?.providerId,
     preferReadyProviderWhenUnset:
       preferReadyProviderWhenUnset && projectDefaults === null,
@@ -724,11 +727,13 @@ export function NewThreadComposer({
     initialEnvironmentSelectionValue: environmentSeed?.selectionValue,
   });
   const {
+    agentOptions,
     activeModel,
     executionInputSources,
     executionOptionsRouting,
     environmentSelectionValue,
     hasMultipleProviders,
+    fixedExecution,
     isLoadingModels,
     modelLoadError,
     modelLoadFailed,
@@ -740,6 +745,8 @@ export function NewThreadComposer({
     reasoningLevel,
     reasoningOptions,
     selectedModel,
+    selectedAgentId,
+    setSelectedAgentId,
     selectedProviderComposerActions,
     selectedProviderDisplayName,
     selectedProviderId,
@@ -1467,6 +1474,7 @@ export function NewThreadComposer({
       };
       const request: NewThreadComposerSubmission = {
         projectId,
+        ...(selectedAgentId === null ? {} : { agentId: selectedAgentId }),
         providerId: selectedProviderId,
         model: selectedThreadModel,
         reasoningLevel,
@@ -1510,6 +1518,7 @@ export function NewThreadComposer({
       projectId,
       promptDraft,
       reasoningLevel,
+      selectedAgentId,
       seededExecutionInputSources,
       submitDisabledReason,
       submissionEnvironment,
@@ -1653,7 +1662,7 @@ export function NewThreadComposer({
               value: permissionMode,
               options: permissionModeOptions,
               onChange: handlePermissionChange,
-              supported: supportsPermissionModeSelection,
+              supported: supportsPermissionModeSelection && !fixedExecution,
             },
             environmentProviderInputsSlot,
             machineProviderInputsSlot: machineProviderInputs.control,
@@ -1714,6 +1723,12 @@ export function NewThreadComposer({
           }}
           execution={{
             providerRouting: executionOptionsRouting,
+            fixedExecution,
+            agent: {
+              options: agentOptions,
+              selectedId: selectedAgentId,
+              onChange: setSelectedAgentId,
+            },
             provider: {
               options: providerOptions,
               selectedId: selectedProviderId,
@@ -1756,6 +1771,7 @@ export function NewThreadComposer({
       environmentProviders,
       environmentProvidersByHostId,
       executionOptionsRouting,
+      agentOptions,
       handleAttachFiles,
       handleEditorFocus,
       handleModelChange,
@@ -1769,6 +1785,7 @@ export function NewThreadComposer({
       handleSubmit,
       handleWorktreeChange,
       hasMultipleProviders,
+      fixedExecution,
       isCopyingAttachments,
       isLoadingModels,
       isProjectless,
@@ -1795,6 +1812,8 @@ export function NewThreadComposer({
       reuseEnvironmentId,
       reuseThreadOptions,
       selectedModel,
+      selectedAgentId,
+      setSelectedAgentId,
       selectedProviderId,
       serviceTier,
       serviceTierSupportByProvider,

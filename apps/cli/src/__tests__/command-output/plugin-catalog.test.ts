@@ -353,7 +353,7 @@ describe("bb plugin catalog", () => {
       entryId: "linear",
     });
     expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
-      "bundled with BB",
+      "bundled with EVA",
     );
   });
 

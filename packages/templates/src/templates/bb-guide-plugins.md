@@ -1,31 +1,31 @@
 ---
 kind: instruction
-title: bb Guide — Plugins
-summary: Command reference for installing, configuring, running, and authoring bb plugins and their contributed CLI commands.
-intent: Provide complete plugin command documentation plus an authoring walkthrough for agents and humans building bb plugins.
+title: EVA Guide — Plugins
+summary: Command reference for installing, configuring, running, and authoring EVA plugins and their contributed CLI commands.
+intent: Provide complete plugin command documentation plus an authoring walkthrough for agents and humans building EVA plugins.
 editingNotes: Keep flags accurate against the CLI implementation (apps/cli/src/commands/plugin.ts, apps/cli/src/commands/marketplace.ts) and the server plugin service; a CLI test asserts every `bb plugin` and `bb marketplace` subcommand appears in this chapter. The full authoring reference is the bb-plugin-authoring builtin skill.
 ---
 Plugin commands
 
-A bb plugin is a TypeScript package that extends the bb server in-process and
+An EVA plugin is a TypeScript package that extends the EVA server in-process and
 may also declare one bundled Node entry for enrolled hosts: background
 services, cron schedules, HTTP/RPC endpoints, thread lifecycle handlers,
 settings, storage, host-local operations — and `bb` CLI subcommands that agents
 and humans run like any other command. Plugins are full-trust code in both
 runtimes.
 
-Plugins are on by default. Builtin plugins (`builtin:<name>`) ship with bb;
+Plugins are on by default. Builtin plugins (`builtin:<name>`) ship with EVA;
 user-installed plugins come from `bb plugin install` or the official store.
 Plugin state lives under `<bb-data-dir>/plugins/<id>/` (per-plugin SQLite file,
 secrets, logs).
 
 The builtin Custom instructions plugin adds a multiline editor under Settings
-→ Custom instructions. Saved text is persisted on this bb host and included in
+→ Custom instructions. Saved text is persisted on this EVA host and included in
 agent task instructions; blank text contributes nothing.
 
 The builtin Account Pooler plugin is disabled on fresh installations. It stores
 Claude and Codex account tokens in per-account 0600 secret files and proxies
-provider API requests through the bb server. Enable it and add an account:
+provider API requests through the EVA server. Enable it and add an account:
 
 ```
 bb plugin enable account-pool
@@ -53,12 +53,12 @@ bb pool bypass <thread-id> [--off]
 Claude `--login` starts a ten-minute in-memory PKCE session, prints the browser
 sign-in URL and session ID, then exits. After sign-in, pipe the manual callback
 code to `account login-complete` with that session ID. The browser does not need
-to run on the bb server machine, and neither the code nor account tokens enter
+to run on the EVA server machine, and neither the code nor account tokens enter
 process arguments. Codex `--login` prints a device verification URL, one-time
 code, session ID, and an `account login-poll` command that waits for
 authorization. Both flows are available in the plugin settings page through
 the **Sign in to Claude** and **Sign in to Codex** buttons. The CLI Codex import
-path continues to read the bb server host's `~/.codex/auth.json`.
+path continues to read the EVA server host's `~/.codex/auth.json`.
 
 The hub starts immediately, even before an account is configured, so newly
 added or enabled accounts are available without a plugin reload. With an
@@ -107,7 +107,7 @@ sequence without moving the current account. `bb pool account priority <id> <n>`
 sets an individual priority; the same operations are available through the
 `account.reorder` and `account.setPriority` plugin RPCs.
 
-The builtin Keep Awake plugin prevents macOS idle sleep while bb is running.
+The builtin Keep Awake plugin prevents macOS idle sleep while EVA is running.
 Its settings page lets you target all hosts or selected hosts. The CLI
 equivalents are:
 
@@ -161,7 +161,7 @@ Settings → Installed plugins or run `bb plugin enable workflows` before using:
   bb workflows list [--limit <1-50>]
   bb workflows stop <run-id>
 
-Commands must run from a BB project thread. Workflows has six plugin
+Commands must run from an EVA project thread. Workflows has six plugin
 settings, configurable with `bb plugin config workflows set <key> <value>`:
 `maxActiveRuns` (default 4, range 1–32), `maxConcurrentAgents` (8, 1–64),
 `maxAgentCalls` (100, 1–1000), `totalRunTimeoutMs` (86400000, 60000–604800000),
@@ -334,14 +334,14 @@ added/updated/unchanged counts.
                                  app.tsx with a sidebar page, a `bb <id>` CLI
                                  command, and a skill) and install its npm
                                  dependencies, including @get-bb/plugin-sdk
-                                 pinned to this bb's exact SDK version (no
+                                 pinned to this EVA installation's exact SDK version (no
                                  server required)
   bb plugin types [path]         Sync a plugin's @get-bb/plugin-sdk surface to
-                                 this bb (default: cwd): repin the npm
-                                 devDependency to this bb's SDK version and
+                                 this EVA installation (default: cwd): repin the npm
+                                 devDependency to this EVA installation's SDK version and
                                  the type-only devDependencies of the packages
-                                 bb shims at runtime (sonner, vaul, the portal
-                                 radix families, ...) to this bb's versions, or
+                                 EVA shims at runtime (sonner, vaul, the portal
+                                 radix families, ...) to this EVA installation's versions, or
                                  rewrite the vendored types/ of a plugin that
                                  still carries them; --check writes nothing
                                  and exits non-zero on a mismatch
@@ -427,20 +427,20 @@ manifest, is not a plugin itself, and neither flag is given, the install fails
 and lists the entry names. bb records the subdirectory, so outdated, update,
 rollback, and remove keep working per plugin.
 
-BB Official plugins
+EVA Core plugins
 
-BB's official plugins ship inside the app. The reserved `bb-official`
+EVA's core plugins ship inside the app. The reserved `bb-official`
 marketplace describes these plugins with the standard v2 format. Its catalog
 uses a local path. It never uses the network. `bb marketplace list` shows it
 first. You cannot add or remove it.
 
-The plugins appear in the first Browse shelf, BB Official. They also appear in
+The plugins appear in the first Browse shelf, EVA Core. They also appear in
 their category shelves. Install a plugin by its bare name or its qualified name.
 For example, use
 `bb plugin install docs` or `bb plugin install docs@bb-official`. bb copies the
 plugin from the app bundle. An app update also updates the bundled copy.
 
-The BB Community marketplace has the reserved name `bb-community`. It lists
+The EVA Community marketplace has the reserved name `bb-community`. It lists
 reviewed plugins that live outside the app bundle. bb requests the v2 manifest
 from https://getbb.app/marketplace/v2/marketplace.json. A 404 response makes
 bb request the v1 manifest. Other errors do not cause this fallback. Set
@@ -457,23 +457,23 @@ the short description, and `bb plugin search --json` returns it as `overview`.
 An install uses the normal git or npm source pipeline. bb records the source
 marketplace.
 
-The BB Community marketplace also publishes install counts beside its
+The EVA Community marketplace also publishes install counts beside its
 manifest, at https://getbb.app/marketplace/v1/stats.json. bb re-reads that
 file on every refresh — the counts move while the manifest sits unchanged —
 and shows them in the store and in the Installs column of `bb plugin search`.
-The number is how many BB installations reported installing the plugin
+The number is how many EVA installations reported installing the plugin
 through anonymous telemetry, so it undercounts: telemetry is opt-out and only
 production builds report. No third-party marketplace has counts; bb measures
 them itself rather than repeating a publisher's claim.
 
-BB Official entries use the same counts. bb finds each count in the BB
+EVA Core entries use the same counts. EVA finds each count in the EVA
 Community `stats.json` file by the plugin id.
 
 Third-party marketplaces
 
 Anyone can host a marketplace manifest. Add one with its https manifest URL,
 with git:<url>[@<ref>] (bb reads marketplace.json from the checkout), or with
-path:<directory> on the bb server's machine:
+path:<directory> on the EVA server's machine:
 
   bb marketplace add https://plugins.acme.dev/marketplace.json
   bb marketplace add git:github.com/acme/bb-marketplace@main
@@ -489,7 +489,7 @@ loads screenshots from the URLs that the marketplace declares. bb clones a
 git marketplace into a temporary checkout. bb keeps only the validated
 manifest and icon bytes.
 
-bb ignores unknown v2 fields, except in npm and git source objects. bb rejects
+EVA ignores unknown v2 fields, except in npm and git source objects. EVA rejects
 unknown source keys because a source key changes the installed code.
 
 Install an entry of a specific marketplace with <entry-id>@<marketplace>:
@@ -517,12 +517,12 @@ becomes a direct install that keeps its full source intent and exact
 resolution, so `bb plugin outdated` and `bb plugin update` keep working from
 the recorded source. Only the catalog rows and the cached icons are deleted.
 
-The Browse tab groups entries by publisher: BB Official for the plugins
-bundled with the app, BB Community for the curated marketplace's listings, and
+The Browse tab groups entries by publisher: EVA Core for the plugins
+bundled with the app, EVA Community for the curated marketplace's listings, and
 each third-party marketplace under its own display name. Grouping keys on the
 marketplace identity, not on the display name, so a marketplace cannot join
 another publisher's group by copying its name. Only the two reserved
-marketplaces can use the BB Official or BB Community labels. Entry cards show
+marketplaces can use the EVA Core or EVA Community labels. Entry cards show
 the author.
 
 For direct git:/npm: installs, updates are manual: `bb plugin outdated`
@@ -567,7 +567,7 @@ version tags such as `v1` and `v1.2.3` are always the literal tag.
 
 `bb plugin search <query>` matches an id, name, description, category, or tag.
 It searches bb-official and each other registered marketplace. The output has a
-Category column. Status shows installed, compatible, or requires newer bb.
+Category column. Status shows installed, compatible, or requires a newer EVA release.
 Install a bundled plugin by its bare name. Direct
 HTTP(S) Git repository URLs, `path:`, `npm:`, `git:`, and `builtin:`
 sources—and path-like syntax—continue to bypass official-plugin resolution.
@@ -579,9 +579,9 @@ inline data files a dependency reads at runtime. A committed dist/ is always
 replaced by the bundles bb builds. Path installs compile dist/ at install time
 from dependencies you have already installed. A build failure fails the
 install. npm packages must ship a metadata-validated prebuilt app or the
-install is refused. The server rebuilds source-built apps after a bb upgrade.
+install is refused. The server rebuilds source-built apps after an EVA upgrade.
 
-BB ships a pinned npm for plugin installation and updates; npm and Node do
+EVA ships a pinned npm for plugin installation and updates; npm and Node do
 not need to be on PATH. Git sources still require `git`. Git installs use
 `--omit=dev --omit=optional --ignore-scripts`. Plugins may keep normal
 development dependencies in their manifests; npm resolves these but does not
@@ -607,7 +607,7 @@ bb — depend on the published `bb-app` package and call the CLI:
 `bb plugin build` talks to no server. Depending on `bb-app@X` builds with
 exactly that release's shim configuration, so the bundle cannot be built
 against a mismatched host runtime. Cache the toolchain directory in CI to skip
-the download on later runs. Only `bb plugin dev` needs a running bb, because
+the download on later runs. Only `bb plugin dev` needs a running EVA server, because
 it reloads the installed plugin after each rebuild.
 
 The backend half is prebuilt too: when a builtin/official/git/npm install ships
@@ -687,9 +687,9 @@ method/input/result inference. The server validates both schemas and rejects
 non-JSON results (including cyclic and non-finite values) with structured
 error codes. Components are vendored shadcn source the plugin owns (the
 shadcn model): `bb plugin new` pre-vendors a starter set into
-components/ui/ and `npx shadcn add @bb/<name>` pulls more from the BB
+components/ui/ and `npx shadcn add @bb/<name>` pulls more from the EVA
 component registry (the full stock shadcn set, version-matched to the
-running BB via the pinned ref in components.json). Product capabilities are
+running EVA via the pinned ref in components.json). Product capabilities are
 the exception: UrlLink renders a real anchor whose ordinary
 HTTP(S) activation uses the same client preference as first-party links while
 leaving app routes, modifiers, copying, unsupported schemes, and explicit
@@ -703,7 +703,7 @@ lazy context menu adds Open with, preferred-external, installed-app, and copy
 actions without reading the file or discovering editors on mount.
 experimental_ProviderModelPicker is the controlled
 `{ providerId, model, reasoningLevel, serviceTier? }` selector backed by the
-same catalog and picker as bb's composers; provider switches emit only after
+same catalog and picker as EVA's composers; provider switches emit only after
 the target provider's verified defaults and capabilities resolve. Its optional
 `routing` targets a host or existing environment; `disabled` renders the same
 selection summary read-only. Tasks presets and Automations use this component
@@ -731,10 +731,10 @@ experimental_SourceCode / experimental_Diff components rather than
 highlighting, and the live code theme. A Diff caller that has loaded complete
 old/new UTF-8 file contents can pass them through
 `experimental_fullFileContents` to enable
-expand-context controls without exposing Pierre types. BB's original renderer
+expand-context controls without exposing Pierre types. EVA's original renderer
 validates those paths and hunk lines before enabling expansion; a replacement
 that implements its own expansion must do the same.
-Everything else (zod included) bundles from the plugin's node_modules (`npm install` for authors; BB installs
+Everything else (zod included) bundles from the plugin's node_modules (`npm install` for authors; EVA installs
 release packages with their declared production dependencies). A crashing slot collapses to a
 "plugin <id> crashed" chip without
 touching the rest of the app. Installed plugins and their declared settings
@@ -782,7 +782,7 @@ the plugin detail page in the app and on getbb.app. It says the same thing as
 `bb.description` at length, so update both together. Keep it under 4000
 characters, use headings, paragraphs, emphasis, code, blockquotes, lists,
 thematic breaks, and absolute https links only, and do not open with a `#`
-title. A submission to the BB Community marketplace requires the file.
+title. A submission to the EVA Community marketplace requires the file.
 
 Plugins can contribute palettes with `bb.themes`: an array of
 `{ id, name, description?, css, codeTheme? }`, where `css` is a
@@ -794,8 +794,8 @@ Appearance and `bb theme list`; their selectable id is
 makes bb fall back to the default palette.
 
 Branding is explicit. Declare `bb.branding.icon` as either the plugin's
-canonical BB icon name or a plugin-relative compact SVG such as
-`./assets/icon.svg`. BB validates and hash-serves path-shaped SVGs, then
+canonical EVA icon name or a plugin-relative compact SVG such as
+`./assets/icon.svg`. EVA validates and hash-serves path-shaped SVGs, then
 renders them as masks that inherit the surrounding text color. Compact chrome
 prefers the manifest icon, then a contribution's local icon hint, and finally
 Zap. Roomy surfaces reuse the same icon when no logo override is declared.
@@ -810,7 +810,7 @@ never refuse a logo, and every SVG bb serves carries `nosniff` and a
 `default-src 'none'` CSP. Root logo files are not auto-detected, and a dark
 logo requires a light logo. Logo-only
 manifests remain supported for compatibility, so at least an icon or light logo
-is required. Do not duplicate the same artwork across fields. BB rejects nulls,
+is required. Do not duplicate the same artwork across fields. EVA rejects nulls,
 empty strings, missing or escaping assets, and unsupported extensions. Reload
 the plugin to pick up branding changes.
 
@@ -820,7 +820,7 @@ The backend entry default-exports a factory receiving the full plugin API:
   export default async function plugin(bb: BbPluginApi) { ... }
 
 The import is type-only and erased at load; the scaffold depends on the npm
-package @get-bb/plugin-sdk, pinned to this bb's exact SDK version, so
+package @get-bb/plugin-sdk, pinned to this EVA installation's exact SDK version, so
 `npm install && npx tsc --noEmit` typechecks anywhere — no bb checkout
 needed. The full API lands at
 node_modules/@get-bb/plugin-sdk/bundled-types/bb-plugin-sdk.d.ts (plus
@@ -832,7 +832,7 @@ works for existing entries. Run `bb plugin migrate` before adding `bb.host` so
 the `/host` and `/testing/host` declaration subpaths are available; migration
 shows every change and asks first.
 The SDK surface grows every release, so `bb plugin types` syncs a plugin to
-the running bb — repinning the SDK devDependency and the shimmed packages'
+the running EVA server — repinning the SDK devDependency and the shimmed packages'
 type-only devDependencies, or rewriting types/ for a plugin that still
 vendors them. Run it in a cloned or older plugin, and `bb
 plugin types --check` in CI. `bb plugin build` and `bb plugin dev` keep a
@@ -902,11 +902,11 @@ in a checkout). The builtin `inline-vis` plugin renders
 path-shaped, sandboxed worktree HTML iframe preview; `height` is optional.
 Its card header includes an open-in-sidebar action for the source HTML file.
 The `plugins/` directory contains every bundled plugin: the auto-installed
-builtins and the store-only BB Official GitHub, Docs, Memory, and Tasks
+builtins and the store-only EVA Core GitHub, Docs, Memory, and Tasks
 plugins. The `examples/plugins/` reference plugins cover slack-bot (webhook
 bot), agent-enrichment (agent surfaces), and composer-customization (all
 composer regions). Thread Hover
-Cards installs from the BB Community marketplace (source: the bb-plugins
+Cards installs from the EVA Community marketplace (source: the bb-plugins
 repo).
 
 Modal setup uses `bb modal account inspect --json` to check credentials, then
@@ -920,7 +920,7 @@ Contributed commands may accept `--stdin`: the calling CLI transfers up to
 256 KiB of multiline text as `--input-text`, without reading server-local files.
 The existing `--<flag>-stdin` form still accepts one line.
 
-Modal image debugging: `bb modal image build [--json]` prepares the saved image; `bb modal sandbox run [--json]` starts a 30-minute standalone sandbox; `bb modal sandbox exec ID [--json] -- COMMAND...` runs a command (60-second timeout); `bb modal sandbox stop ID [--json]` cleans up. These debug sandboxes skip BB enrollment, clone and setup. Logs are returned after the build finishes.
+Modal image debugging: `bb modal image build [--json]` prepares the saved image; `bb modal sandbox run [--json]` starts a 30-minute standalone sandbox; `bb modal sandbox exec ID [--json] -- COMMAND...` runs a command (60-second timeout); `bb modal sandbox stop ID [--json]` cleans up. These debug sandboxes skip EVA enrollment, clone and setup. Logs are returned after the build finishes.
 
 ## Inspect plugin RPC
 

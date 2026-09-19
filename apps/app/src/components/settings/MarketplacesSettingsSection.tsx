@@ -45,11 +45,11 @@ export function MarketplacesSettingsSection() {
       setSource("");
       invalidate();
       appToast.success(`Added ${marketplace.displayName}`, {
-        description: `${marketplace.entryCount} plugins listed. Adding a marketplace installs nothing.`,
+        description: `${marketplace.entryCount} plugins listed. Adding a catalog installs nothing.`,
       });
     },
     onError: (error) => {
-      appToast.error("Adding the marketplace failed", {
+      appToast.error("Adding the catalog failed", {
         description: pluginAdminErrorMessage(error),
       });
     },
@@ -62,15 +62,15 @@ export function MarketplacesSettingsSection() {
       invalidate();
       const failed = results.filter((result) => !result.ok);
       if (failed.length === 0) {
-        appToast.success("Marketplace refreshed");
+        appToast.success("Catalog refreshed");
         return;
       }
-      appToast.error("Refreshing the marketplace failed", {
-        description: `${failed[0]?.error ?? "Unknown error"}. The last catalog bb validated is still in use.`,
+      appToast.error("Refreshing the catalog failed", {
+        description: `${failed[0]?.error ?? "Unknown error"}. The last catalog EVA validated is still in use.`,
       });
     },
     onError: (error) => {
-      appToast.error("Refreshing the marketplace failed", {
+      appToast.error("Refreshing the catalog failed", {
         description: pluginAdminErrorMessage(error),
       });
     },
@@ -82,7 +82,7 @@ export function MarketplacesSettingsSection() {
     onSuccess: (result) => {
       setRemoving(null);
       invalidate();
-      appToast.success("Marketplace removed", {
+      appToast.success("Catalog removed", {
         description:
           result.convertedPluginIds.length === 0
             ? undefined
@@ -90,7 +90,7 @@ export function MarketplacesSettingsSection() {
       });
     },
     onError: (error) => {
-      appToast.error("Removing the marketplace failed", {
+      appToast.error("Removing the catalog failed", {
         description: pluginAdminErrorMessage(error),
       });
     },
@@ -98,15 +98,15 @@ export function MarketplacesSettingsSection() {
 
   return (
     <SettingsSection
-      title="Plugin marketplaces"
-      description="bb reads plugin catalogs from these marketplaces. Adding one validates and caches its catalog; it never installs, updates, or runs plugin code."
+      title="Integration catalogs"
+      description="EVA reads plugin catalogs from these sources. Adding one validates and caches its catalog; it never installs, updates, or runs plugin code."
       bodyClassName="border-0 bg-transparent p-0"
     >
       <div className="space-y-1.5">
         <div className="flex items-start gap-2">
           <Input
             value={source}
-            aria-label="Marketplace source"
+            aria-label="Catalog source"
             placeholder={SOURCE_PLACEHOLDER}
             className="h-8 font-mono text-xs"
             onChange={(event) => setSource(event.target.value)}
@@ -122,7 +122,7 @@ export function MarketplacesSettingsSection() {
         </div>
         <p className="text-2xs text-subtle-foreground">
           An https manifest URL, <code>git:&lt;url&gt;[@&lt;ref&gt;]</code>, or{" "}
-          <code>path:&lt;directory&gt;</code> on the bb server&rsquo;s machine.
+          <code>path:&lt;directory&gt;</code> on the EVA server&rsquo;s machine.
         </p>
       </div>
 
@@ -145,7 +145,7 @@ export function MarketplacesSettingsSection() {
                 ) : null}
               </p>
               <p className="truncate font-mono text-2xs text-subtle-foreground">
-                {marketplace.source}
+                {marketplace.official ? "Managed by EVA" : marketplace.source}
               </p>
               <p className="text-2xs text-subtle-foreground">
                 {marketplace.entryCount} plugins ·{" "}
@@ -186,7 +186,7 @@ export function MarketplacesSettingsSection() {
         }}
       >
         <ConfirmDeleteDialogContent
-          title={`Remove ${removing?.displayName ?? "marketplace"}?`}
+          title={`Remove ${removing?.displayName ?? "catalog"}?`}
           description="Its catalog and cached icons are deleted. Plugins installed from it keep running as direct installs and keep checking for updates from their recorded source."
           confirmLabel={remove.isPending ? "Removing…" : "Remove"}
           pending={remove.isPending}

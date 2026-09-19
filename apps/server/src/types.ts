@@ -18,6 +18,7 @@ import type { ProviderRegistryService } from "./services/providers/provider-regi
 import type { AiServiceRegistry } from "./services/ai/ai-service-registry.js";
 import type { PluginHostArtifactRegistry } from "./services/plugins/plugin-host-artifact-registry.js";
 import type { ProviderNativeRootsCache } from "./services/providers/native-roots.js";
+import type { CoreAuthService } from "./core-auth.js";
 
 export type ServerLogger = Pick<Logger, "debug" | "error" | "info" | "warn">;
 
@@ -33,6 +34,7 @@ export interface ServerRuntimeConfig {
   inferenceModel: string;
   isDevelopment: boolean;
   marketplaceUrl: string;
+  miniAppsPublicDomain?: string;
   openAiApiKey: string;
   serverPort: number;
   sharedSkillRoots: ProviderNativeSkillRoots;
@@ -40,10 +42,12 @@ export interface ServerRuntimeConfig {
   appUrl?: string;
   devAppPort?: number;
   launchId?: string;
+  authRequired?: boolean;
 }
 
 export interface AppDeps {
   config: ServerRuntimeConfig;
+  coreAuth?: CoreAuthService;
   db: DbConnection;
   hub: NotificationHub;
   lifecycleDedupers: LifecycleDedupers;

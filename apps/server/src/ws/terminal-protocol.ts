@@ -5,6 +5,7 @@ import {
 import { ApiError } from "../errors.js";
 import type { AppDeps } from "../types.js";
 import { parseSocketMessage } from "./decode-payload.js";
+import type { TerminalAccessRequirement } from "../access-policy.js";
 
 type TerminalProtocolDeps = Pick<AppDeps, "terminalSessions">;
 
@@ -14,12 +15,18 @@ interface TerminalSocket {
 }
 
 interface TerminalSocketOpenArgs {
+  authorize?: (
+    requirement: TerminalAccessRequirement,
+  ) => "ok" | "unauthorized" | "forbidden";
   socket: TerminalSocket;
   sinceSeq: number;
   terminalId: string;
 }
 
 interface TerminalSocketMessageArgs {
+  authorize?: (
+    requirement: TerminalAccessRequirement,
+  ) => "ok" | "unauthorized" | "forbidden";
   raw: unknown;
   socket: TerminalSocket;
   terminalId: string;
@@ -69,10 +76,22 @@ function closeTerminalSocketForError(
   });
 }
 
+function closeUnauthorizedTerminalSocket(
+  socket: TerminalSocket,
+  result: "unauthorized" | "forbidden",
+): void {
+  socket.close(result === "unauthorized" ? 4401 : 4403, result);
+}
+
 export function onTerminalSocketOpen(
   deps: TerminalProtocolDeps,
   args: TerminalSocketOpenArgs,
 ): void {
+  const authorization = args.authorize?.("read");
+  if (authorization !== undefined && authorization !== "ok") {
+    closeUnauthorizedTerminalSocket(args.socket, authorization);
+    return;
+  }
   try {
     deps.terminalSessions.attachBrowserTerminal({
       socket: args.socket,
@@ -94,6 +113,14 @@ export function onTerminalSocketMessage(
     terminalClientMessageSchema,
   );
   if (message === null) {
+    return;
+  }
+
+  const authorization = args.authorize?.(
+    message.type === "ping" ? "read" : "controlled",
+  );
+  if (authorization !== undefined && authorization !== "ok") {
+    closeUnauthorizedTerminalSocket(args.socket, authorization);
     return;
   }
 

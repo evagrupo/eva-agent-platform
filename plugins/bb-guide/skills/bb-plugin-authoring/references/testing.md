@@ -208,7 +208,7 @@ Its new-thread component does not reproduce host selection reconciliation,
 persistence, layout/CSS, routing, crash boundaries, or multi-plugin
 arbitration. Use a live loop for those host boundaries.
 
-### Live loop against a running bb
+### Live loop against a running EVA server
 
 - `bb plugin dev` is the loop: save → rebuild declared `bb.app` and `bb.host`
   artifacts → reload; open app pages pick new UI up live and
@@ -222,9 +222,9 @@ arbitration. Use a live loop for those host boundaries.
 application/json" -d '{}' <server>/api/v1/plugins/<id>/rpc/<method>`,
   `bb <command> …` for the CLI, `bb plugin run <id> …` as the explicit form.
 - Keep pure logic in plain functions/modules so it is unit-testable without
-  a bb server; the factory file should mostly wire registrations.
+  an EVA server; the factory file should mostly wire registrations.
 
-BB Official plugins in `plugins/` (a bb checkout):
+EVA Core plugins in `plugins/` (an EVA checkout):
 
 - `github` — a gh-CLI-backed issue/PR browser in a single navPanel (with
   `headerContent`), subPath-based sub-navigation, shared-ui
@@ -271,7 +271,7 @@ Remaining reference examples in `examples/plugins/`:
   runner is not).
 - CLI `run(argv)` argv excludes the command name; core bb command names
   are reserved; workspace-sandboxed agent threads (Accept Edits / Approve
-  for me) may fail to reach the bb CLI when the provider sandbox blocks
+  for me) may fail to reach the EVA CLI when the provider sandbox blocks
   loopback network (Claude's macOS sandbox permits it; Linux and other
   providers may not).
 - Mention `search` is 2s-time-boxed; mention `resolve` runs at send time

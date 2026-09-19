@@ -24,7 +24,7 @@
   `{"preset":"Large","image":"Node 22"}`. These inputs are persisted and
   readable by plugins, so keep credentials in plugin settings and send only
   non-secret configuration or references.
-- Omit `--base-branch` for bb's default. Explicit values are exact; use
+- Omit `--base-branch` for EVA's default. Explicit values are exact; use
   `origin/<branch>` for a remote ref. It applies to `--new-environment
 worktree` only; a provider takes its branch through `--environment-inputs`.
 - Spawn also accepts `--title`, `--origin-kind`, `--source-thread`,
@@ -97,10 +97,10 @@ worktree` only; a provider takes its branch through `--environment-inputs`.
   `suspend`, `resume`, `retry-cleanup`, and `remove` cover the Settings →
   Machines lifecycle. Use `bb machine provider-cli status|install` to inspect
   or install provider CLIs on a selected machine.
-- `bb updates` runs the default `bb updates status` action. It aggregates BB and provider
+- `bb updates` runs the default `bb updates status` action. It aggregates EVA and provider
   CLI update state across every machine — the CLI counterpart of Settings →
   Updates. `bb updates apply [--machine <id-or-name>]` runs every available
-  provider CLI install/update sequentially; update bb-app itself with the
+  provider CLI install/update sequentially; update the EVA app itself with the
   printed upgrade command or the desktop relaunch.
 - Use `bb project create --name <name> --root <path> --machine <id-or-name>`
   to bind a new project's local path to a connected enrolled machine. Use
@@ -123,7 +123,7 @@ worktree` only; a provider takes its branch through `--environment-inputs`.
   workspaces use filesystem listing. `bb file list|paths` can inspect ignored
   files, subject to their exclusion options.
 - Use `bb project attachment upload <project-id> --client-file <path>` when the
-  bytes live on the CLI machine, including when the CLI and bb server are on
+  bytes live on the CLI machine, including when the CLI and EVA server are on
   different hosts. It reads locally and sends multipart bytes through the
   configured `BB_SERVER_URL` (and its enrolled-machine authentication proxy),
   returning the stable server attachment DTO. Optional `--filename` and
@@ -174,7 +174,7 @@ environment pull-request show <id>`. Diff commands require an explicit target
 - Top-level `customModels` in the same `config.json` registers extra picker
   models. Use a provider ID returned by the target host's catalog. Acceptance
   of unlisted models is provider-specific; consult that provider's skill.
-  This list has no set/unset CLI surface. Edit the JSON and restart BB.
+  This list has no set/unset CLI surface. Edit the JSON and restart EVA.
   The `streamerMode` General preference hides every entry from model lists.
 - Top-level `sharedSkillRoots` uses the same relative `user` and `project`
   paths. bb lists these skills as read-only. bb injects them into each provider,
@@ -219,7 +219,7 @@ Moving the server needs the default-off `serverMove` experiment:
 Run `bb server move --to <machine> --check` first. It prints blockers,
 warnings, and notes and exits nonzero while the move is blocked. A
 direct-address server also needs `--address <url>`: the URL every machine and
-app will use to reach the new server. When the target already has bb server
+app will use to reach the new server. When the target already has an EVA server
 data, pass `--archive-existing-data` to move it aside; it is never merged.
 Without `--check`, the command confirms (pass `--yes` in a non-interactive
 shell), stops all running work, and follows the steps. It exits 0 once the
@@ -270,7 +270,7 @@ directory only.
 
 ### Private machine enrollment
 
-Use `bb machine enroll --bootstrap-file <path>` or `--bootstrap-env <NAME>` on a machine that already has the CLI. Core prepares the versioned bundle; transport it through a private file or environment/stdin, never command arguments, logs, resource JSON, or a transcript. Enrollment refuses a different existing host/server identity and succeeds without another exchange when the same identity is already enrolled. The installer accepts `--bootstrap-env <NAME>` and invokes this command after installing bb. Machine state defaults to `~/.bb-machines/<server-host>`; an explicit `BB_DATA_DIR` must be isolated from the default BB instance. For remote non-login commands, discover `bb` on PATH and fall back to `~/.local/bin/bb`.
+Use `bb machine enroll --bootstrap-file <path>` or `--bootstrap-env <NAME>` on a machine that already has the CLI. Core prepares the versioned bundle; transport it through a private file or environment/stdin, never command arguments, logs, resource JSON, or a transcript. Enrollment refuses a different existing host/server identity and succeeds without another exchange when the same identity is already enrolled. The installer accepts `--bootstrap-env <NAME>` and invokes this command after installing bb. Machine state defaults to `~/.bb-machines/<server-host>`; an explicit `BB_DATA_DIR` must be isolated from the default EVA instance. For remote non-login commands, discover `bb` on PATH and fall back to `~/.local/bin/bb`.
 
 Delivered enrollment bundles from v1 remain valid until their expiry. The CLI accepts both file and environment forms, upgrades the bundle to v2 headers locally, and persists legacy Connect redemption before enrollment so a retry reuses it. The installer upgrades v1 environment bundles before authenticated artifact downloads.
 

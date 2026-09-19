@@ -6,10 +6,38 @@ import {
 export { RELEASE_META } from "../../../../../changelog-metadata";
 export type { ChangelogBlock } from "../../../../../changelog-parser";
 
-const LATEST_CHANGELOG_SOURCE_URL =
-  "https://raw.githubusercontent.com/get-bb/bb/main/CHANGELOG.md";
+function sanitizeChangelogText(text: string): string {
+  return text
+    .replace(/\bBB\b/gu, "EVA")
+    .replace(/\bbb\b/gu, "EVA")
+    .replace(/@get-bb\/plugin-sdk/gu, "EVA plugin SDK");
+}
 
-export const CHANGELOG_ENTRIES = parseChangelog(changelogSource);
+function sanitizeChangelogEntries(
+  entries: readonly ChangelogEntry[],
+): ChangelogEntry[] {
+  return entries.map((entry) => ({
+    ...entry,
+    lede: entry.lede.map((block) =>
+      block.kind === "list"
+        ? { ...block, items: block.items.map(sanitizeChangelogText) }
+        : { ...block, text: sanitizeChangelogText(block.text) },
+    ),
+    sections: entry.sections.map((section) => ({
+      ...section,
+      title: sanitizeChangelogText(section.title),
+      blocks: section.blocks.map((block) =>
+        block.kind === "list"
+          ? { ...block, items: block.items.map(sanitizeChangelogText) }
+          : { ...block, text: sanitizeChangelogText(block.text) },
+      ),
+    })),
+  }));
+}
+
+export const CHANGELOG_ENTRIES = sanitizeChangelogEntries(
+  parseChangelog(changelogSource),
+);
 
 export const LATEST_CHANGELOG_ENTRY: ChangelogEntry | null =
   CHANGELOG_ENTRIES[0] ?? null;
@@ -18,11 +46,9 @@ export async function fetchLatestChangelogEntry(
   fetchFn: typeof fetch,
   signal?: AbortSignal,
 ): Promise<ChangelogEntry> {
-  const response = await fetchFn(LATEST_CHANGELOG_SOURCE_URL, { signal });
-  if (!response.ok) {
-    throw new Error(`Changelog request failed (${response.status})`);
-  }
-  const [entry] = parseChangelog(await response.text());
+  void fetchFn;
+  void signal;
+  const [entry] = CHANGELOG_ENTRIES;
   if (entry === undefined) {
     throw new Error("The changelog has no releases");
   }

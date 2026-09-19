@@ -42,9 +42,9 @@ export function registerOpenCommand(
 ): void {
   parent
     .command("open")
-    .description("Open a BB thread, optionally with a file in its panel")
+    .description("Open an EVA thread, optionally with a file in its panel")
     .usage("[id] [path] [options]")
-    .argument("[id]", "Thread ID. Omit inside a BB thread.")
+    .argument("[id]", "Thread ID. Omit inside an EVA thread.")
     .argument("[path]", "Thread-relative or absolute file path to open")
     .option("--line <number>", "Line number to focus")
     .option(
@@ -144,7 +144,7 @@ function resolveThreadOpenTarget(
       }
       if (explicitThreadId !== contextThreadId && !allowsExplicitThreadTarget) {
         throw new Error(
-          "BB_THREAD_ID is set, so bb thread open targets the current thread. Omit the thread ID.",
+          "BB_THREAD_ID is set, so bb thread open targets the current EVA thread. Omit the thread ID.",
         );
       }
       return {
@@ -182,7 +182,7 @@ function resolveThreadOpenTarget(
 
   if (first === undefined) {
     throw new Error(
-      "Missing thread ID. Pass <threadId> [path], or run inside a BB thread.",
+      "Missing thread ID. Pass <threadId> [path], or run inside an EVA thread.",
     );
   }
 

@@ -182,6 +182,7 @@ export function buildModelNavRows({
 }
 
 interface ModelReasoningPickerProps {
+  agentId?: string;
   providerRouting?: SystemProvidersQuery;
   providerOptions: readonly ProviderPickerOption[];
   selectedProviderId: string;
@@ -215,6 +216,7 @@ interface ModelReasoningPickerProps {
 }
 
 export function ModelReasoningPicker({
+  agentId,
   providerOptions,
   providerRouting,
   selectedProviderId,
@@ -325,9 +327,11 @@ export function ModelReasoningPicker({
         hostId: prefetchRoutingHostId,
       },
       providerIds: siblingIdsKey.split("\0"),
+      ...(agentId === undefined ? {} : { agentId }),
     });
   }, [
     canSwitchProviders,
+    agentId,
     open,
     prefetchRoutingEnvironmentId,
     prefetchRoutingHostId,

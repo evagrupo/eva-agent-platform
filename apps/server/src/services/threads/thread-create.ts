@@ -70,6 +70,12 @@ import {
   getEnvironmentProvider,
   listEnvironmentCompositions,
 } from "../plugins/plugin-environment-provider-registry.js";
+import { getEvaAgentForDb } from "../../agents/eva-agent-registry.js";
+import {
+  assertExecutionAllowedForUser,
+  assertResourceAccessForUser,
+  requireAuthorizedThreadForUser,
+} from "../../access-policy.js";
 
 type ThreadCreateDeps = LoggedPendingInteractionWorkSessionDeps;
 
@@ -528,6 +534,59 @@ export async function createThreadFromRequest(
     deps,
     rawRequestInput.projectId,
   );
+  if (
+    rawRequestInput.ownerUserId !== null &&
+    rawRequestInput.ownerUserId !== undefined
+  ) {
+    assertResourceAccessForUser(
+      deps.db,
+      rawRequestInput.ownerUserId,
+      "project",
+      project.id,
+      "write",
+    );
+    if (rawRequestInput.parentThreadId !== undefined) {
+      requireAuthorizedThreadForUser(
+        deps.db,
+        rawRequestInput.ownerUserId,
+        rawRequestInput.parentThreadId,
+        "write",
+      );
+    }
+    if (rawRequestInput.sourceThreadId !== undefined) {
+      requireAuthorizedThreadForUser(
+        deps.db,
+        rawRequestInput.ownerUserId,
+        rawRequestInput.sourceThreadId,
+        "read",
+      );
+    }
+    if (rawRequestInput.lifecycleOwnerThreadId !== undefined) {
+      requireAuthorizedThreadForUser(
+        deps.db,
+        rawRequestInput.ownerUserId,
+        rawRequestInput.lifecycleOwnerThreadId,
+        "read",
+      );
+    }
+  }
+  const requestedAgentId =
+    rawRequestInput.agentId ?? rawRequestInput.providerId;
+  if (
+    rawRequestInput.ownerUserId !== null &&
+    rawRequestInput.ownerUserId !== undefined
+  ) {
+    if (
+      requestedAgentId === undefined ||
+      getEvaAgentForDb(deps.db, requestedAgentId) === null
+    ) {
+      throw new ApiError(
+        400,
+        "invalid_request",
+        "A known EVA agent is required",
+      );
+    }
+  }
   if (rawRequestInput.origin === "plugin") {
     if (rawRequestInput.originPluginId === undefined) {
       throw new ApiError(
@@ -546,7 +605,16 @@ export async function createThreadFromRequest(
   const pluginMetadata = resolveCreateThreadPluginMetadata(rawRequestInput);
   const requestInput = { ...rawRequestInput };
   requestInput.input = (
-    await appendPluginMentionContext({ input: requestInput.input })
+    await appendPluginMentionContext(
+      { input: requestInput.input },
+      {
+        db: deps.db,
+        ownerUserId: rawRequestInput.ownerUserId,
+        ...(requestedAgentId === undefined
+          ? {}
+          : { agentId: requestedAgentId }),
+      },
+    )
   ).input;
   assertProjectWorkspaceCompatibility(project, requestInput);
   const originKind = requestInput.originKind ?? null;
@@ -739,6 +807,32 @@ export async function createThreadFromRequest(
     resolvedExecutionDefaults.providerId !== request.providerId
   ) {
     request.providerId = resolvedExecutionDefaults.providerId;
+  }
+  if (request.ownerUserId !== null && request.ownerUserId !== undefined) {
+    assertExecutionAllowedForUser(deps.db, request.ownerUserId, {
+      agentId: request.agentId,
+      providerId: request.providerId,
+      ...((request.model ?? resolvedExecutionDefaults?.model) !== undefined
+        ? { model: request.model ?? resolvedExecutionDefaults?.model }
+        : {}),
+      ...((request.reasoningLevel ??
+        resolvedExecutionDefaults?.reasoningLevel) !== undefined
+        ? {
+            reasoningLevel:
+              request.reasoningLevel ??
+              resolvedExecutionDefaults?.reasoningLevel,
+          }
+        : {}),
+      ...((request.permissionMode ??
+        resolvedExecutionDefaults?.permissionMode) !== undefined
+        ? {
+            permissionMode:
+              request.permissionMode ??
+              resolvedExecutionDefaults?.permissionMode,
+          }
+        : {}),
+      requireComplete: true,
+    });
   }
 
   const { environmentId, environmentIntent } =

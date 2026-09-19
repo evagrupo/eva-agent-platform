@@ -12,6 +12,11 @@ import type { Hono } from "hono";
 import { ApiError } from "../../errors.js";
 import { requirePublicThread } from "../../services/lib/entity-lookup.js";
 import type { AppDeps } from "../../types.js";
+import {
+  getCoreAuthContext,
+  knownEvaAgentIdsForContext,
+  isPluginAllowedByPolicyForAgent,
+} from "../../access-policy.js";
 
 type WireThreadTab = ThreadTabsWireResponse["tabs"][number];
 
@@ -39,17 +44,59 @@ function toWireThreadTabsResponse(
   };
 }
 
-function readThreadTabs(deps: AppDeps, threadId: string): ThreadTabsResponse {
-  const stored = getStoredThreadTabs(deps.db, threadId);
+function readThreadTabs(
+  deps: AppDeps,
+  thread: { id: string; agentId?: string | null; providerId: string },
+  context: object,
+): ThreadTabsResponse {
+  const stored = getStoredThreadTabs(deps.db, thread.id);
   if (!stored) {
     return { revision: 0, tabs: [] };
   }
 
   const parsedJson: unknown = JSON.parse(stored.tabsJson);
+  const authContext = getCoreAuthContext(context);
+  const agentId = thread.agentId ?? thread.providerId;
+  const knownAgentIds = knownEvaAgentIdsForContext(context);
   return {
     revision: stored.revision,
-    tabs: threadTabsSchema.parse(parsedJson),
+    tabs: threadTabsSchema
+      .parse(parsedJson)
+      .filter(
+        (tab) =>
+          tab.kind !== "plugin-panel" ||
+          authContext === null ||
+          isPluginAllowedByPolicyForAgent(
+            authContext.policy,
+            agentId,
+            tab.pluginId,
+            knownAgentIds,
+          ),
+      ),
   };
+}
+
+function assertThreadPluginAllowed(
+  context: object,
+  thread: { agentId?: string | null; providerId: string },
+  pluginId: string,
+): void {
+  const authContext = getCoreAuthContext(context);
+  if (
+    authContext !== null &&
+    !isPluginAllowedByPolicyForAgent(
+      authContext.policy,
+      thread.agentId ?? thread.providerId,
+      pluginId,
+      knownEvaAgentIdsForContext(context),
+    )
+  ) {
+    throw new ApiError(
+      403,
+      "policy_denied",
+      "Plugin access is disabled by policy",
+    );
+  }
 }
 
 export function registerThreadTabRoutes(app: Hono, deps: AppDeps): void {
@@ -62,12 +109,17 @@ export function registerThreadTabRoutes(app: Hono, deps: AppDeps): void {
   get(routes.tabs, (context) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
     return context.json(
-      toWireThreadTabsResponse(readThreadTabs(deps, thread.id)),
+      toWireThreadTabsResponse(readThreadTabs(deps, thread, context)),
     );
   });
 
   put(routes.updateTabs, (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
+    for (const tab of payload.tabs) {
+      if (tab.kind === "plugin-panel") {
+        assertThreadPluginAllowed(context, thread, tab.pluginId);
+      }
+    }
     const result = replaceStoredThreadTabs(deps.db, {
       expectedRevision: payload.expectedRevision,
       tabsJson: JSON.stringify(payload.tabs),

@@ -138,7 +138,7 @@ listening throws, so prefer reading it from handlers, services, and timers.
 `bb.server.experimental_appUrl` gives the operator-configured public app URL,
 or `null` when `BB_APP_URL` is empty. It is not bind-gated.
 `bb.server.experimental_dataDir` gives the exact server data directory for a
-migration from BB-managed files. Do not write plugin state there. Use
+migration from EVA-managed files. Do not write plugin state there. Use
 `bb.storage` for plugin-owned state.
 
 ### bb.hosts
@@ -301,7 +301,7 @@ published `@get-bb/plugin-sdk/host` contract such as
 `experimental_nativeRootsHostContract` is bundled from the plugin's own SDK
 install, so that plugin lists the SDK under `dependencies` (see
 "bb.providers.register — agent providers" below; every provider plugin in
-bb does this). Either way the daemon never resolves the SDK or private BB
+bb does this). Either way the daemon never resolves the SDK or private EVA
 packages from the plugin at runtime.
 
 Pure JavaScript dependencies are bundled. For external tools, use

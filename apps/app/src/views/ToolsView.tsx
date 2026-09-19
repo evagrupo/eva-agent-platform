@@ -178,7 +178,7 @@ function PluginDetailToolView({ pluginId }: { pluginId: string }) {
     onSuccess: (_data, deletedPlugin) => {
       const isLocal = pluginIsLocalSource(deletedPlugin);
       pluginToast.success(
-        isLocal ? "Plugin removed from bb" : "Plugin uninstalled",
+        isLocal ? "Integration removed from EVA" : "Integration uninstalled",
         deletedPlugin,
         "catalog",
       );
@@ -368,7 +368,7 @@ function PluginDetailToolView({ pluginId }: { pluginId: string }) {
               <ConfirmDeleteDialogContent
                 title={
                   pluginIsLocalSource(deleteTarget)
-                    ? "Remove plugin from bb?"
+                    ? "Remove integration from EVA?"
                     : "Uninstall plugin?"
                 }
                 description={pluginRemovalDescription(deleteTarget)}

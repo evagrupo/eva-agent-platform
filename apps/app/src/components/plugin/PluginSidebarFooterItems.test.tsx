@@ -527,7 +527,6 @@ describe("PluginSidebarFooterItems", () => {
     );
     const store = createStore();
     store.set(sidebarFooterOrderAtom, [
-      "builtin:report-bug",
       "plugin:example/action",
       "builtin:settings",
     ]);
@@ -536,10 +535,7 @@ describe("PluginSidebarFooterItems", () => {
         <PluginSidebarFooterItems
           activeDisclosureKey={null}
           onDisclosureCommand={vi.fn()}
-          builtInActions={[
-            { id: "settings", onActivate: run },
-            { id: "report-bug", onActivate: run },
-          ]}
+          builtInActions={[{ id: "settings", onActivate: run }]}
         />
       </SidebarMenu>,
       store,
@@ -548,15 +544,10 @@ describe("PluginSidebarFooterItems", () => {
       [...view.container.querySelectorAll("[data-footer-item]")].map((item) =>
         item.getAttribute("data-footer-item"),
       ),
-    ).toEqual([
-      "builtin:report-bug",
-      "plugin:example/action",
-      "builtin:settings",
-    ]);
+    ).toEqual(["plugin:example/action", "builtin:settings"]);
     act(() =>
       store.set(sidebarFooterHiddenAtom, [
         "builtin:settings",
-        "builtin:report-bug",
         "plugin:example/action",
       ]),
     );

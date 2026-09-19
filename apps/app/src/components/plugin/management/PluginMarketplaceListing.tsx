@@ -101,7 +101,7 @@ function PluginMarketplaceDetails({
             </time>
           </PluginMarketplaceDetail>
         )}
-        <PluginMarketplaceDetail label="Marketplace">
+        <PluginMarketplaceDetail label="Catalog">
           {entry.marketplaceDisplayName}
         </PluginMarketplaceDetail>
       </dl>

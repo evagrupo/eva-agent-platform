@@ -39,6 +39,7 @@ import {
   resolveExistingThreadExecutionPlan,
   type ExistingThreadExecutionInputRequest,
 } from "./thread-execution-plan.js";
+import { assertExecutionAllowedForUser } from "../../access-policy.js";
 import { clampPermissionModeToHost } from "../hosts/permission-ceiling.js";
 import type { ProviderRegistryService } from "../providers/provider-registry.js";
 import { resolveProviderPlanCommand } from "../providers/provider-plan-command.js";
@@ -49,6 +50,8 @@ import {
 } from "../system/provider-bridge-launch.js";
 
 type ExecutionOptionsRequest = ExistingThreadExecutionInputRequest;
+
+type PolicyThread = Thread & { ownerUserId?: string | null };
 
 export interface ThreadStopCommandArgs {
   environmentId: string;
@@ -69,6 +72,7 @@ interface ThreadUnarchiveCommandEnvironment {
 }
 
 export interface ThreadStartCommandArgs {
+  agentId?: string;
   environment: ThreadRuntimeCommandEnvironment;
   execution: ResolvedThreadExecutionOptions;
   fork: ThreadForkDescriptor | null;
@@ -79,7 +83,7 @@ export interface ThreadStartCommandArgs {
   providerId: string;
   requestId: ClientTurnRequestId;
   syncGeneratedTitle: boolean;
-  thread: Thread;
+  thread: PolicyThread;
 }
 
 interface PreparedTurnSubmitCommandBuildArgs {
@@ -265,6 +269,24 @@ export async function buildThreadStartCommand(
   deps: LoggedWorkSessionDeps,
   args: ThreadStartCommandArgs,
 ): Promise<Extract<HostDaemonCommand, { type: "thread.start" }>> {
+  const agentId =
+    args.agentId ??
+    args.thread.agentId ??
+    (args.thread.ownerUserId === null || args.thread.ownerUserId === undefined
+      ? args.providerId
+      : undefined);
+  if (
+    args.thread.ownerUserId !== undefined &&
+    args.thread.ownerUserId !== null
+  ) {
+    assertExecutionAllowedForUser(deps.db, args.thread.ownerUserId, {
+      agentId,
+      providerId: args.providerId,
+      model: args.execution.model,
+      reasoningLevel: args.execution.reasoningLevel,
+      permissionMode: args.execution.permissionMode,
+    });
+  }
   await deps.providerRegistry.whenRegistrationsSettled();
   const runtimeContext = await resolveThreadRuntimeCommandConfig(deps, {
     thread: args.thread,
@@ -276,6 +298,7 @@ export async function buildThreadStartCommand(
     type: "thread.start",
     environmentId: args.environment.id,
     threadId: args.thread.id,
+    agentId,
     workspaceContext: workspaceContextFromPath({
       path: runtimeContext.workspacePath,
     }),
@@ -315,6 +338,7 @@ function buildPreparedTurnSubmitCommandPayload(
     type: "turn.submit",
     environmentId: args.environmentId,
     threadId: args.threadId,
+    agentId: args.runtimeContext.agentId,
     bridgeLaunch,
     input: args.input,
     ...(args.inputGroups !== undefined
