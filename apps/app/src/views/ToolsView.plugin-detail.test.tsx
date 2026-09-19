@@ -50,6 +50,20 @@ import {
   makePluginListItem,
   makePluginRegistrationSet,
 } from "@/test/fixtures/plugins";
+import { StaticCoreAuthProvider, type CoreAuthState } from "@/lib/core-auth";
+
+const LOCAL_CORE_AUTH: CoreAuthState = {
+  status: "ready",
+  authenticated: false,
+  required: false,
+  user: null,
+  bootstrap: null,
+  accessPending: false,
+  error: null,
+  refresh: async () => {},
+  signIn: async () => null,
+  signOut: async () => {},
+};
 
 vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -1034,9 +1048,11 @@ describe("BB Official plugin detail routing", () => {
         <MemoryRouter
           initialEntries={[installed ? "/plugins?view=installed" : "/plugins"]}
         >
-          <TooltipProvider>
-            <AppRoutes />
-          </TooltipProvider>
+          <StaticCoreAuthProvider value={LOCAL_CORE_AUTH}>
+            <TooltipProvider>
+              <AppRoutes />
+            </TooltipProvider>
+          </StaticCoreAuthProvider>
           <LocationProbe />
           <HistoryBackButton />
         </MemoryRouter>,

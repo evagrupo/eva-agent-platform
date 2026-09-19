@@ -203,11 +203,7 @@ class GitCommandFailure extends Error {
   readonly exitCode: number | null;
   readonly timedOut: boolean;
 
-  constructor(
-    operation: string,
-    exitCode: number | null,
-    timedOut: boolean,
-  ) {
+  constructor(operation: string, exitCode: number | null, timedOut: boolean) {
     super(operation);
     this.name = "GitCommandFailure";
     this.operation = operation;
@@ -428,7 +424,10 @@ function safeHost(host: string): string {
 }
 
 function safeRemotePath(pathname: string): void {
-  if (pathname.length === 0 || /[\u0000-\u001f\u007f'"`$;|&<>\\]/u.test(pathname)) {
+  if (
+    pathname.length === 0 ||
+    /[\u0000-\u001f\u007f'"`$;|&<>\\]/u.test(pathname)
+  ) {
     throw invalidInput("invalid_remote", "Git remote path is not allowed");
   }
   let decoded: string;
@@ -440,7 +439,9 @@ function safeRemotePath(pathname: string): void {
   if (
     decoded.length === 0 ||
     /[\u0000-\u001f\u007f'"`$;|&<>\\]/u.test(decoded) ||
-    decoded.split("/").some((part) => part === "" || part === "." || part === "..")
+    decoded
+      .split("/")
+      .some((part) => part === "" || part === "." || part === "..")
   ) {
     throw invalidInput("invalid_remote", "Git remote path is not allowed");
   }
@@ -453,7 +454,10 @@ export function validateRemoteUrl(value: string): string {
     remote.length > MAX_REMOTE_LENGTH ||
     /[\u0000-\u001f\u007f\s]/u.test(remote)
   ) {
-    throw invalidInput("invalid_remote", "Git remote must be a safe HTTPS or SSH URL");
+    throw invalidInput(
+      "invalid_remote",
+      "Git remote must be a safe HTTPS or SSH URL",
+    );
   }
 
   const scp = /^git@([^:]+):(.+)$/u.exec(remote);
@@ -467,7 +471,10 @@ export function validateRemoteUrl(value: string): string {
   try {
     parsed = new URL(remote);
   } catch {
-    throw invalidInput("invalid_remote", "Git remote must be a safe HTTPS or SSH URL");
+    throw invalidInput(
+      "invalid_remote",
+      "Git remote must be a safe HTTPS or SSH URL",
+    );
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "ssh:") {
     throw invalidInput("invalid_remote", "Git remote transport is not allowed");
@@ -476,10 +483,16 @@ export function validateRemoteUrl(value: string): string {
     parsed.protocol === "https:" &&
     (parsed.username !== "" || parsed.password !== "")
   ) {
-    throw invalidInput("invalid_remote", "Git remote credentials must not be embedded in the URL");
+    throw invalidInput(
+      "invalid_remote",
+      "Git remote credentials must not be embedded in the URL",
+    );
   }
   if (parsed.search !== "" || parsed.hash !== "") {
-    throw invalidInput("invalid_remote", "Git remote query and fragment are not allowed");
+    throw invalidInput(
+      "invalid_remote",
+      "Git remote query and fragment are not allowed",
+    );
   }
   const host = safeHost(parsed.hostname);
   if (
@@ -487,21 +500,40 @@ export function validateRemoteUrl(value: string): string {
     parsed.port !== "" &&
     parsed.port !== "443"
   ) {
-    throw invalidInput("invalid_remote", "Git HTTPS remotes must use the default port");
+    throw invalidInput(
+      "invalid_remote",
+      "Git HTTPS remotes must use the default port",
+    );
   }
   if (parsed.protocol === "ssh:" && parsed.username !== "git") {
-    throw invalidInput("invalid_remote", "Git SSH remotes must use the git service account");
+    throw invalidInput(
+      "invalid_remote",
+      "Git SSH remotes must use the git service account",
+    );
   }
   if (parsed.protocol === "ssh:" && parsed.password !== "") {
-    throw invalidInput("invalid_remote", "Git remote credentials must not be embedded in the URL");
+    throw invalidInput(
+      "invalid_remote",
+      "Git remote credentials must not be embedded in the URL",
+    );
   }
-  if (parsed.protocol === "ssh:" && parsed.port !== "" && parsed.port !== "22") {
-    throw invalidInput("invalid_remote", "Git SSH remotes must use the default port");
+  if (
+    parsed.protocol === "ssh:" &&
+    parsed.port !== "" &&
+    parsed.port !== "22"
+  ) {
+    throw invalidInput(
+      "invalid_remote",
+      "Git SSH remotes must use the default port",
+    );
   }
   safeRemotePath(parsed.pathname.replace(/^\//u, ""));
   const path = parsed.pathname.replace(/\/+$/u, "");
   if (path.length === 0) {
-    throw invalidInput("invalid_remote", "Git remote repository path is required");
+    throw invalidInput(
+      "invalid_remote",
+      "Git remote repository path is required",
+    );
   }
   return `${parsed.protocol}//${parsed.protocol === "ssh:" ? "git@" : ""}${host}${parsed.protocol === "ssh:" ? "" : ""}${path}`;
 }
@@ -519,7 +551,9 @@ export function validateBranchName(value: string): string {
     branch.includes("//") ||
     branch.includes("@{") ||
     /[~^:?*[\\\]\s]/u.test(branch) ||
-    branch.split("/").some((part) => part === "." || part === ".." || part.startsWith("."))
+    branch
+      .split("/")
+      .some((part) => part === "." || part === ".." || part.startsWith("."))
   ) {
     throw invalidInput("invalid_branch", "Git branch name is not allowed");
   }
@@ -543,7 +577,10 @@ export function validateCommitMessage(value: string): string {
 
 export function isDeniedWorkspacePath(pathname: string): boolean {
   const normalized = pathname.replaceAll("\\", "/");
-  const segments = normalized.split("/").filter(Boolean).map((part) => part.toLowerCase());
+  const segments = normalized
+    .split("/")
+    .filter(Boolean)
+    .map((part) => part.toLowerCase());
   const name = segments.at(-1) ?? "";
   if (segments.some((part) => DENIED_DIRECTORY_NAMES.has(part))) return true;
   if (DENIED_FILE_NAMES.has(name) || name.startsWith(".env")) return true;
@@ -555,7 +592,9 @@ function safeRelativePath(pathname: string): boolean {
     pathname.length === 0 ||
     pathname.startsWith("/") ||
     pathname.includes("\\") ||
-    pathname.split("/").some((part) => part === "" || part === "." || part === "..")
+    pathname
+      .split("/")
+      .some((part) => part === "" || part === "." || part === "..")
   ) {
     return false;
   }
@@ -578,7 +617,8 @@ async function scanWorkspaceDirectory(
 ): Promise<void> {
   const entries = await readdir(current);
   for (const name of entries) {
-    const pathname = relativeDirectory.length === 0 ? name : `${relativeDirectory}/${name}`;
+    const pathname =
+      relativeDirectory.length === 0 ? name : `${relativeDirectory}/${name}`;
     const fullPath = join(current, name);
     const info = await lstat(fullPath);
     result.nonEmpty = true;
@@ -644,7 +684,8 @@ function storedRow(db: DbConnection, agentId: string): SyncRow | null {
   if (row === undefined) return null;
   let remoteUrl: string | null = null;
   try {
-    remoteUrl = row.remoteUrl === null ? null : validateRemoteUrl(row.remoteUrl);
+    remoteUrl =
+      row.remoteUrl === null ? null : validateRemoteUrl(row.remoteUrl);
   } catch {
     throw new WorkspaceSyncError(
       409,
@@ -696,7 +737,8 @@ function createStoredRow(db: DbConnection, agentId: string): SyncRow {
     .onConflictDoNothing()
     .run();
   const row = storedRow(db, agentId);
-  if (row === null) throw new Error("Workspace sync metadata could not be created");
+  if (row === null)
+    throw new Error("Workspace sync metadata could not be created");
   return row;
 }
 
@@ -721,10 +763,9 @@ function updateStoredRow(
     .run();
 }
 
-function operationResultForError(error: WorkspaceSyncError):
-  | "error"
-  | "conflict"
-  | "blocked" {
+function operationResultForError(
+  error: WorkspaceSyncError,
+): "error" | "conflict" | "blocked" {
   if (
     error.code === "blocked_file" ||
     error.code === "unsafe_workspace" ||
@@ -830,7 +871,9 @@ function parseStatus(stdout: string): WorkspaceSyncChange[] {
     .slice(0, MAX_STATUS_ENTRIES);
 }
 
-export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs) {
+export function createWorkspaceSyncService(
+  args: CreateWorkspaceSyncServiceArgs,
+) {
   const runGit = args.commandRunner ?? defaultGitRunner();
   const locks = new Map<string, Promise<void>>();
 
@@ -851,7 +894,8 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     } catch {
       throw new GitCommandFailure(operation, null, false);
     }
-    if (result.timedOut) throw new GitCommandFailure(operation, result.exitCode, true);
+    if (result.timedOut)
+      throw new GitCommandFailure(operation, result.exitCode, true);
     return result;
   }
 
@@ -872,7 +916,11 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     try {
       normalizedId = validateEvaAgentId(agentId);
     } catch {
-      throw new WorkspaceSyncError(404, "agent_not_found", "EVA agent not found");
+      throw new WorkspaceSyncError(
+        404,
+        "agent_not_found",
+        "EVA agent not found",
+      );
     }
     const registered = args.db
       .select({ id: evaAgents.id })
@@ -885,25 +933,47 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
       .where(eq(evaAgentWorkspaces.agentId, normalizedId))
       .get();
     if (registered === undefined || workspace === undefined) {
-      throw new WorkspaceSyncError(404, "agent_not_found", "EVA agent not found");
+      throw new WorkspaceSyncError(
+        404,
+        "agent_not_found",
+        "EVA agent not found",
+      );
     }
     const dataRoot = resolve(args.dataDir);
     const workspaceRoot = resolve(dataRoot, EVA_AGENT_WORKSPACE_ROOT);
     const candidate = resolve(workspaceRoot, normalizedId);
     if (!inside(dataRoot, workspaceRoot) || !inside(workspaceRoot, candidate)) {
-      throw new WorkspaceSyncError(400, "unsafe_workspace", "EVA workspace path is outside the managed root");
+      throw new WorkspaceSyncError(
+        400,
+        "unsafe_workspace",
+        "EVA workspace path is outside the managed root",
+      );
     }
     const sourceRoot = await findSourceCheckoutRoot();
-    if (sourceRoot !== null && (candidate === sourceRoot || inside(sourceRoot, candidate))) {
-      throw new WorkspaceSyncError(400, "unsafe_workspace", "The EVA source checkout cannot be a sync workspace");
+    if (
+      sourceRoot !== null &&
+      (candidate === sourceRoot || inside(sourceRoot, candidate))
+    ) {
+      throw new WorkspaceSyncError(
+        400,
+        "unsafe_workspace",
+        "The EVA source checkout cannot be a sync workspace",
+      );
     }
     return candidate;
   }
 
   async function ensureSafeWorkspacePath(workspacePath: string): Promise<void> {
     const sourceRoot = await findSourceCheckoutRoot();
-    if (sourceRoot !== null && (workspacePath === sourceRoot || inside(sourceRoot, workspacePath))) {
-      throw new WorkspaceSyncError(400, "unsafe_workspace", "The EVA source checkout cannot be a sync workspace");
+    if (
+      sourceRoot !== null &&
+      (workspacePath === sourceRoot || inside(sourceRoot, workspacePath))
+    ) {
+      throw new WorkspaceSyncError(
+        400,
+        "unsafe_workspace",
+        "The EVA source checkout cannot be a sync workspace",
+      );
     }
     const dataRoot = resolve(args.dataDir);
     const root = resolve(dataRoot, EVA_AGENT_WORKSPACE_ROOT);
@@ -911,12 +981,20 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
       try {
         const info = await lstat(current);
         if (info.isSymbolicLink() || !info.isDirectory()) {
-          throw new WorkspaceSyncError(400, "unsafe_workspace", "Workspace path must be a real directory");
+          throw new WorkspaceSyncError(
+            400,
+            "unsafe_workspace",
+            "Workspace path must be a real directory",
+          );
         }
       } catch (error) {
         if (error instanceof WorkspaceSyncError) throw error;
         if ((error as { code?: unknown }).code === "ENOENT") continue;
-        throw new WorkspaceSyncError(400, "unsafe_workspace", "Workspace path could not be inspected safely");
+        throw new WorkspaceSyncError(
+          400,
+          "unsafe_workspace",
+          "Workspace path could not be inspected safely",
+        );
       }
     }
   }
@@ -925,28 +1003,46 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     try {
       const info = await lstat(workspacePath);
       if (info.isSymbolicLink() || !info.isDirectory()) {
-        throw new WorkspaceSyncError(400, "unsafe_workspace", "Workspace path must be a real directory");
+        throw new WorkspaceSyncError(
+          400,
+          "unsafe_workspace",
+          "Workspace path must be a real directory",
+        );
       }
       return true;
     } catch (error) {
       if (error instanceof WorkspaceSyncError) throw error;
       if ((error as { code?: unknown }).code === "ENOENT") return false;
-      throw new WorkspaceSyncError(400, "unsafe_workspace", "Workspace path could not be inspected safely");
+      throw new WorkspaceSyncError(
+        400,
+        "unsafe_workspace",
+        "Workspace path could not be inspected safely",
+      );
     }
   }
 
-  async function repositoryInitialized(workspacePath: string): Promise<boolean> {
+  async function repositoryInitialized(
+    workspacePath: string,
+  ): Promise<boolean> {
     const gitPath = join(workspacePath, ".git");
     try {
       const info = await lstat(gitPath);
       if (info.isSymbolicLink() || !info.isDirectory()) {
-        throw new WorkspaceSyncError(400, "unsafe_repository", "Workspace Git metadata must be a local directory");
+        throw new WorkspaceSyncError(
+          400,
+          "unsafe_repository",
+          "Workspace Git metadata must be a local directory",
+        );
       }
       return true;
     } catch (error) {
       if (error instanceof WorkspaceSyncError) throw error;
       if ((error as { code?: unknown }).code === "ENOENT") return false;
-      throw new WorkspaceSyncError(400, "unsafe_repository", "Workspace Git metadata could not be inspected safely");
+      throw new WorkspaceSyncError(
+        400,
+        "unsafe_repository",
+        "Workspace Git metadata could not be inspected safely",
+      );
     }
   }
 
@@ -988,7 +1084,11 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     ]);
     const resolvedTopLevel = await realpath(workspacePath);
     if (resolve(topLevel) !== resolve(resolvedTopLevel)) {
-      throw new WorkspaceSyncError(400, "unsafe_repository", "Git repository root does not match the EVA workspace");
+      throw new WorkspaceSyncError(
+        400,
+        "unsafe_repository",
+        "Git repository root does not match the EVA workspace",
+      );
     }
     const branchResult = await executeGit("status", workspacePath, [
       "symbolic-ref",
@@ -996,7 +1096,8 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
       "-q",
       "HEAD",
     ]);
-    const currentBranch = branchResult.exitCode === 0 ? branchResult.stdout.trim() : null;
+    const currentBranch =
+      branchResult.exitCode === 0 ? branchResult.stdout.trim() : null;
     const statusResult = await checkedGit("status", workspacePath, [
       "status",
       "--porcelain=v1",
@@ -1017,7 +1118,11 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     const head = headResult.exitCode === 0 ? headResult.stdout.trim() : null;
     let ahead: number | null = null;
     let behind: number | null = null;
-    if (row.remoteUrl !== null && head !== null && currentBranch === row.branch) {
+    if (
+      row.remoteUrl !== null &&
+      head !== null &&
+      currentBranch === row.branch
+    ) {
       const trackingResult = await executeGit("status", workspacePath, [
         "rev-parse",
         "--verify",
@@ -1072,7 +1177,9 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     }
   }
 
-  async function safeStatus(ctx: WorkspaceContext): Promise<WorkspaceSyncStatus> {
+  async function safeStatus(
+    ctx: WorkspaceContext,
+  ): Promise<WorkspaceSyncStatus> {
     const row = rowOrDefault(ctx.row);
     const exists = await workspaceExists(ctx.workspacePath);
     const base: WorkspaceSyncStatus = {
@@ -1111,11 +1218,17 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     if (scan.blockedFiles.length > 0) {
       base.state = "blocked";
       base.lastErrorCode = "blocked_file";
-      base.lastErrorMessage = "Workspace contains files excluded from EVA Git sync.";
+      base.lastErrorMessage =
+        "Workspace contains files excluded from EVA Git sync.";
       return base;
     }
     if (!repository) {
-      base.state = row.remoteUrl === null ? "not_configured" : row.enabled ? "not_initialized" : "disabled";
+      base.state =
+        row.remoteUrl === null
+          ? "not_configured"
+          : row.enabled
+            ? "not_initialized"
+            : "disabled";
       return base;
     }
     const snapshot = await gitStatus(ctx.workspacePath, row, scan);
@@ -1133,11 +1246,13 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     } else if (snapshot.currentBranch !== row.branch) {
       base.state = "conflict";
       base.lastErrorCode = "branch_mismatch";
-      base.lastErrorMessage = "Checked-out branch does not match the configured branch.";
+      base.lastErrorMessage =
+        "Checked-out branch does not match the configured branch.";
     } else if (!(await remoteMatches(ctx.workspacePath, row.remoteUrl))) {
       base.state = "error";
       base.lastErrorCode = "remote_mismatch";
-      base.lastErrorMessage = "Repository origin does not match the configured remote.";
+      base.lastErrorMessage =
+        "Repository origin does not match the configured remote.";
     } else if (snapshot.workingTree === "conflict") {
       base.state = "conflict";
     } else if (snapshot.workingTree === "changed") {
@@ -1152,12 +1267,19 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     return ctx.row ?? createStoredRow(args.db, ctx.agentId);
   }
 
-  async function ensureRepository(ctx: WorkspaceContext, row: SyncRow): Promise<void> {
+  async function ensureRepository(
+    ctx: WorkspaceContext,
+    row: SyncRow,
+  ): Promise<void> {
     await mkdir(ctx.workspacePath, { recursive: true, mode: 0o700 });
     await ensureSafeWorkspacePath(ctx.workspacePath);
     if (!(await repositoryInitialized(ctx.workspacePath))) {
       await checkedGit("initialize", ctx.workspacePath, ["init"]);
-      await checkedGit("initialize", ctx.workspacePath, ["symbolic-ref", "HEAD", `refs/heads/${row.branch}`]);
+      await checkedGit("initialize", ctx.workspacePath, [
+        "symbolic-ref",
+        "HEAD",
+        `refs/heads/${row.branch}`,
+      ]);
     } else {
       const branchResult = await executeGit("initialize", ctx.workspacePath, [
         "symbolic-ref",
@@ -1170,13 +1292,33 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
         "--verify",
         "HEAD",
       ]);
-      if (branchResult.exitCode === 0 && branchResult.stdout.trim() !== row.branch && headResult.exitCode !== 0) {
-        await checkedGit("initialize", ctx.workspacePath, ["symbolic-ref", "HEAD", `refs/heads/${row.branch}`]);
-      } else if (branchResult.exitCode === 0 && branchResult.stdout.trim() !== row.branch) {
-        throw new WorkspaceSyncError(409, "branch_mismatch", "The existing repository is on a different branch; change it explicitly before synchronizing.");
+      if (
+        branchResult.exitCode === 0 &&
+        branchResult.stdout.trim() !== row.branch &&
+        headResult.exitCode !== 0
+      ) {
+        await checkedGit("initialize", ctx.workspacePath, [
+          "symbolic-ref",
+          "HEAD",
+          `refs/heads/${row.branch}`,
+        ]);
+      } else if (
+        branchResult.exitCode === 0 &&
+        branchResult.stdout.trim() !== row.branch
+      ) {
+        throw new WorkspaceSyncError(
+          409,
+          "branch_mismatch",
+          "The existing repository is on a different branch; change it explicitly before synchronizing.",
+        );
       }
     }
-    await checkedGit("initialize", ctx.workspacePath, ["config", "--local", "core.hooksPath", "/dev/null"]);
+    await checkedGit("initialize", ctx.workspacePath, [
+      "config",
+      "--local",
+      "core.hooksPath",
+      "/dev/null",
+    ]);
   }
 
   async function ensureManagedGitignore(workspacePath: string): Promise<void> {
@@ -1184,18 +1326,33 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     try {
       const info = await lstat(gitignore);
       if (info.isSymbolicLink() || !info.isFile()) {
-        throw new WorkspaceSyncError(400, "unsafe_workspace", "Workspace .gitignore must be a regular file");
+        throw new WorkspaceSyncError(
+          400,
+          "unsafe_workspace",
+          "Workspace .gitignore must be a regular file",
+        );
       }
       const contents = await readFile(gitignore, "utf8");
       if (!contents.includes(MANAGED_GITIGNORE_MARKER)) {
-        await appendFile(gitignore, `${contents.endsWith("\n") ? "" : "\n"}${MANAGED_GITIGNORE}`);
+        await appendFile(
+          gitignore,
+          `${contents.endsWith("\n") ? "" : "\n"}${MANAGED_GITIGNORE}`,
+        );
       }
     } catch (error) {
       if (error instanceof WorkspaceSyncError) throw error;
       if ((error as { code?: unknown }).code !== "ENOENT") {
-        throw new WorkspaceSyncError(400, "unsafe_workspace", "Workspace .gitignore could not be inspected safely");
+        throw new WorkspaceSyncError(
+          400,
+          "unsafe_workspace",
+          "Workspace .gitignore could not be inspected safely",
+        );
       }
-      await writeFile(gitignore, `${MANAGED_GITIGNORE}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      await writeFile(gitignore, `${MANAGED_GITIGNORE}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
     }
   }
 
@@ -1221,7 +1378,10 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     }
   }
 
-  async function fetchBranch(ctx: WorkspaceContext, row: SyncRow): Promise<void> {
+  async function fetchBranch(
+    ctx: WorkspaceContext,
+    row: SyncRow,
+  ): Promise<void> {
     await checkedGit("fetch", ctx.workspacePath, [
       "fetch",
       "--no-tags",
@@ -1235,16 +1395,30 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     expectedFingerprint: string | undefined,
   ): Promise<WorkspaceSyncStatus> {
     if (expectedFingerprint === undefined) {
-      throw new WorkspaceSyncError(409, "status_required", "Refresh workspace status before this mutation");
+      throw new WorkspaceSyncError(
+        409,
+        "status_required",
+        "Refresh workspace status before this mutation",
+      );
     }
     const current = await safeStatus(ctx);
-    if (current.fingerprint === null || current.fingerprint !== expectedFingerprint) {
-      throw new WorkspaceSyncError(409, "fingerprint_mismatch", "Workspace changed since the last status refresh; refresh and review it again");
+    if (
+      current.fingerprint === null ||
+      current.fingerprint !== expectedFingerprint
+    ) {
+      throw new WorkspaceSyncError(
+        409,
+        "fingerprint_mismatch",
+        "Workspace changed since the last status refresh; refresh and review it again",
+      );
     }
     return current;
   }
 
-  async function withLock<T>(agentId: string, callback: () => Promise<T>): Promise<T> {
+  async function withLock<T>(
+    agentId: string,
+    callback: () => Promise<T>,
+  ): Promise<T> {
     const previous = locks.get(agentId) ?? Promise.resolve();
     const queued = previous.catch(() => undefined).then(callback);
     const marker = queued.then(
@@ -1278,7 +1452,14 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
           lastErrorCode: null,
           lastErrorMessage: null,
         });
-        audit(args.db, actorUserId, agentId, operation, "success", nextRow.branch);
+        audit(
+          args.db,
+          actorUserId,
+          agentId,
+          operation,
+          "success",
+          nextRow.branch,
+        );
         return result;
       } catch (error) {
         const normalized = normalizeOperationError(error);
@@ -1319,36 +1500,62 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
     }): Promise<WorkspaceSyncStatus> {
       const remoteUrl = validateRemoteUrl(argsInput.remoteUrl);
       const branch = validateBranchName(argsInput.branch ?? DEFAULT_BRANCH);
-      return mutate("configure", argsInput.agentId, argsInput.actorUserId, async (ctx, row) => {
-        const exists = await workspaceExists(ctx.workspacePath);
-        if (exists && (await repositoryInitialized(ctx.workspacePath))) {
-          const scan = await scanWorkspace(ctx.workspacePath);
-          if (scan.blockedFiles.length > 0) {
-            throw new WorkspaceSyncError(400, "blocked_file", "Workspace contains files excluded from EVA Git sync.");
+      return mutate(
+        "configure",
+        argsInput.agentId,
+        argsInput.actorUserId,
+        async (ctx, row) => {
+          const exists = await workspaceExists(ctx.workspacePath);
+          if (exists && (await repositoryInitialized(ctx.workspacePath))) {
+            const scan = await scanWorkspace(ctx.workspacePath);
+            if (scan.blockedFiles.length > 0) {
+              throw new WorkspaceSyncError(
+                400,
+                "blocked_file",
+                "Workspace contains files excluded from EVA Git sync.",
+              );
+            }
+            await configureRepositoryRemote(ctx.workspacePath, remoteUrl);
           }
-          await configureRepositoryRemote(ctx.workspacePath, remoteUrl);
-        }
-        if (ctx.row === null) {
-          createStoredRow(args.db, ctx.agentId);
-        }
-        updateStoredRow(args.db, ctx.agentId, {
-          enabled: argsInput.enabled ?? true,
-          remoteUrl,
-          branch,
-        });
-        return safeStatus({ ...ctx, row: { ...row, enabled: argsInput.enabled ?? true, remoteUrl, branch } });
-      });
+          if (ctx.row === null) {
+            createStoredRow(args.db, ctx.agentId);
+          }
+          updateStoredRow(args.db, ctx.agentId, {
+            enabled: argsInput.enabled ?? true,
+            remoteUrl,
+            branch,
+          });
+          return safeStatus({
+            ...ctx,
+            row: {
+              ...row,
+              enabled: argsInput.enabled ?? true,
+              remoteUrl,
+              branch,
+            },
+          });
+        },
+      );
     },
     async initialize(argsInput: {
       agentId: string;
       actorUserId: string;
     }): Promise<WorkspaceSyncStatus> {
-      return mutate("initialize", argsInput.agentId, argsInput.actorUserId, async (ctx, row) => {
-        await ensureRepository(ctx, row);
-        await ensureManagedGitignore(ctx.workspacePath);
-        if (row.remoteUrl !== null) await configureRepositoryRemote(ctx.workspacePath, row.remoteUrl);
-        return safeStatus({ ...ctx, row: storedRow(args.db, ctx.agentId) ?? row });
-      });
+      return mutate(
+        "initialize",
+        argsInput.agentId,
+        argsInput.actorUserId,
+        async (ctx, row) => {
+          await ensureRepository(ctx, row);
+          await ensureManagedGitignore(ctx.workspacePath);
+          if (row.remoteUrl !== null)
+            await configureRepositoryRemote(ctx.workspacePath, row.remoteUrl);
+          return safeStatus({
+            ...ctx,
+            row: storedRow(args.db, ctx.agentId) ?? row,
+          });
+        },
+      );
     },
     async commit(argsInput: {
       agentId: string;
@@ -1357,31 +1564,76 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
       expectedFingerprint?: string;
     }): Promise<WorkspaceSyncStatus> {
       const message = validateCommitMessage(argsInput.message);
-      return mutate("commit", argsInput.agentId, argsInput.actorUserId, async (ctx, row) => {
-        if (!row.enabled || row.remoteUrl === null) {
-          throw new WorkspaceSyncError(409, "sync_not_configured", "Configure and enable a Git remote before committing workspace sync changes");
-        }
-        if (!(await repositoryInitialized(ctx.workspacePath))) {
-          throw new WorkspaceSyncError(409, "not_initialized", "Initialize the workspace repository before committing");
-        }
-        const before = await checkPrecondition(ctx, argsInput.expectedFingerprint);
-        if (before.workingTree === "conflict") {
-          throw new WorkspaceSyncError(409, "workspace_conflict", "Resolve workspace conflicts before committing");
-        }
-        const scan = await scanWorkspace(ctx.workspacePath);
-        if (scan.blockedFiles.length > 0) {
-          throw new WorkspaceSyncError(400, "blocked_file", "Workspace contains files excluded from EVA Git sync.");
-        }
-        if (before.workingTree === "clean") {
-          throw new WorkspaceSyncError(409, "nothing_to_commit", "No allowed workspace changes are ready to commit");
-        }
-        await checkedGit("add", ctx.workspacePath, ["add", "--all", "--", "."]);
-        await checkedGit("commit", ctx.workspacePath, ["commit", "--no-verify", "-m", message]);
-        const currentRow = storedRow(args.db, ctx.agentId) ?? row;
-        const head = await checkedGit("commit", ctx.workspacePath, ["rev-parse", "--verify", "HEAD"]);
-        updateStoredRow(args.db, ctx.agentId, { lastCommitHash: head });
-        return safeStatus({ ...ctx, row: { ...currentRow, lastCommitHash: head } });
-      });
+      return mutate(
+        "commit",
+        argsInput.agentId,
+        argsInput.actorUserId,
+        async (ctx, row) => {
+          if (!row.enabled || row.remoteUrl === null) {
+            throw new WorkspaceSyncError(
+              409,
+              "sync_not_configured",
+              "Configure and enable a Git remote before committing workspace sync changes",
+            );
+          }
+          if (!(await repositoryInitialized(ctx.workspacePath))) {
+            throw new WorkspaceSyncError(
+              409,
+              "not_initialized",
+              "Initialize the workspace repository before committing",
+            );
+          }
+          const before = await checkPrecondition(
+            ctx,
+            argsInput.expectedFingerprint,
+          );
+          if (before.workingTree === "conflict") {
+            throw new WorkspaceSyncError(
+              409,
+              "workspace_conflict",
+              "Resolve workspace conflicts before committing",
+            );
+          }
+          const scan = await scanWorkspace(ctx.workspacePath);
+          if (scan.blockedFiles.length > 0) {
+            throw new WorkspaceSyncError(
+              400,
+              "blocked_file",
+              "Workspace contains files excluded from EVA Git sync.",
+            );
+          }
+          if (before.workingTree === "clean") {
+            throw new WorkspaceSyncError(
+              409,
+              "nothing_to_commit",
+              "No allowed workspace changes are ready to commit",
+            );
+          }
+          await checkedGit("add", ctx.workspacePath, [
+            "add",
+            "--all",
+            "--",
+            ".",
+          ]);
+          await checkedGit("commit", ctx.workspacePath, [
+            "commit",
+            "--no-verify",
+            "-m",
+            message,
+          ]);
+          const currentRow = storedRow(args.db, ctx.agentId) ?? row;
+          const head = await checkedGit("commit", ctx.workspacePath, [
+            "rev-parse",
+            "--verify",
+            "HEAD",
+          ]);
+          updateStoredRow(args.db, ctx.agentId, { lastCommitHash: head });
+          return safeStatus({
+            ...ctx,
+            row: { ...currentRow, lastCommitHash: head },
+          });
+        },
+      );
     },
     async pull(argsInput: {
       agentId: string;
@@ -1389,63 +1641,132 @@ export function createWorkspaceSyncService(args: CreateWorkspaceSyncServiceArgs)
       expectedFingerprint?: string;
       allowNonEmpty: boolean;
     }): Promise<WorkspaceSyncStatus> {
-      return mutate("pull", argsInput.agentId, argsInput.actorUserId, async (ctx, row) => {
-        if (!row.enabled || row.remoteUrl === null) {
-          throw new WorkspaceSyncError(409, "sync_not_configured", "Configure and enable a Git remote before restoring the workspace");
-        }
-        if (!(await repositoryInitialized(ctx.workspacePath))) {
-          throw new WorkspaceSyncError(409, "not_initialized", "Initialize the workspace repository before restoring it");
-        }
-        const before = await checkPrecondition(ctx, argsInput.expectedFingerprint);
-        if (before.state === "blocked" || before.workingTree === "conflict") {
-          throw new WorkspaceSyncError(409, "workspace_conflict", "Resolve workspace conflicts before restoring the workspace");
-        }
-        if (before.workingTree !== "clean") {
-          throw new WorkspaceSyncError(409, "workspace_changed", "Commit or preserve local workspace changes before restoring");
-        }
-        if (before.fileCount > 0 && !argsInput.allowNonEmpty) {
-          throw new WorkspaceSyncError(409, "nonempty_restore", "Restore requires explicit confirmation for a nonempty workspace");
-        }
-        if (before.head === null) {
-          throw new WorkspaceSyncError(409, "restore_precondition", "Restore requires an existing local commit; the workspace was left unchanged");
-        }
-        await fetchBranch(ctx, row);
-        await checkedGit("merge", ctx.workspacePath, ["merge", "--ff-only", `refs/remotes/origin/${row.branch}`]);
-        return safeStatus({ ...ctx, row });
-      });
+      return mutate(
+        "pull",
+        argsInput.agentId,
+        argsInput.actorUserId,
+        async (ctx, row) => {
+          if (!row.enabled || row.remoteUrl === null) {
+            throw new WorkspaceSyncError(
+              409,
+              "sync_not_configured",
+              "Configure and enable a Git remote before restoring the workspace",
+            );
+          }
+          if (!(await repositoryInitialized(ctx.workspacePath))) {
+            throw new WorkspaceSyncError(
+              409,
+              "not_initialized",
+              "Initialize the workspace repository before restoring it",
+            );
+          }
+          const before = await checkPrecondition(
+            ctx,
+            argsInput.expectedFingerprint,
+          );
+          if (before.state === "blocked" || before.workingTree === "conflict") {
+            throw new WorkspaceSyncError(
+              409,
+              "workspace_conflict",
+              "Resolve workspace conflicts before restoring the workspace",
+            );
+          }
+          if (before.workingTree !== "clean") {
+            throw new WorkspaceSyncError(
+              409,
+              "workspace_changed",
+              "Commit or preserve local workspace changes before restoring",
+            );
+          }
+          if (before.fileCount > 0 && !argsInput.allowNonEmpty) {
+            throw new WorkspaceSyncError(
+              409,
+              "nonempty_restore",
+              "Restore requires explicit confirmation for a nonempty workspace",
+            );
+          }
+          if (before.head === null) {
+            throw new WorkspaceSyncError(
+              409,
+              "restore_precondition",
+              "Restore requires an existing local commit; the workspace was left unchanged",
+            );
+          }
+          await fetchBranch(ctx, row);
+          await checkedGit("merge", ctx.workspacePath, [
+            "merge",
+            "--ff-only",
+            `refs/remotes/origin/${row.branch}`,
+          ]);
+          return safeStatus({ ...ctx, row });
+        },
+      );
     },
     async push(argsInput: {
       agentId: string;
       actorUserId: string;
       expectedFingerprint?: string;
     }): Promise<WorkspaceSyncStatus> {
-      return mutate("push", argsInput.agentId, argsInput.actorUserId, async (ctx, row) => {
-        if (!row.enabled || row.remoteUrl === null) {
-          throw new WorkspaceSyncError(409, "sync_not_configured", "Configure and enable a Git remote before pushing workspace changes");
-        }
-        if (!(await repositoryInitialized(ctx.workspacePath))) {
-          throw new WorkspaceSyncError(409, "not_initialized", "Initialize the workspace repository before pushing");
-        }
-        const before = await checkPrecondition(ctx, argsInput.expectedFingerprint);
-        if (before.state === "conflict" || before.workingTree === "conflict") {
-          throw new WorkspaceSyncError(409, "workspace_conflict", "Resolve workspace conflicts before pushing");
-        }
-        if (before.workingTree !== "clean") {
-          throw new WorkspaceSyncError(409, "workspace_changed", "Commit workspace changes before pushing");
-        }
-        if (before.head === null) {
-          throw new WorkspaceSyncError(409, "nothing_to_push", "Create a workspace commit before pushing");
-        }
-        await checkedGit("push", ctx.workspacePath, [
-          "push",
-          "--porcelain",
-          "origin",
-          `HEAD:refs/heads/${row.branch}`,
-        ]);
-        return safeStatus({ ...ctx, row });
-      });
+      return mutate(
+        "push",
+        argsInput.agentId,
+        argsInput.actorUserId,
+        async (ctx, row) => {
+          if (!row.enabled || row.remoteUrl === null) {
+            throw new WorkspaceSyncError(
+              409,
+              "sync_not_configured",
+              "Configure and enable a Git remote before pushing workspace changes",
+            );
+          }
+          if (!(await repositoryInitialized(ctx.workspacePath))) {
+            throw new WorkspaceSyncError(
+              409,
+              "not_initialized",
+              "Initialize the workspace repository before pushing",
+            );
+          }
+          const before = await checkPrecondition(
+            ctx,
+            argsInput.expectedFingerprint,
+          );
+          if (
+            before.state === "conflict" ||
+            before.workingTree === "conflict"
+          ) {
+            throw new WorkspaceSyncError(
+              409,
+              "workspace_conflict",
+              "Resolve workspace conflicts before pushing",
+            );
+          }
+          if (before.workingTree !== "clean") {
+            throw new WorkspaceSyncError(
+              409,
+              "workspace_changed",
+              "Commit workspace changes before pushing",
+            );
+          }
+          if (before.head === null) {
+            throw new WorkspaceSyncError(
+              409,
+              "nothing_to_push",
+              "Create a workspace commit before pushing",
+            );
+          }
+          await checkedGit("push", ctx.workspacePath, [
+            "push",
+            "--porcelain",
+            "origin",
+            `HEAD:refs/heads/${row.branch}`,
+          ]);
+          return safeStatus({ ...ctx, row });
+        },
+      );
     },
   };
 }
 
-export type WorkspaceSyncService = ReturnType<typeof createWorkspaceSyncService>;
+export type WorkspaceSyncService = ReturnType<
+  typeof createWorkspaceSyncService
+>;

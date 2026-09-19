@@ -383,6 +383,21 @@ export function CoreAuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** Supplies a fixed auth state; for tests and embedded surfaces with no session. */
+export function StaticCoreAuthProvider({
+  value,
+  children,
+}: {
+  value: CoreAuthState;
+  children: ReactNode;
+}) {
+  return (
+    <CoreAuthContext.Provider value={value}>
+      {children}
+    </CoreAuthContext.Provider>
+  );
+}
+
 export function useCoreAuth(): CoreAuthState | null {
   return useContext(CoreAuthContext);
 }

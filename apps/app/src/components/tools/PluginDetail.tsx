@@ -68,7 +68,8 @@ import { useClipboardCopy } from "@/lib/clipboard";
 
 export function PluginProvenancePill({ plugin }: { plugin: PluginListItem }) {
   const label = plugin.publisherLabel;
-  return label === null || label === "BB Official" ? null : (
+  // The server maps the upstream official publisher onto EVA's label; hide both.
+  return label === null || /^(?:EVA|BB) Official$/u.test(label) ? null : (
     <ProvenancePill label={label} />
   );
 }
@@ -347,7 +348,7 @@ export function PluginDetail({
               entry={{
                 author: null,
                 marketplace: "bb-official",
-                publisherLabel: "BB Official",
+                publisherLabel: "EVA Official",
               }}
             />
           ) : null}
