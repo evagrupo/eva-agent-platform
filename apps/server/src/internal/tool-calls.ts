@@ -16,6 +16,8 @@ import {
   findPluginAgentTool,
   invokePluginAgentTool,
 } from "../services/plugins/plugin-agent-contributions.js";
+import { deliverDetachedToolResult } from "../services/plugins/detached-tool-result-delivery.js";
+import { requirePluginToolCallRegistry } from "../services/plugins/plugin-tool-calls.js";
 import {
   handleUpdateEnvironmentDirectoryToolCall,
   UPDATE_ENVIRONMENT_DIRECTORY_TOOL_NAME,
@@ -127,22 +129,34 @@ export function registerInternalToolCallRoutes(app: Hono, deps: AppDeps): void {
             thread.agentId ?? thread.providerId,
           );
         }
-        const controller = new AbortController();
-        const signal = AbortSignal.any([
-          context.req.raw.signal,
-          controller.signal,
-        ]);
-        return streamToolCallResponse(
-          invokePluginAgentTool(pluginTool, {
-            input: payload.arguments,
-            ctx: {
+        const roundTrip = new AbortController();
+        const response = requirePluginToolCallRegistry().run({
+          pluginId: pluginTool.pluginId,
+          threadId: thread.id,
+          callId: payload.callId,
+          toolName: payload.tool,
+          roundTrip: AbortSignal.any([
+            context.req.raw.signal,
+            roundTrip.signal,
+          ]),
+          invoke: (signal) =>
+            invokePluginAgentTool(pluginTool, {
+              input: payload.arguments,
+              ctx: {
+                threadId: thread.id,
+                projectId: thread.projectId,
+                signal,
+              },
+            }),
+          onDetachedResult: (result) =>
+            deliverDetachedToolResult(deps, {
               threadId: thread.id,
-              projectId: thread.projectId,
-              signal,
-            },
-          }),
-          controller,
-        );
+              toolName: payload.tool,
+              presentation: pluginTool.record.presentation,
+              response: result,
+            }),
+        });
+        return streamToolCallResponse(response, roundTrip);
       }
 
       return context.json({

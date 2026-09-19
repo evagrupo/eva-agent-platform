@@ -1,7 +1,8 @@
 export const RESERVED_BB_CLI_COMMANDS: readonly string[] = [
   "browser",
-  "eva",
+  "diagnostics",
   "environment",
+  "eva",
   "file",
   "guide",
   "help",
