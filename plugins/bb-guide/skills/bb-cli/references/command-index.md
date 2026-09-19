@@ -326,6 +326,7 @@ server.
 - `bb eva show`
 - `bb eva workspace`
 - `bb eva scaffold`
+- `bb eva sync`
 - `bb eva sync status`
 - `bb eva sync configure`
 - `bb eva sync initialize`

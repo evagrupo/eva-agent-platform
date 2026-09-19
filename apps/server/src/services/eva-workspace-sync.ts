@@ -35,7 +35,8 @@ const MAX_COMMAND_OUTPUT_BYTES = 256 * 1024;
 const GIT_TIMEOUT_MS = 30_000;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_STATUS_ENTRIES = 200;
-const MAX_REMOTE_FILES = 200;
+const COMMIT_IDENTITY_NAME = "EVA workspace sync";
+const COMMIT_IDENTITY_EMAIL = "eva-workspace-sync@localhost";
 const MANAGED_GITIGNORE_MARKER = "# EVA managed workspace sync exclusions";
 const MANAGED_GITIGNORE = `${MANAGED_GITIGNORE_MARKER}
 .env
@@ -310,8 +311,11 @@ function commandEnvironment(): NodeJS.ProcessEnv {
     SSH_ASKPASS: "/bin/false",
     GIT_SSH_COMMAND: "ssh -o BatchMode=yes -o ConnectTimeout=15",
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_AUTHOR_NAME: COMMIT_IDENTITY_NAME,
+    GIT_AUTHOR_EMAIL: COMMIT_IDENTITY_EMAIL,
+    GIT_COMMITTER_NAME: COMMIT_IDENTITY_NAME,
+    GIT_COMMITTER_EMAIL: COMMIT_IDENTITY_EMAIL,
     LC_ALL: "C",
   };
   for (const key of [

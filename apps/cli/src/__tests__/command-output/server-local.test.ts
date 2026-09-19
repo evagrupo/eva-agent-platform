@@ -283,11 +283,11 @@ describe("bb server import", () => {
     expect(await readdir(parent)).toEqual(["bb-data"]);
     const output = collectLogPayloads(vi.mocked(console.log));
     expect(output[0]).toBe(
-      `Imported the bb server into ${dataDir} (5 files from /home/old/.bb, exported by bb 0.50.0).`,
+      `Imported the EVA server into ${dataDir} (5 files from /home/old/.bb, exported by EVA 0.50.0).`,
     );
     expect(output.slice(2)).toEqual([
-      "Stop the original bb server before you start this one. Two servers holding the same bb connect credential take each other's tunnel.",
-      `bb connect stays off in this copy until you run bb server allow-connect --data-dir ${dataDir}.`,
+      "Stop the original EVA server before you start this one. Two servers holding the same EVA connect credential take each other's tunnel.",
+      `EVA connect stays off in this copy until you run bb server allow-connect --data-dir ${dataDir}.`,
       `Then start it with npx bb-app --data-dir ${dataDir}.`,
     ]);
   });
@@ -330,7 +330,7 @@ describe("bb server import", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(collectLogPayloads(vi.mocked(console.error))[0]).toBe(
-      `Error: ${dataDir} already has a bb server database (bb.db). Import into a data directory without a server, such as --data-dir ~/.bb-imported.`,
+      `Error: ${dataDir} already has an EVA server database (bb.db). Import into a data directory without a server, such as --data-dir ~/.bb-imported.`,
     );
     expect(await readFile(join(dataDir, "bb.db"), "utf8")).toBe(
       "existing server",
@@ -361,7 +361,7 @@ describe("bb server import", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(collectLogPayloads(vi.mocked(console.error))[0]).toBe(
-      `Error: bb is running from ${dataDir} (pid ${String(process.pid)}). Stop it with bb-app stop or quit the desktop app, then try again.`,
+      `Error: EVA is running from ${dataDir} (pid ${String(process.pid)}). Stop it with bb-app stop or quit the desktop app, then try again.`,
     );
     await expect(stat(join(dataDir, "bb.db"))).rejects.toThrow();
   });
@@ -400,7 +400,7 @@ describe("bb server import", () => {
     );
 
     expect(readlineMocks.question).toHaveBeenCalledWith(
-      `Import the bb server from ${plainArchive} into ${dataDir}? [y/N] `,
+      `Import the EVA server from ${plainArchive} into ${dataDir}? [y/N] `,
     );
     expect(await readdir(parent)).toEqual([]);
   });
@@ -457,7 +457,7 @@ describe("bb server import", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
-      "Error: This export came from bb 0.51.0; install that version or newer before importing.",
+      "Error: This export came from EVA 0.51.0; install that version or newer before importing.",
     ]);
     expect(await readdir(parent)).toEqual([]);
   });
@@ -585,7 +585,7 @@ describe("bb server import", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(collectLogPayloads(vi.mocked(console.error))[0]).toBe(
-      `Error: ${dataDir} already has a bb server database (bb.db). Import into a data directory without a server, such as --data-dir ~/.bb-imported.`,
+      `Error: ${dataDir} already has an EVA server database (bb.db). Import into a data directory without a server, such as --data-dir ~/.bb-imported.`,
     );
     expect(await readFile(join(dataDir, "bb.db"), "utf8")).toBe(
       "imported database",
@@ -704,7 +704,7 @@ describe("bb server unlock", () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
-      "Error: The server at https://me.getbb.app is running. Unlocking now would run two servers with the same data and bb connect credential. Stop it first, or pass --force.",
+      "Error: The server at https://me.getbb.app is running. Unlocking now would run two servers with the same EVA connect credential. Stop it first, or pass --force.",
     ]);
     expect(await readServerMovedFile(dataDir)).not.toBeNull();
     expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
@@ -824,7 +824,7 @@ describe("bb server unlock", () => {
       }),
     );
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
-      "Error: The server at https://me.getbb.app is running. Unlocking now would run two servers with the same data and bb connect credential. Stop it first, or pass --force.",
+      "Error: The server at https://me.getbb.app is running. Unlocking now would run two servers with the same EVA connect credential. Stop it first, or pass --force.",
     ]);
     expect(await readServerMovedFile(dataDir)).not.toBeNull();
     expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual(
@@ -948,14 +948,14 @@ describe("bb server unlock", () => {
     expect(await readFile(join(dataDir, "bb.db"), "utf8")).toBe("old server");
     const warnings = collectLogPayloads(vi.mocked(console.error));
     expect(warnings[0]).toMatch(
-      /^This bb server moved to desktop \(https:\/\/me\.getbb\.app\) on /u,
+      /^This EVA server moved to desktop \(https:\/\/me\.getbb\.app\) on /u,
     );
     expect(warnings.slice(1)).toEqual([
       "Unlocking starts this old copy again. Everything since the move is lost here: threads, settings, and plugin data changed on desktop stay there.",
-      "Stop the bb server on desktop first. Two servers holding the same bb connect credential take each other's tunnel.",
+      "Stop the EVA server on desktop first. Two servers holding the same EVA connect credential take each other's tunnel.",
     ]);
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      `Unlocked ${dataDir}. bb on this computer starts the old server again within a few seconds; if bb isn't running, start it with npx bb-app --data-dir ${dataDir}.`,
+      `Unlocked ${dataDir}. EVA on this computer starts the old server again within a few seconds; if EVA isn't running, start it with npx bb-app --data-dir ${dataDir}.`,
     ]);
   });
 
@@ -996,7 +996,7 @@ describe("bb server unlock", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
-      `Error: The old server copy in ${dataDir} was deleted, so there is nothing to unlock. Unlocking would start an empty bb server.`,
+      `Error: The old server copy in ${dataDir} was deleted, so there is nothing to unlock. Unlocking would start an empty EVA server.`,
     ]);
     expect(await readServerMovedFile(dataDir)).not.toBeNull();
   });
@@ -1077,7 +1077,7 @@ describe("bb server unlock", () => {
 
     expect(collectLogPayloads(vi.mocked(console.error)).at(-1)).toMatch(
       new RegExp(
-        `^Error: ${configPath.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&")} is not a valid bb-app config\\. Fix it, then unlock again\\.`,
+        `^Error: ${configPath.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&")} is not a valid EVA app config\\. Fix it, then unlock again\\.`,
         "u",
       ),
     );
@@ -1096,7 +1096,7 @@ describe("bb server unlock", () => {
 
     expect(await readdir(dataDir)).toEqual([]);
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      `Unlocked ${dataDir}. bb on this computer starts the old server again within a few seconds; if bb isn't running, start it with npx bb-app --data-dir ${dataDir}.`,
+      `Unlocked ${dataDir}. EVA on this computer starts the old server again within a few seconds; if EVA isn't running, start it with npx bb-app --data-dir ${dataDir}.`,
     ]);
   });
 
@@ -1138,10 +1138,10 @@ describe("bb server allow-connect", () => {
       "imported server",
     );
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
-      "Stop the original bb server first. Two servers holding the same bb connect credential take each other's tunnel.",
+      "Stop the original EVA server first. Two servers holding the same EVA connect credential take each other's tunnel.",
     ]);
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      `Removed the bb connect hold from ${dataDir}. bb connect starts the next time this server starts; restart bb if it's already running.`,
+      `Removed the EVA connect hold from ${dataDir}. EVA connect starts the next time this server starts; restart EVA if it's already running.`,
     ]);
   });
 
@@ -1187,7 +1187,7 @@ describe("bb server allow-connect", () => {
     );
 
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      `${dataDir} has no bb connect hold.`,
+      `${dataDir} has no EVA connect hold.`,
       JSON.stringify({ dataDir, connectHoldRemoved: false }, null, 2),
     ]);
   });
@@ -1234,7 +1234,7 @@ describe("bb server delete-old-copy", () => {
     );
 
     expect(readlineMocks.question).toHaveBeenCalledWith(
-      `Delete the old bb server copy in ${dataDir} (5 entries)? The server now runs on desktop; this cannot be undone. [y/N] `,
+      `Delete the old EVA server copy in ${dataDir} (5 entries)? The server now runs on desktop; this cannot be undone. [y/N] `,
     );
     expect((await readdir(dataDir)).sort()).toEqual([
       "auth.json",
@@ -1252,7 +1252,7 @@ describe("bb server delete-old-copy", () => {
       movedLock({ oldCopyEntries: [] }),
     );
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      `Deleted the old bb server copy from ${dataDir} (3 entries). This computer keeps running as a regular machine.`,
+      `Deleted the old EVA server copy from ${dataDir} (3 entries). This computer keeps running as a regular machine.`,
     ]);
   });
 

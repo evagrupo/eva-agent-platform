@@ -61,7 +61,7 @@ function exportResponse(
 }
 
 const UNENCRYPTED_EXPORT_WARNING =
-  "This export is not encrypted and holds the server's credentials and plugin secrets. Keep it private; bb wrote it with mode 0600.";
+  "This export is not encrypted and holds the server's credentials and plugin secrets. Keep it private; EVA wrote it with mode 0600.";
 
 describe("bb server export", () => {
   setupCommandOutputTestEnvironment();
@@ -120,7 +120,7 @@ describe("bb server export", () => {
     await runCommand(["server", "export", "--out", outPath], register);
 
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      `Exported the bb server to ${outPath} (1.0 MB)`,
+      `Exported the EVA server to ${outPath} (1.0 MB)`,
     ]);
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
       UNENCRYPTED_EXPORT_WARNING,
