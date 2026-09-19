@@ -399,7 +399,7 @@ function WorkspaceSyncStateBadge({
   );
 }
 
-function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
+export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
   const [status, setStatus] = useState<EvaAgentWorkspaceSyncStatus | null>(
     null,
   );

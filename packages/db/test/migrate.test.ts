@@ -331,11 +331,11 @@ function dropCoreAuthFoundationSchema(db: DbConnection): void {
 
 function dropMiniAppSchema(db: DbConnection): void {
   db.$client.exec(
-    "DROP TABLE IF EXISTS eva_mini_app_sessions; DROP TABLE IF EXISTS eva_mini_app_handoffs; DROP TABLE IF EXISTS eva_mini_app_links; DROP TABLE IF EXISTS eva_mini_app_deployments;",
+    "DROP TABLE IF EXISTS eva_agent_workspace_sync; DROP TABLE IF EXISTS eva_mini_app_sessions; DROP TABLE IF EXISTS eva_mini_app_handoffs; DROP TABLE IF EXISTS eva_mini_app_links; DROP TABLE IF EXISTS eva_mini_app_deployments;",
   );
   db.$client
-    .prepare("DELETE FROM __drizzle_migrations WHERE created_at IN (?, ?)")
-    .run(1789680195335, 1789680247218);
+    .prepare("DELETE FROM __drizzle_migrations WHERE created_at IN (?, ?, ?)")
+    .run(1789680195335, 1789680247218, 1789817626952);
 }
 
 function dropRewindAddedTables(db: DbConnection): void {
