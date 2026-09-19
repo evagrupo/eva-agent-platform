@@ -48,7 +48,7 @@ apply until you run `update <automationId> --script-file <path>` again;
 print the stored copy path on the `Script:` line (`execution.storedScriptPath`
 with `--json`).
 
-Scripts run on the bb server host. New standard-project scripts use its project
+Scripts run on the EVA server host. New standard-project scripts use its project
 source when one exists; Personal and projects without one run in the plugin's
 shared script storage directory. Existing scripts without a saved policy also
 run there. `--working-directory` selects `automation-storage`, `project`, or an
