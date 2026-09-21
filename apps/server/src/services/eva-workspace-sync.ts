@@ -32,9 +32,13 @@ const MAX_REMOTE_LENGTH = 512;
 const MAX_BRANCH_LENGTH = 256;
 const MAX_COMMIT_MESSAGE_LENGTH = 200;
 const MAX_COMMAND_OUTPUT_BYTES = 256 * 1024;
+const MAX_REMOTE_TREE_OUTPUT_BYTES = 4 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 30_000;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
+const MAX_REMOTE_FILES = 10_000;
+const MAX_REPOSITORY_METADATA_ENTRIES = 100_000;
 const MAX_STATUS_ENTRIES = 200;
+const ZERO_OBJECT_ID = "0".repeat(40);
 const COMMIT_IDENTITY_NAME = "EVA workspace sync";
 const COMMIT_IDENTITY_EMAIL = "eva-workspace-sync@localhost";
 const MANAGED_GITIGNORE_MARKER = "# EVA managed workspace sync exclusions";
@@ -63,6 +67,11 @@ build/
 .codex/
 .claude/
 .cloudflare/
+credentials
+credentials.json
+secrets.json
+tokens.json
+bb-app-runtime.json
 .gitattributes
 .gitmodules
 `;
@@ -242,6 +251,7 @@ interface ScannedFile {
   path: string;
   size: number;
   digest: string;
+  executable: boolean;
 }
 
 interface WorkspaceScan {
@@ -258,6 +268,14 @@ interface GitStatusSnapshot {
   ahead: number | null;
   behind: number | null;
   fingerprint: string;
+}
+
+interface RemoteTreeFile {
+  path: string;
+  objectId: string;
+  size: number;
+  executable: boolean;
+  digest: string;
 }
 
 function defaultGitRunner(): WorkspaceGitCommandRunner {
@@ -592,6 +610,7 @@ function safeRelativePath(pathname: string): boolean {
     pathname.length === 0 ||
     pathname.startsWith("/") ||
     pathname.includes("\\") ||
+    /[\u0000-\u001f\u007f]/u.test(pathname) ||
     pathname
       .split("/")
       .some((part) => part === "" || part === "." || part === "..")
@@ -659,6 +678,7 @@ async function scanWorkspaceDirectory(
       path: pathname,
       size: info.size,
       digest: createHash("sha256").update(contents).digest("hex"),
+      executable: (info.mode & 0o111) !== 0,
     });
   }
 }
@@ -768,6 +788,7 @@ function operationResultForError(
 ): "error" | "conflict" | "blocked" {
   if (
     error.code === "blocked_file" ||
+    error.code === "blocked_remote_file" ||
     error.code === "unsafe_workspace" ||
     error.code === "unsafe_repository"
   ) {
@@ -881,6 +902,7 @@ export function createWorkspaceSyncService(
     operation: string,
     cwd: string,
     command: readonly string[],
+    maxBufferBytes = MAX_COMMAND_OUTPUT_BYTES,
   ): Promise<WorkspaceGitCommandResult> {
     let result: WorkspaceGitCommandResult;
     try {
@@ -889,7 +911,7 @@ export function createWorkspaceSyncService(
         cwd,
         env: commandEnvironment(),
         timeoutMs: GIT_TIMEOUT_MS,
-        maxBufferBytes: MAX_COMMAND_OUTPUT_BYTES,
+        maxBufferBytes,
       });
     } catch {
       throw new GitCommandFailure(operation, null, false);
@@ -903,8 +925,9 @@ export function createWorkspaceSyncService(
     operation: string,
     cwd: string,
     command: readonly string[],
+    maxBufferBytes = MAX_COMMAND_OUTPUT_BYTES,
   ): Promise<string> {
-    const result = await executeGit(operation, cwd, command);
+    const result = await executeGit(operation, cwd, command, maxBufferBytes);
     if (result.exitCode !== 0) {
       throw new GitCommandFailure(operation, result.exitCode, false);
     }
@@ -1025,6 +1048,61 @@ export function createWorkspaceSyncService(
     workspacePath: string,
   ): Promise<boolean> {
     const gitPath = join(workspacePath, ".git");
+    async function inspectMetadata(
+      current: string,
+      relativeDirectory: string,
+      count: { value: number },
+    ): Promise<void> {
+      const entries = await readdir(current);
+      for (const name of entries) {
+        count.value += 1;
+        if (count.value > MAX_REPOSITORY_METADATA_ENTRIES) {
+          throw new WorkspaceSyncError(
+            400,
+            "unsafe_repository",
+            "Workspace Git metadata contains too many entries",
+          );
+        }
+        const relativePath =
+          relativeDirectory.length === 0
+            ? name
+            : `${relativeDirectory}/${name}`;
+        const fullPath = join(current, name);
+        const info = await lstat(fullPath);
+        if (
+          info.isSymbolicLink() ||
+          (!info.isDirectory() && !info.isFile()) ||
+          relativePath === "commondir" ||
+          relativePath === "gitdir" ||
+          relativePath === "objects/info/alternates" ||
+          relativePath.startsWith("worktrees/")
+        ) {
+          throw new WorkspaceSyncError(
+            400,
+            "unsafe_repository",
+            "Workspace Git metadata must not contain links, alternate object stores, or linked worktrees",
+          );
+        }
+        if (relativePath === "config") {
+          const contents = await readFile(fullPath, "utf8");
+          if (
+            /(?:^|\n)\s*(?:include(?:if)?|path|worktree|gitdir|sshcommand|uploadpack|receivepack|helper|pushurl|insteadof|pushinsteadof|alternates|commondir)\s*=/imu.test(
+              contents,
+            ) ||
+            /(?:^|\n)\s*bare\s*=\s*true\b/imu.test(contents)
+          ) {
+            throw new WorkspaceSyncError(
+              400,
+              "unsafe_repository",
+              "Workspace Git configuration contains an unsafe execution or path setting",
+            );
+          }
+        }
+        if (info.isDirectory()) {
+          await inspectMetadata(fullPath, relativePath, count);
+        }
+      }
+    }
     try {
       const info = await lstat(gitPath);
       if (info.isSymbolicLink() || !info.isDirectory()) {
@@ -1034,6 +1112,7 @@ export function createWorkspaceSyncService(
           "Workspace Git metadata must be a local directory",
         );
       }
+      await inspectMetadata(gitPath, "", { value: 0 });
       return true;
     } catch (error) {
       if (error instanceof WorkspaceSyncError) throw error;
@@ -1184,7 +1263,7 @@ export function createWorkspaceSyncService(
     const exists = await workspaceExists(ctx.workspacePath);
     const base: WorkspaceSyncStatus = {
       agentId: ctx.agentId,
-      workspacePath: `${EVA_AGENT_WORKSPACE_ROOT}/${ctx.agentId}`,
+      workspacePath: ctx.workspacePath,
       configured: row.remoteUrl !== null,
       enabled: row.enabled,
       remoteUrl: row.remoteUrl,
@@ -1387,6 +1466,263 @@ export function createWorkspaceSyncService(
       "--no-tags",
       "origin",
       `refs/heads/${row.branch}:refs/remotes/origin/${row.branch}`,
+    ]);
+  }
+
+  async function readRemoteBlob(
+    workspacePath: string,
+    remoteRef: string,
+    entry: Omit<RemoteTreeFile, "digest">,
+  ): Promise<{ contents: Buffer; digest: string }> {
+    if (entry.size > MAX_FILE_BYTES) {
+      throw new WorkspaceSyncError(
+        409,
+        "blocked_remote_file",
+        `Remote workspace file is too large to restore: ${entry.path}`,
+      );
+    }
+    const result = await executeGit(
+      "restore",
+      workspacePath,
+      ["cat-file", "blob", `${remoteRef}:${entry.path}`],
+      MAX_FILE_BYTES + 1,
+    );
+    if (result.exitCode !== 0) {
+      throw new GitCommandFailure("restore", result.exitCode, false);
+    }
+    const contents = Buffer.from(result.stdout, "utf8");
+    if (contents.byteLength !== entry.size) {
+      throw new WorkspaceSyncError(
+        409,
+        "blocked_remote_file",
+        `Remote workspace file is not a supported regular file: ${entry.path}`,
+      );
+    }
+    if (containsSecretContent(contents)) {
+      throw new WorkspaceSyncError(
+        409,
+        "blocked_remote_file",
+        `Remote workspace file contains blocked secret-like content: ${entry.path}`,
+      );
+    }
+    return {
+      contents,
+      digest: createHash("sha256").update(contents).digest("hex"),
+    };
+  }
+
+  async function readRemoteTree(
+    workspacePath: string,
+    remoteRef: string,
+  ): Promise<RemoteTreeFile[]> {
+    const result = await executeGit(
+      "restore",
+      workspacePath,
+      ["ls-tree", "-r", "-z", "--long", remoteRef],
+      MAX_REMOTE_TREE_OUTPUT_BYTES,
+    );
+    if (result.exitCode !== 0) {
+      throw new GitCommandFailure("restore", result.exitCode, false);
+    }
+    const entries = result.stdout
+      .split("\0")
+      .filter((entry) => entry.length > 0);
+    if (entries.length > MAX_REMOTE_FILES) {
+      throw new WorkspaceSyncError(
+        409,
+        "blocked_remote_file",
+        "Remote workspace contains too many files to restore safely",
+      );
+    }
+    const files: RemoteTreeFile[] = [];
+    for (const entry of entries) {
+      const separator = entry.indexOf("\t");
+      if (separator <= 0) {
+        throw new WorkspaceSyncError(
+          409,
+          "blocked_remote_file",
+          "Remote workspace tree could not be inspected safely",
+        );
+      }
+      const header = entry.slice(0, separator).split(/\s+/u);
+      const pathname = entry.slice(separator + 1);
+      const mode = header[0];
+      const type = header[1];
+      const objectId = header[2];
+      const size = Number(header[3]);
+      if (
+        type !== "blob" ||
+        (mode !== "100644" && mode !== "100755") ||
+        !/^[0-9a-f]{40,64}$/u.test(objectId ?? "") ||
+        !Number.isSafeInteger(size) ||
+        size < 0 ||
+        !safeRelativePath(pathname) ||
+        pathname === ".git" ||
+        pathname.startsWith(".git/") ||
+        isDeniedWorkspacePath(pathname)
+      ) {
+        throw new WorkspaceSyncError(
+          409,
+          "blocked_remote_file",
+          `Remote workspace file is not allowed: ${pathname || "unknown"}`,
+        );
+      }
+      const candidate = {
+        path: pathname,
+        objectId,
+        size,
+        executable: mode === "100755",
+      };
+      const blob = await readRemoteBlob(workspacePath, remoteRef, candidate);
+      files.push({ ...candidate, digest: blob.digest });
+    }
+    return files;
+  }
+
+  function restoreMismatches(
+    local: WorkspaceScan,
+    remote: readonly RemoteTreeFile[],
+  ): string[] {
+    const localByPath = new Map(local.files.map((file) => [file.path, file]));
+    const remoteByPath = new Map(remote.map((file) => [file.path, file]));
+    const mismatches = new Set<string>();
+    for (const file of local.files) {
+      if (!remoteByPath.has(file.path)) mismatches.add(file.path);
+    }
+    for (const file of remote) {
+      const localFile = localByPath.get(file.path);
+      if (
+        localFile !== undefined &&
+        (localFile.digest !== file.digest ||
+          localFile.executable !== file.executable)
+      ) {
+        mismatches.add(file.path);
+      }
+    }
+    return [...mismatches].sort((left, right) => left.localeCompare(right));
+  }
+
+  function restoreMismatchError(paths: readonly string[]): WorkspaceSyncError {
+    const preview = paths.slice(0, 5).join(", ");
+    const suffix = paths.length > 5 ? ` and ${paths.length - 5} more` : "";
+    return new WorkspaceSyncError(
+      409,
+      "restore_precondition",
+      `Restore would change existing workspace files (${preview}${suffix}); preserve or review them before restoring`,
+    );
+  }
+
+  async function ensureRemoteParentDirectories(
+    workspacePath: string,
+    pathname: string,
+  ): Promise<void> {
+    const parent = dirname(pathname);
+    if (parent === ".") return;
+    let current = workspacePath;
+    for (const segment of parent.split("/")) {
+      current = join(current, segment);
+      try {
+        const info = await lstat(current);
+        if (info.isSymbolicLink() || !info.isDirectory()) {
+          throw new WorkspaceSyncError(
+            409,
+            "restore_precondition",
+            `Restore cannot create a directory through an unsafe workspace path: ${pathname}`,
+          );
+        }
+      } catch (error) {
+        if (error instanceof WorkspaceSyncError) throw error;
+        if ((error as { code?: unknown }).code !== "ENOENT") {
+          throw new WorkspaceSyncError(
+            409,
+            "restore_precondition",
+            `Restore could not inspect the workspace path: ${pathname}`,
+          );
+        }
+        await mkdir(current, { mode: 0o700 });
+      }
+    }
+  }
+
+  async function materializeRemoteFiles(
+    ctx: WorkspaceContext,
+    row: SyncRow,
+    remoteRef: string,
+    remote: readonly RemoteTreeFile[],
+  ): Promise<void> {
+    const local = await scanWorkspace(ctx.workspacePath);
+    if (local.blockedFiles.length > 0) {
+      throw new WorkspaceSyncError(
+        409,
+        "blocked_file",
+        "Workspace contains files excluded from EVA Git sync.",
+      );
+    }
+    const mismatches = restoreMismatches(local, remote);
+    if (mismatches.length > 0) throw restoreMismatchError(mismatches);
+    const localPaths = new Set(local.files.map((file) => file.path));
+    for (const entry of remote) {
+      if (localPaths.has(entry.path)) continue;
+      const blob = await readRemoteBlob(ctx.workspacePath, remoteRef, entry);
+      const fullPath = join(ctx.workspacePath, entry.path);
+      await ensureRemoteParentDirectories(ctx.workspacePath, entry.path);
+      try {
+        const info = await lstat(fullPath);
+        if (info.isSymbolicLink() || !info.isFile()) {
+          throw restoreMismatchError([entry.path]);
+        }
+        const existing = await readFile(fullPath);
+        if (
+          createHash("sha256").update(existing).digest("hex") !== entry.digest
+        ) {
+          throw restoreMismatchError([entry.path]);
+        }
+      } catch (error) {
+        if (error instanceof WorkspaceSyncError) throw error;
+        if ((error as { code?: unknown }).code !== "ENOENT") {
+          throw new WorkspaceSyncError(
+            409,
+            "restore_precondition",
+            `Restore could not inspect the workspace file: ${entry.path}`,
+          );
+        }
+        try {
+          await writeFile(fullPath, blob.contents, {
+            flag: "wx",
+            mode: entry.executable ? 0o700 : 0o600,
+          });
+        } catch (writeError) {
+          if ((writeError as { code?: unknown }).code !== "EEXIST") {
+            throw new WorkspaceSyncError(
+              409,
+              "restore_precondition",
+              `Restore could not create the workspace file: ${entry.path}`,
+            );
+          }
+          const info = await lstat(fullPath);
+          if (info.isSymbolicLink() || !info.isFile()) {
+            throw restoreMismatchError([entry.path]);
+          }
+          const existing = await readFile(fullPath);
+          if (
+            createHash("sha256").update(existing).digest("hex") !== entry.digest
+          ) {
+            throw restoreMismatchError([entry.path]);
+          }
+        }
+      }
+    }
+    await checkedGit("restore", ctx.workspacePath, ["read-tree", remoteRef]);
+    const remoteHead = await checkedGit("restore", ctx.workspacePath, [
+      "rev-parse",
+      "--verify",
+      remoteRef,
+    ]);
+    await checkedGit("restore", ctx.workspacePath, [
+      "update-ref",
+      `refs/heads/${row.branch}`,
+      remoteHead,
+      ZERO_OBJECT_ID,
     ]);
   }
 
@@ -1664,6 +2000,13 @@ export function createWorkspaceSyncService(
             ctx,
             argsInput.expectedFingerprint,
           );
+          if (before.state === "error") {
+            throw new WorkspaceSyncError(
+              409,
+              "remote_mismatch",
+              "Repository origin does not match the configured remote; review configuration before restoring",
+            );
+          }
           if (before.state === "blocked" || before.workingTree === "conflict") {
             throw new WorkspaceSyncError(
               409,
@@ -1671,33 +2014,36 @@ export function createWorkspaceSyncService(
               "Resolve workspace conflicts before restoring the workspace",
             );
           }
-          if (before.workingTree !== "clean") {
+          const initialRestore = before.head === null;
+          if (!initialRestore && before.workingTree !== "clean") {
             throw new WorkspaceSyncError(
               409,
               "workspace_changed",
               "Commit or preserve local workspace changes before restoring",
             );
           }
-          if (before.fileCount > 0 && !argsInput.allowNonEmpty) {
+          if (
+            (before.fileCount > 0 || initialRestore) &&
+            !argsInput.allowNonEmpty
+          ) {
             throw new WorkspaceSyncError(
               409,
               "nonempty_restore",
-              "Restore requires explicit confirmation for a nonempty workspace",
-            );
-          }
-          if (before.head === null) {
-            throw new WorkspaceSyncError(
-              409,
-              "restore_precondition",
-              "Restore requires an existing local commit; the workspace was left unchanged",
+              "Restore requires explicit confirmation before changing the workspace",
             );
           }
           await fetchBranch(ctx, row);
-          await checkedGit("merge", ctx.workspacePath, [
-            "merge",
-            "--ff-only",
-            `refs/remotes/origin/${row.branch}`,
-          ]);
+          const remoteRef = `refs/remotes/origin/${row.branch}`;
+          const remote = await readRemoteTree(ctx.workspacePath, remoteRef);
+          if (initialRestore) {
+            await materializeRemoteFiles(ctx, row, remoteRef, remote);
+          } else {
+            await checkedGit("merge", ctx.workspacePath, [
+              "merge",
+              "--ff-only",
+              remoteRef,
+            ]);
+          }
           return safeStatus({ ...ctx, row });
         },
       );
@@ -1730,6 +2076,13 @@ export function createWorkspaceSyncService(
             ctx,
             argsInput.expectedFingerprint,
           );
+          if (before.state === "error") {
+            throw new WorkspaceSyncError(
+              409,
+              "remote_mismatch",
+              "Repository origin does not match the configured remote; review configuration before pushing",
+            );
+          }
           if (
             before.state === "conflict" ||
             before.workingTree === "conflict"

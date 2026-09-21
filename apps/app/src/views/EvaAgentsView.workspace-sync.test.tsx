@@ -108,7 +108,6 @@ describe("WorkspaceSyncPanel", () => {
 
     const commit = screen.getByRole("button", { name: "Commit" });
     expect((commit as HTMLButtonElement).disabled).toBe(true);
-    // A changed tree cannot be pushed or restored until it is committed.
     expect(
       (screen.getByRole("button", { name: "Push" }) as HTMLButtonElement)
         .disabled,
@@ -119,7 +118,7 @@ describe("WorkspaceSyncPanel", () => {
           name: "Pull / Restore",
         }) as HTMLButtonElement
       ).disabled,
-    ).toBe(true);
+    ).toBe(false);
 
     fireEvent.change(screen.getByPlaceholderText("Commit message"), {
       target: { value: "Checkpoint" },

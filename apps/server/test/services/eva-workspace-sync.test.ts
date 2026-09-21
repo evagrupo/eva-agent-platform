@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -99,20 +106,26 @@ function successResult(stdout = ""): WorkspaceGitCommandResult {
   };
 }
 
-function fakeGitRunner(args: {
-  remote?: string;
-  delayMs?: number;
-  requests?: WorkspaceGitCommandRequest[];
-  active?: { current: number; maximum: number };
-} = {}) {
-  return async (request: WorkspaceGitCommandRequest): Promise<WorkspaceGitCommandResult> => {
+function fakeGitRunner(
+  args: {
+    remote?: string;
+    delayMs?: number;
+    requests?: WorkspaceGitCommandRequest[];
+    active?: { current: number; maximum: number };
+  } = {},
+) {
+  return async (
+    request: WorkspaceGitCommandRequest,
+  ): Promise<WorkspaceGitCommandResult> => {
     args.requests?.push(request);
     if (args.active !== undefined) {
       args.active.current += 1;
       args.active.maximum = Math.max(args.active.maximum, args.active.current);
     }
     if (args.delayMs !== undefined) {
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, args.delayMs));
+      await new Promise((resolveDelay) =>
+        setTimeout(resolveDelay, args.delayMs),
+      );
     }
     const command = [...request.args];
     if (command.includes("init")) {
@@ -121,13 +134,73 @@ function fakeGitRunner(args: {
     let stdout = "";
     if (command.includes("--show-toplevel")) stdout = `${request.cwd}\n`;
     else if (command.includes("--porcelain=v1")) stdout = "";
-    else if (command.includes("--short") && command.includes("-q")) stdout = "main\n";
+    else if (command.includes("--short") && command.includes("-q"))
+      stdout = "main\n";
     else if (command.includes("--verify")) stdout = `${"a".repeat(40)}\n`;
-    else if (command.includes("--get") && command.includes("remote.origin.url")) {
+    else if (
+      command.includes("--get") &&
+      command.includes("remote.origin.url")
+    ) {
       stdout = `${args.remote ?? "https://github.com/example/sync.git"}\n`;
     } else if (command.includes("rev-list")) stdout = "0\t0\n";
     if (args.active !== undefined) args.active.current -= 1;
     return successResult(stdout);
+  };
+}
+
+function restoreGitRunner(args: {
+  requests: WorkspaceGitCommandRequest[];
+  blockedRemotePath?: string;
+  remoteContents?: string;
+}) {
+  let hasHead = false;
+  let hasRemoteRef = false;
+  const head = "b".repeat(40);
+  return async (
+    request: WorkspaceGitCommandRequest,
+  ): Promise<WorkspaceGitCommandResult> => {
+    args.requests.push(request);
+    const command = [...request.args];
+    if (command.includes("fetch")) {
+      hasRemoteRef = true;
+      return successResult();
+    }
+    if (command.includes("--show-toplevel"))
+      return successResult(`${request.cwd}\n`);
+    if (command.includes("--porcelain=v1")) return successResult();
+    if (command.includes("--short") && command.includes("-q"))
+      return successResult("main\n");
+    if (command.includes("--get") && command.includes("remote.origin.url")) {
+      return successResult("https://github.com/example/sync.git\n");
+    }
+    if (command.includes("rev-list")) return successResult("0\t0\n");
+    if (command.includes("--verify")) {
+      if (command.includes("HEAD")) {
+        return hasHead
+          ? successResult(`${head}\n`)
+          : { ...successResult(), exitCode: 1 };
+      }
+      if (command.includes("refs/remotes/origin/main")) {
+        return hasRemoteRef
+          ? successResult(`${head}\n`)
+          : { ...successResult(), exitCode: 1 };
+      }
+    }
+    if (command.includes("ls-tree")) {
+      const pathname = args.blockedRemotePath ?? "notes.md";
+      const size = Buffer.byteLength(args.remoteContents ?? "hello", "utf8");
+      return successResult(
+        `100644 blob ${"c".repeat(40)} ${size}\t${pathname}\0`,
+      );
+    }
+    if (command.includes("cat-file")) {
+      return successResult(args.remoteContents ?? "hello");
+    }
+    if (command.includes("update-ref")) {
+      hasHead = true;
+      return successResult();
+    }
+    return successResult();
   };
 }
 
@@ -136,9 +209,9 @@ describe("EVA workspace sync validation", () => {
     expect(validateRemoteUrl("https://github.com/example/private.git")).toBe(
       "https://github.com/example/private.git",
     );
-    expect(validateRemoteUrl("ssh://git@gitlab.example.com/example/private.git")).toBe(
-      "ssh://git@gitlab.example.com/example/private.git",
-    );
+    expect(
+      validateRemoteUrl("ssh://git@gitlab.example.com/example/private.git"),
+    ).toBe("ssh://git@gitlab.example.com/example/private.git");
     expect(validateRemoteUrl("git@bitbucket.org:example/private.git")).toBe(
       "git@bitbucket.org:example/private.git",
     );
@@ -157,7 +230,12 @@ describe("EVA workspace sync validation", () => {
     ]) {
       expect(() => validateRemoteUrl(remote)).toThrow();
     }
-    for (const branch of ["../main", "main..backup", "main//backup", "main?query"]) {
+    for (const branch of [
+      "../main",
+      "main..backup",
+      "main//backup",
+      "main?query",
+    ]) {
       expect(() => validateBranchName(branch)).toThrow();
     }
   });
@@ -178,9 +256,12 @@ describe("EVA workspace sync validation", () => {
         dataDir: fixture.dataDir,
       });
       const status = await service.status(AGENT_ID);
+      expect(status.workspacePath).toBe(fixture.workspacePath);
       expect(status.state).toBe("blocked");
       expect(status.blockedFiles).toContain(".env");
-      expect(JSON.stringify(status)).not.toContain("do-not-print-this-secret-value");
+      expect(JSON.stringify(status)).not.toContain(
+        "do-not-print-this-secret-value",
+      );
 
       await rm(join(fixture.workspacePath, ".env"));
       await writeFile(
@@ -214,6 +295,31 @@ describe("EVA workspace sync validation", () => {
       await closeFixture(fixture);
     }
   });
+
+  it("rejects Git metadata symlinks that could escape the workspace", async () => {
+    const fixture = await createFixture();
+    try {
+      const outside = await mkdtemp(
+        join(tmpdir(), "eva-git-metadata-outside-"),
+      );
+      await mkdir(join(fixture.workspacePath, ".git"));
+      await symlink(
+        outside,
+        join(fixture.workspacePath, ".git", "objects"),
+        "dir",
+      );
+      const service = createWorkspaceSyncService({
+        db: fixture.db,
+        dataDir: fixture.dataDir,
+      });
+      await expect(service.status(AGENT_ID)).rejects.toMatchObject({
+        code: "unsafe_repository",
+      });
+      await rm(outside, { recursive: true, force: true });
+    } finally {
+      await closeFixture(fixture);
+    }
+  });
 });
 
 describe("EVA workspace sync Git boundary", () => {
@@ -241,7 +347,9 @@ describe("EVA workspace sync Git boundary", () => {
         agentId: AGENT_ID,
         actorUserId: ACTOR_ID,
       });
-      expect(await readFile(join(fixture.workspacePath, "README.md"), "utf8")).toBe(original);
+      expect(
+        await readFile(join(fixture.workspacePath, "README.md"), "utf8"),
+      ).toBe(original);
       expect(status.repositoryInitialized).toBe(true);
       expect(status.remoteUrl).toBe("https://github.com/example/sync.git");
       expect(requests.length).toBeGreaterThan(0);
@@ -257,9 +365,9 @@ describe("EVA workspace sync Git boundary", () => {
         expect(request.args).not.toContain("clean");
         expect(request.args).not.toContain("delete");
       }
-      expect(await readFile(join(fixture.workspacePath, ".gitignore"), "utf8")).toContain(
-        "EVA managed workspace sync exclusions",
-      );
+      expect(
+        await readFile(join(fixture.workspacePath, ".gitignore"), "utf8"),
+      ).toContain("EVA managed workspace sync exclusions");
       const stored = fixture.db
         .select()
         .from(evaAgentWorkspaceSync)
@@ -284,6 +392,117 @@ describe("EVA workspace sync Git boundary", () => {
       });
       await Promise.all([service.status(AGENT_ID), service.status(AGENT_ID)]);
       expect(active.maximum).toBe(1);
+    } finally {
+      await closeFixture(fixture);
+    }
+  });
+
+  it("restores an initialized workspace only after exact file preconditions", async () => {
+    const fixture = await createFixture();
+    try {
+      await mkdir(join(fixture.workspacePath, ".git"));
+      const requests: WorkspaceGitCommandRequest[] = [];
+      const service = createWorkspaceSyncService({
+        db: fixture.db,
+        dataDir: fixture.dataDir,
+        commandRunner: restoreGitRunner({ requests }),
+      });
+      await service.configure({
+        agentId: AGENT_ID,
+        actorUserId: ACTOR_ID,
+        remoteUrl: "https://github.com/example/sync.git",
+      });
+      const before = await service.status(AGENT_ID);
+      const restored = await service.pull({
+        agentId: AGENT_ID,
+        actorUserId: ACTOR_ID,
+        expectedFingerprint: before.fingerprint ?? undefined,
+        allowNonEmpty: true,
+      });
+      expect(restored.head).toBe("b".repeat(40));
+      expect(restored.state).toBe("clean");
+      expect(
+        requests.some((request) => request.args.includes("read-tree")),
+      ).toBe(true);
+      expect(
+        requests.some((request) => request.args.includes("update-ref")),
+      ).toBe(true);
+      expect(requests.some((request) => request.args.includes("merge"))).toBe(
+        false,
+      );
+    } finally {
+      await closeFixture(fixture);
+    }
+  });
+
+  it("rejects unsafe files in a fetched remote tree before writing it", async () => {
+    const fixture = await createFixture();
+    try {
+      await mkdir(join(fixture.workspacePath, ".git"));
+      const requests: WorkspaceGitCommandRequest[] = [];
+      const service = createWorkspaceSyncService({
+        db: fixture.db,
+        dataDir: fixture.dataDir,
+        commandRunner: restoreGitRunner({
+          requests,
+          blockedRemotePath: ".env",
+        }),
+      });
+      await service.configure({
+        agentId: AGENT_ID,
+        actorUserId: ACTOR_ID,
+        remoteUrl: "https://github.com/example/sync.git",
+      });
+      const before = await service.status(AGENT_ID);
+      await expect(
+        service.pull({
+          agentId: AGENT_ID,
+          actorUserId: ACTOR_ID,
+          expectedFingerprint: before.fingerprint ?? undefined,
+          allowNonEmpty: true,
+        }),
+      ).rejects.toMatchObject({ code: "blocked_remote_file" });
+      expect(
+        requests.some((request) => request.args.includes("read-tree")),
+      ).toBe(false);
+      expect(requests.some((request) => request.args.includes("merge"))).toBe(
+        false,
+      );
+    } finally {
+      await closeFixture(fixture);
+    }
+  });
+
+  it("rejects secret-like content in a fetched remote tree before writing it", async () => {
+    const fixture = await createFixture();
+    try {
+      await mkdir(join(fixture.workspacePath, ".git"));
+      const requests: WorkspaceGitCommandRequest[] = [];
+      const service = createWorkspaceSyncService({
+        db: fixture.db,
+        dataDir: fixture.dataDir,
+        commandRunner: restoreGitRunner({
+          requests,
+          remoteContents: 'api_key = "abcdefghijklmnop-secret-value"\n',
+        }),
+      });
+      await service.configure({
+        agentId: AGENT_ID,
+        actorUserId: ACTOR_ID,
+        remoteUrl: "https://github.com/example/sync.git",
+      });
+      const before = await service.status(AGENT_ID);
+      await expect(
+        service.pull({
+          agentId: AGENT_ID,
+          actorUserId: ACTOR_ID,
+          expectedFingerprint: before.fingerprint ?? undefined,
+          allowNonEmpty: true,
+        }),
+      ).rejects.toMatchObject({ code: "blocked_remote_file" });
+      expect(
+        requests.some((request) => request.args.includes("read-tree")),
+      ).toBe(false);
     } finally {
       await closeFixture(fixture);
     }

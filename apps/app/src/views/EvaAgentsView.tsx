@@ -428,7 +428,9 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
         setForbidden(true);
         setError(null);
       } else {
-        setError(caught instanceof Error ? caught.message : "Sync status failed");
+        setError(
+          caught instanceof Error ? caught.message : "Sync status failed",
+        );
       }
     } finally {
       if (showLoading) setLoading(false);
@@ -490,7 +492,9 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
       setPendingAction(null);
       if (action === "commit") setCommitMessage("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Workspace sync failed");
+      setError(
+        caught instanceof Error ? caught.message : "Workspace sync failed",
+      );
     } finally {
       setBusy(false);
     }
@@ -510,10 +514,11 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
     status.repositoryInitialized &&
     status.configured &&
     status.enabled &&
-    status.state === "clean" &&
-    status.head !== null &&
+    (status.head === null
+      ? status.state === "changed" || status.state === "clean"
+      : status.state === "clean") &&
     status.fingerprint !== null;
-  const canPush = canRestore;
+  const canPush = canRestore && status?.head !== null;
 
   if (forbidden) {
     return (
@@ -522,7 +527,8 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
           Workspace sync
         </p>
         <p className="mt-2 text-sm text-muted-foreground" role="status">
-          Administrator access is required to inspect or change Git workspace sync.
+          Administrator access is required to inspect or change Git workspace
+          sync.
         </p>
       </section>
     );
@@ -556,7 +562,10 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
       </div>
 
       {loading && status === null ? (
-        <div className="mt-5 h-28 animate-pulse rounded-xl bg-surface-recessed" aria-busy="true" />
+        <div
+          className="mt-5 h-28 animate-pulse rounded-xl bg-surface-recessed"
+          aria-busy="true"
+        />
       ) : status !== null ? (
         <>
           <div className="mt-5 grid gap-3 rounded-xl border border-border p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
@@ -572,7 +581,9 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
                 {status.configured ? "Configured" : "Not configured"}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {status.repositoryInitialized ? "Initialized" : "Not initialized"}
+                {status.repositoryInitialized
+                  ? "Initialized"
+                  : "Not initialized"}
               </p>
             </div>
             <div>
@@ -595,15 +606,23 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
 
           {status.remoteUrl !== null ? (
             <p className="mt-3 break-all text-xs text-muted-foreground">
-              Remote: <span className="font-mono text-foreground">{status.remoteUrl}</span>
+              Remote:{" "}
+              <span className="font-mono text-foreground">
+                {status.remoteUrl}
+              </span>
             </p>
           ) : null}
           {status.changes.length > 0 ? (
             <div className="mt-3 rounded-xl border border-border p-3 text-xs">
-              <p className="font-medium text-foreground">Changes requiring review</p>
+              <p className="font-medium text-foreground">
+                Changes requiring review
+              </p>
               <ul className="mt-2 grid gap-1 text-muted-foreground">
                 {status.changes.map((change) => (
-                  <li className="break-all font-mono" key={`${change.code}-${change.path}`}>
+                  <li
+                    className="break-all font-mono"
+                    key={`${change.code}-${change.path}`}
+                  >
                     {change.code} {change.path}
                   </li>
                 ))}
@@ -611,12 +630,20 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
             </div>
           ) : null}
           {status.blockedFiles.length > 0 ? (
-            <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive" role="alert">
+            <div
+              className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive"
+              role="alert"
+            >
               <p className="font-medium">Blocked from synchronization</p>
-              <p className="mt-1">Remove secrets, credentials, runtime files, or symlinks before committing.</p>
+              <p className="mt-1">
+                Remove secrets, credentials, runtime files, or symlinks before
+                committing.
+              </p>
               <ul className="mt-2 grid gap-1 font-mono">
                 {status.blockedFiles.map((file) => (
-                  <li className="break-all" key={file}>{file}</li>
+                  <li className="break-all" key={file}>
+                    {file}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -626,9 +653,15 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
               {status.lastErrorMessage}
             </p>
           ) : null}
-          <p className="mt-3 text-xs text-muted-foreground" role="status" aria-live="polite">
+          <p
+            className="mt-3 text-xs text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
             Last operation: {status.lastOperation} · {status.lastResult}
-            {status.lastOperationAt === null ? "" : ` · ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(status.lastOperationAt)}`}
+            {status.lastOperationAt === null
+              ? ""
+              : ` · ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(status.lastOperationAt)}`}
           </p>
         </>
       ) : null}
@@ -660,13 +693,20 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
             required
           />
         </label>
-        <Button type="submit" disabled={busy || remoteUrl.trim().length === 0 || branch.trim().length === 0}>
+        <Button
+          type="submit"
+          disabled={
+            busy || remoteUrl.trim().length === 0 || branch.trim().length === 0
+          }
+        >
           Configure
         </Button>
       </form>
 
       <p className="mt-2 text-xs text-muted-foreground">
-        Use HTTPS, SSH, or scp-style remotes without embedded credentials. The EVA fork, database, logs, provider state, and runtime files are never synchronized.
+        Use HTTPS, SSH, or scp-style remotes without embedded credentials. The
+        EVA fork, database, logs, provider state, and runtime files are never
+        synchronized.
       </p>
 
       <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -714,7 +754,11 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
       </div>
 
       {notice !== null ? (
-        <p className="mt-3 text-sm text-success" role="status" aria-live="polite">
+        <p
+          className="mt-3 text-sm text-success"
+          role="status"
+          aria-live="polite"
+        >
           {notice}
         </p>
       ) : null}
@@ -733,15 +777,17 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Confirm {pendingAction === null ? "workspace sync" : workspaceSyncActionLabel(pendingAction)}
+              Confirm{" "}
+              {pendingAction === null
+                ? "workspace sync"
+                : workspaceSyncActionLabel(pendingAction)}
             </DialogTitle>
             <DialogDescription>
               {pendingAction === "pull"
-                ? "This will fetch the configured branch and fast-forward the local repository only. Confirm that you reviewed the current status and that local files can be restored safely."
+                ? "This will fetch the configured branch and fast-forward an existing local commit, or adopt it into a new initialized workspace after exact file checks. Confirm that you reviewed the current status and that local files can be restored safely."
                 : pendingAction === "configure"
                   ? "EVA will store only the sanitized remote and branch, then use the service user’s existing noninteractive Git authentication."
-                  : "Review the current workspace status before allowing this administrator operation. Local files are not force-overwritten."
-              }
+                  : "Review the current workspace status before allowing this administrator operation. Local files are not force-overwritten."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -753,8 +799,14 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
             >
               Cancel
             </Button>
-            <Button type="button" onClick={() => void confirmAction()} disabled={busy}>
-              {busy ? "Working…" : `Confirm ${pendingAction === null ? "operation" : workspaceSyncActionLabel(pendingAction)}`}
+            <Button
+              type="button"
+              onClick={() => void confirmAction()}
+              disabled={busy}
+            >
+              {busy
+                ? "Working…"
+                : `Confirm ${pendingAction === null ? "operation" : workspaceSyncActionLabel(pendingAction)}`}
             </Button>
           </DialogFooter>
         </DialogContent>

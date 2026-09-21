@@ -58,9 +58,13 @@ credential prompts, bounds Git time and output, and uses only the resolved
 registered workspace path. Pull/restore fetches the selected branch and uses
 fast-forward-only merge semantics. It refuses a dirty or conflicted workspace,
 requires a fresh status fingerprint, and requires an explicit confirmation for
-a nonempty restore. It never force-pushes, resets hard, cleans, deletes files,
-or silently resolves conflicts. A rejected push or non-fast-forward restore
-leaves the workspace recoverable and reports an actionable error.
+a nonempty restore. On a new machine, the initialized destination must be
+empty or contain only files whose contents and executable modes exactly match
+the remote tree; EVA creates only missing remote files and adopts the fetched
+commit after that precondition passes. It never force-pushes, resets hard,
+cleans, deletes files, or silently resolves conflicts. A rejected push,
+non-fast-forward restore, unsafe remote tree, or mismatched local file leaves
+the workspace recoverable and reports an actionable error.
 
 The service blocks suspicious files rather than attempting to sanitize them.
 This includes environment files, private keys and certificates, databases,
