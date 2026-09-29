@@ -14,7 +14,7 @@ import {
 } from "./ProjectList";
 import { DEFAULT_BUILT_IN_SIDEBAR_NAVIGATION_ORDER } from "@/components/plugin/pluginNavSidebarOrder";
 import {
-  getEvaAgentsRoutePath,
+  getEvaAdminRoutePath,
   getPluginsRoutePath,
   getSkillsRoutePath,
 } from "@/lib/route-paths";
@@ -49,11 +49,10 @@ export function BuiltInSidebarNavigation({
     canUseCoreCapability(coreAuth, "pluginData");
   const pluginsRoutePath = getPluginsRoutePath();
   const skillsRoutePath = getSkillsRoutePath();
-  const evaAgentsRoutePath = getEvaAgentsRoutePath();
-  const evaAgentsAllowed =
-    canUseCoreCapability(coreAuth, "workspaceBootstrap") &&
-    (coreAuth?.bootstrap?.capabilities.execution.agents.length ??
-      (coreAuth?.required === false ? 1 : 0)) > 0;
+  const evaAdminRoutePath = getEvaAdminRoutePath();
+  const evaAdminAllowed =
+    coreAuth?.user?.role === "admin" &&
+    canUseCoreCapability(coreAuth, "settings");
   const builtInEntries: BuiltInSidebarNavEntry[] = [
     ...(onNewChat === undefined
       ? []
@@ -145,25 +144,25 @@ export function BuiltInSidebarNavigation({
           } satisfies BuiltInSidebarNavEntry,
         ] as BuiltInSidebarNavEntry[])
       : []),
-    ...(evaAgentsAllowed
+    ...(evaAdminAllowed
       ? ([
           {
             kind: "built-in",
             pluginId: "__bb__",
-            id: "agents",
-            title: "EVA agents",
-            icon: <Icon name="Network" aria-hidden="true" />,
+            id: "admin",
+            title: "Admin",
+            icon: <Icon name="Settings" aria-hidden="true" />,
             content: (
               <ResourceNavSidebarItem
-                icon="Network"
-                title="EVA agents"
-                routePath={evaAgentsRoutePath}
+                icon="Settings"
+                title="Admin"
+                routePath={evaAdminRoutePath}
                 onNavigate={onNavigate}
               />
             ),
             onActivate: () => {
               onNavigate?.();
-              void navigate(evaAgentsRoutePath);
+              void navigate(evaAdminRoutePath);
             },
           } satisfies BuiltInSidebarNavEntry,
         ] as BuiltInSidebarNavEntry[])

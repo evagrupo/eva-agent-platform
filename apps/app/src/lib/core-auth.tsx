@@ -364,7 +364,11 @@ export function CoreAuthProvider({ children }: { children: ReactNode }) {
       await fetch("/api/auth/sign-out", {
         method: "POST",
         credentials: "include",
-        headers: { accept: "application/json" },
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: "{}",
       });
     } finally {
       await refresh();
@@ -499,6 +503,7 @@ function LoginView() {
   const [locale, setLocale] = useState<"en" | "es">("en");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const copy =
@@ -594,14 +599,29 @@ function LoginView() {
               >
                 {copy.password}
               </label>
-              <Input
-                id="eva-login-password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="eva-login-password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-2 text-xs text-muted-foreground"
+                  onClick={() => setShowPassword((current) => !current)}
+                >
+                  {showPassword
+                    ? locale === "es"
+                      ? "Ocultar"
+                      : "Hide"
+                    : locale === "es"
+                      ? "Mostrar"
+                      : "Show"}
+                </button>
+              </div>
             </div>
             {error ? (
               <p

@@ -52,7 +52,6 @@ import { MachinePickerUI } from "@/components/pickers/MachinePicker";
 import { parseEnvironmentValue } from "@/components/pickers/environment-picker-value";
 import { PermissionModePicker } from "@/components/pickers/PermissionModePicker";
 import {
-  ProjectSelector,
   type ProjectSelectorCreateProjectConfig,
   type ProjectSelectorOption,
 } from "@/components/pickers/ProjectSelector";
@@ -333,32 +332,21 @@ const DefaultNewThreadComposer = memo(function DefaultNewThreadComposer({
         minHeight={NEW_THREAD_PROMPT_BOX_MIN_HEIGHT}
         placeholder={placeholder}
         header={modeConfig.header}
-        footerStart={<ExecutionControls {...execution} />}
+        footerStart={<ExecutionControls {...execution} agent={undefined} />}
       />
       <div className="mt-1 flex select-none items-center justify-between gap-2 px-3.5">
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          {project ? (
-            <ProjectSelector
-              projects={project.projects}
-              value={project.value}
-              onChange={project.onChange}
-              allowNoProject={project.allowNoProject ?? false}
-              createProject={project.createProject}
-              disabled={project.disabled}
-              isLoading={project.isLoading}
-              showChevronWhenDisabled={project.showChevronWhenDisabled}
-              className="shrink-0"
+          {isProjectlessPrompt ? null : (
+            <EnvironmentSlot
+              projectless={false}
+              environment={modeConfig.environment}
+              worktree={modeConfig.worktree}
+              environmentProviderInputsSlot={
+                modeConfig.environmentProviderInputsSlot
+              }
+              machineProviderInputsSlot={modeConfig.machineProviderInputsSlot}
             />
-          ) : null}
-          <EnvironmentSlot
-            projectless={project?.value === null}
-            environment={modeConfig.environment}
-            worktree={modeConfig.worktree}
-            environmentProviderInputsSlot={
-              modeConfig.environmentProviderInputsSlot
-            }
-            machineProviderInputsSlot={modeConfig.machineProviderInputsSlot}
-          />
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <PermissionModePicker
@@ -408,6 +396,7 @@ export function EnvironmentSlot({
   const [environmentPickerOpen, setEnvironmentPickerOpen] = useState(false);
   const showEnvironmentPicker =
     !projectless ||
+    environment.value.length === 0 ||
     environment.isLoading ||
     providers.length > 1 ||
     showReuseEnvironmentPicker ||

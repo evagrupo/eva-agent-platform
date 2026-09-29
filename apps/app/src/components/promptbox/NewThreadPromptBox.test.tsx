@@ -448,6 +448,20 @@ describe("EnvironmentSlot", () => {
     );
   });
 
+  it("shows the environment picker when a projectless composer has no selection yet", () => {
+    render(
+      <EnvironmentSlot
+        projectless
+        environment={makeEnvironment({
+          value: "",
+          providers: [personalProvider],
+        })}
+        worktree={makeWorktree()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Environment" })).toBeTruthy();
+  });
+
   it("keeps an open environment menu mounted while projectless options settle", () => {
     const loadingEnvironment = makeEnvironment({
       providers: [personalProvider],

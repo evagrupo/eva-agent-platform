@@ -1,17 +1,11 @@
 import { Icon, type IconName } from "@bb/shared-ui/icon";
 import { usePrefersReducedMotion } from "@bb/shared-ui/hooks/use-media-query";
+import { useNavigate } from "react-router-dom";
+import { getEvaAgentsRoutePath } from "@/lib/route-paths";
 
 interface RootComposeEmptyWelcomeProps {
   onCompose: (prompt?: string) => void;
-  onAddProject: () => void;
-  addProjectDisabled?: boolean;
 }
-
-const IMPORT_PROJECTS_PROMPT =
-  "Search my home directory (max depth 3) for git repositories touched in the last 30 days and import only those projects into EVA using the command line";
-
-const LEARN_PROMPT =
-  "What can EVA do, and how can you interact with it? Summarize EVA's capabilities and how to use the command line to work with threads and projects.";
 
 interface WelcomeActionProps {
   icon: IconName;
@@ -50,9 +44,8 @@ function WelcomeAction({
 
 export function RootComposeEmptyWelcome({
   onCompose,
-  onAddProject,
-  addProjectDisabled,
 }: RootComposeEmptyWelcomeProps) {
+  const navigate = useNavigate();
   const reducedMotion = usePrefersReducedMotion();
   return (
     <div className="flex flex-col items-center gap-12 duration-500 animate-in fade-in-0 slide-in-from-bottom-2">
@@ -124,7 +117,7 @@ export function RootComposeEmptyWelcome({
           alt=""
           aria-hidden
           draggable={false}
-          className="size-full object-contain dark:invert"
+          className="size-full object-contain"
         />
       </div>
       <div className="flex w-full max-w-[360px] flex-col gap-1">
@@ -135,23 +128,12 @@ export function RootComposeEmptyWelcome({
           onClick={() => onCompose()}
         />
         <WelcomeAction
-          icon="FolderGit"
-          title="Automatically import my projects"
-          description="Find repos touched in the last 30 days"
-          onClick={() => onCompose(IMPORT_PROJECTS_PROMPT)}
-        />
-        <WelcomeAction
-          icon="FolderPlus"
-          title="New project"
-          description="Create one from a local folder"
-          onClick={onAddProject}
-          disabled={addProjectDisabled}
-        />
-        <WelcomeAction
-          icon="Explore"
-          title="Learn what EVA can do"
-          description="Get a tour of its capabilities"
-          onClick={() => onCompose(LEARN_PROMPT)}
+          icon="Bot"
+          title="Agents"
+          description="Browse and open the agent workspace"
+          onClick={() => {
+            void navigate(getEvaAgentsRoutePath());
+          }}
         />
       </div>
     </div>

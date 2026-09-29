@@ -121,9 +121,7 @@ export const VIEW_FIXTURE_ANCHORS = {
       mustContain: [
         'title="New thread"',
         'description="Start a new conversation"',
-        'title="Automatically import my projects"',
-        'title="New project"',
-        'title="Learn what bb can do"',
+        'title="Agents"',
         "hover:bg-state-hover",
       ],
       because: "The New thread projection uses BB's current empty-welcome actions, hierarchy, and hover state.",

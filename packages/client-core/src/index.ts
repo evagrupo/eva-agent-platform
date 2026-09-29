@@ -8,6 +8,7 @@ export * from "./environment-providers.js";
 export * from "./sidebar/sectionKeys.js";
 export * from "./sidebar/projectThreadGroups.js";
 export * from "./sidebar/machineThreadGroups.js";
+export * from "./sidebar/agentThreadGroups.js";
 export * from "./sidebar/pinnedSidebarThreads.js";
 export * from "./sidebar/threadReadState.js";
 export * from "./sidebar/sidebarSectionId.js";

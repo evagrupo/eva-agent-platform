@@ -249,6 +249,11 @@ export interface NewThreadComposerSubmission extends NewThreadRequest {
   sendAt?: number;
 }
 
+const EVA_PERSONAL_THREAD_ENVIRONMENT: NewThreadRequest["environment"] = {
+  type: "host",
+  workspace: { type: "personal" },
+};
+
 export interface NewThreadComposerProps {
   projectId: string | null;
   onProjectChange: (projectId: string) => void | Promise<void>;
@@ -521,6 +526,13 @@ export function NewThreadComposer({
     () => new Set(availableHosts.map((host) => host.id)),
     [availableHosts],
   );
+  const fallbackEnvironmentHostId = useMemo(() => {
+    if (primaryHostId !== null && knownHostIds.has(primaryHostId)) {
+      return primaryHostId;
+    }
+    for (const hostId of knownHostIds) return hostId;
+    return null;
+  }, [knownHostIds, primaryHostId]);
   const connectedHostIds = useMemo(
     () =>
       new Set(
@@ -703,17 +715,18 @@ export function NewThreadComposer({
       );
       if (provider === undefined) return null;
       if (provider.machineProviderId) return { provider, machine: null };
-      const usable = (hostId: string | null): boolean =>
-        hostId !== null &&
-        knownHostIds.has(hostId) &&
-        (environmentProvidersByHostId
-          .get(hostId)
-          ?.some(
-            (candidate) =>
-              candidate.id === provider.id &&
-              candidate.availability?.status !== "unavailable",
-          ) ??
-          false);
+      const usable = (hostId: string | null): boolean => {
+        if (hostId === null || !knownHostIds.has(hostId)) return false;
+        const hostProviders = environmentProvidersByHostId.get(hostId);
+        if (hostProviders === undefined || hostProviders.length === 0) {
+          return isProjectless;
+        }
+        return hostProviders.some(
+          (candidate) =>
+            candidate.id === provider.id &&
+            candidate.availability?.status !== "unavailable",
+        );
+      };
       const picked =
         pickedProviderMachine?.selectionValue === effectiveValue
           ? pickedProviderMachine.machine
@@ -737,8 +750,9 @@ export function NewThreadComposer({
       return {
         provider,
         machine:
-          primaryHostId !== null && usable(primaryHostId)
-            ? { type: "existing", hostId: primaryHostId }
+          fallbackEnvironmentHostId !== null &&
+          usable(fallbackEnvironmentHostId)
+            ? { type: "existing", hostId: fallbackEnvironmentHostId }
             : null,
       };
     },
@@ -747,11 +761,12 @@ export function NewThreadComposer({
       environmentSeed,
       environmentProviders,
       environmentProvidersByHostId,
+      fallbackEnvironmentHostId,
+      isProjectless,
       knownHostIds,
       pickedProviderMachine,
       selectionScope,
       storedMachineId,
-      primaryHostId,
     ],
   );
 
@@ -989,17 +1004,6 @@ export function NewThreadComposer({
   const providerMachine = providerSelection?.machine ?? null;
   const providerHostId =
     providerMachine?.type === "existing" ? providerMachine.hostId : null;
-  const selectedProviderMachineUnavailable =
-    providerHostId !== null &&
-    !(
-      environmentProvidersByHostId
-        .get(providerHostId)
-        ?.some(
-          (provider) =>
-            provider.id === selectedEnvironmentProvider?.id &&
-            provider.availability?.status !== "unavailable",
-        ) ?? false
-    );
   const handleSelectProvider = useCallback(
     (provider: SystemEnvironmentProvider, hostId: string | null) => {
       changeEnvironment(
@@ -1027,6 +1031,28 @@ export function NewThreadComposer({
       selectedEnvironmentProvider,
     ],
   );
+  const selectedHostProviders =
+    providerHostId === null
+      ? []
+      : (environmentProvidersByHostId.get(providerHostId) ?? []);
+  const selectedProviderMachineUnavailable =
+    providerHostId !== null &&
+    (isProjectless
+      ? selectedHostProviders.length > 0 &&
+        !selectedHostProviders.some(
+          (provider) =>
+            provider.id === selectedEnvironmentProvider?.id &&
+            provider.availability?.status !== "unavailable",
+        )
+      : !(
+          environmentProvidersByHostId
+            .get(providerHostId)
+            ?.some(
+              (provider) =>
+                provider.id === selectedEnvironmentProvider?.id &&
+                provider.availability?.status !== "unavailable",
+            ) ?? false
+        ));
   const selectedMachineProvider =
     providerMachine?.type === "new"
       ? machineProviders?.find(
@@ -1267,6 +1293,8 @@ export function NewThreadComposer({
         environmentValue: effectiveEnvironmentValue,
         projectId,
         environmentProviders,
+        providerHostId:
+          providerHostId ?? (isProjectless ? fallbackEnvironmentHostId : null),
         providerMachine:
           compositionMachineProviderId !== null &&
           compositionMachineInputsSchema !== null
@@ -1281,7 +1309,10 @@ export function NewThreadComposer({
     [
       effectiveEnvironmentValue,
       environmentProviders,
+      fallbackEnvironmentHostId,
+      isProjectless,
       projectId,
+      providerHostId,
       submissionProviderInputs,
       compositionMachineInputsSchema,
       compositionMachineProviderId,
@@ -1525,16 +1556,26 @@ export function NewThreadComposer({
       supportsServiceTier,
     ],
   );
-  const submissionEnvironment = selectedProviderMachineUnavailable
+  const reuseSeedEnvironment =
+    selectionScope === "new-thread" && seed?.environment?.type === "reuse"
+      ? seed.environment
+      : null;
+  const resolvedSelectedEnvironment = selectedProviderMachineUnavailable
     ? null
     : (selectedEnvironment ??
       (selectionScope === "new-thread" ? seed?.environment : undefined) ??
       null);
+  const submissionEnvironment = isProjectless
+    ? (reuseSeedEnvironment ?? EVA_PERSONAL_THREAD_ENVIRONMENT)
+    : resolvedSelectedEnvironment;
   const submitDisabledReason = resolveNewThreadSubmitDisabledReason({
-    environmentProviderInputsBlocker:
-      machineProviderInputs.blockedReason ?? environmentProviderInputsBlocker,
-    environmentSetupRequiredReason:
-      environmentSetupRequiredReason ?? machineServerAccessReason,
+    environmentProviderInputsBlocker: isProjectless
+      ? null
+      : (machineProviderInputs.blockedReason ??
+        environmentProviderInputsBlocker),
+    environmentSetupRequiredReason: isProjectless
+      ? null
+      : (environmentSetupRequiredReason ?? machineServerAccessReason),
     isCopyingAttachments,
     isLoadingModels,
     isSubmitting,
@@ -1546,7 +1587,8 @@ export function NewThreadComposer({
     providerDisplayName: selectedProviderDisplayName,
     selectedProviderId,
     selectedThreadModel,
-    submissionEnvironmentUnavailable: submissionEnvironment === null,
+    submissionEnvironmentUnavailable:
+      !isProjectless && submissionEnvironment === null,
   });
   const submitDraft = useCallback(
     async (
@@ -1911,43 +1953,47 @@ export function NewThreadComposer({
             machineProviderInputsSlot: machineProviderInputs.control,
             banner:
               options.banner ??
-              (machineServerAccessReason !== null ? (
-                <ProviderRequirementBanner
-                  title={MACHINE_SERVER_ACCESS_TITLE}
-                  description={machineServerAccessReason}
-                  action={
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-8 shrink-0 px-3"
-                      onClick={() => navigate(getSettingsRoutePath("machines"))}
-                    >
-                      Set up machine access
-                    </Button>
-                  }
-                />
-              ) : setupRequiredProvider === null ? null : (
-                <ProviderRequirementBanner
-                  title={`${setupRequiredProvider.displayName} needs configuration`}
-                  description={environmentSetupRequiredReason}
-                  action={
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-8 shrink-0 px-3"
-                      onClick={() =>
-                        navigate(
-                          getPluginConfigurationRoutePath({
-                            pluginId: setupRequiredProvider.pluginId,
-                          }),
-                        )
+              (isProjectless
+                ? null
+                : machineServerAccessReason !== null ? (
+                    <ProviderRequirementBanner
+                      title={MACHINE_SERVER_ACCESS_TITLE}
+                      description={machineServerAccessReason}
+                      action={
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 shrink-0 px-3"
+                          onClick={() =>
+                            navigate(getSettingsRoutePath("machines"))
+                          }
+                        >
+                          Set up machine access
+                        </Button>
                       }
-                    >
-                      Configure {setupRequiredProvider.displayName}
-                    </Button>
-                  }
-                />
-              )),
+                    />
+                  ) : setupRequiredProvider === null ? null : (
+                    <ProviderRequirementBanner
+                      title={`${setupRequiredProvider.displayName} needs configuration`}
+                      description={environmentSetupRequiredReason}
+                      action={
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 shrink-0 px-3"
+                          onClick={() =>
+                            navigate(
+                              getPluginConfigurationRoutePath({
+                                pluginId: setupRequiredProvider.pluginId,
+                              }),
+                            )
+                          }
+                        >
+                          Configure {setupRequiredProvider.displayName}
+                        </Button>
+                      }
+                    />
+                  )),
             header: options.header,
           }}
           project={{

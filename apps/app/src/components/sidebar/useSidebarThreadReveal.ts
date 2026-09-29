@@ -5,6 +5,7 @@ import {
   buildPinnedSidebarState,
   CHRONOLOGICAL_CONTAINER_ID,
   isThreadRead,
+  NO_AGENT_GROUP_KEY,
   NO_MACHINE_GROUP_KEY,
   resolveSidebarProjectId,
   sectionKeyForThreadSection,
@@ -18,6 +19,7 @@ import {
   collapsedProjectIdsAtom,
   collapsedSidebarSectionIdsAtom,
   collapsedThreadIdsAtom,
+  sidebarCollapsedAgentsAtom,
   sidebarCollapsedMachinesAtom,
   sidebarCollapsedThreadSectionsAtom,
   sidebarOrganizationModeAtom,
@@ -35,6 +37,7 @@ interface ThreadSidebarExpansionArgs {
 interface ThreadSidebarExpansion {
   sectionKey?: string;
   machineKey?: string;
+  agentKey?: string;
   projectId?: string;
   sidebarSectionId?: CollapsibleSidebarSectionId;
 }
@@ -73,6 +76,12 @@ export function getThreadSidebarExpansion({
     };
   }
 
+  if (organizationMode === "agent") {
+    return {
+      agentKey: thread.agentId ?? NO_AGENT_GROUP_KEY,
+    };
+  }
+
   if (organizationMode === "chronological") {
     const sectionKey = sectionKeyForThreadSection(
       CHRONOLOGICAL_CONTAINER_ID,
@@ -97,6 +106,7 @@ export function useSidebarThreadReveal(): void {
   const setCollapsedEnvironmentIdList = useSetAtom(collapsedEnvironmentIdsAtom);
   const setCollapsedProjectIdList = useSetAtom(collapsedProjectIdsAtom);
   const setCollapsedMachineKeyList = useSetAtom(sidebarCollapsedMachinesAtom);
+  const setCollapsedAgentKeyList = useSetAtom(sidebarCollapsedAgentsAtom);
   const setCollapsedSectionList = useSetAtom(
     sidebarCollapsedThreadSectionsAtom,
   );
@@ -196,6 +206,12 @@ export function useSidebarThreadReveal(): void {
           removeCollapsedIds(current, new Set([machineKey])),
         );
       }
+      if (expansion.agentKey) {
+        const agentKey = expansion.agentKey;
+        setCollapsedAgentKeyList((current) =>
+          removeCollapsedIds(current, new Set([agentKey])),
+        );
+      }
       if (expansion.sectionKey) {
         const sectionKey = expansion.sectionKey;
         setCollapsedSectionList((current) =>
@@ -228,6 +244,7 @@ export function useSidebarThreadReveal(): void {
     setCollapsedEnvironmentIdList,
     setCollapsedProjectIdList,
     setCollapsedMachineKeyList,
+    setCollapsedAgentKeyList,
     setCollapsedSectionList,
     setCollapsedSidebarSectionIdList,
   ]);

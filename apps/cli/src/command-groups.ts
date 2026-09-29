@@ -134,6 +134,11 @@ export const CORE_COMMAND_GROUPS: readonly CommandGroup[] = [
     () => import("./commands/eva.js"),
     (m) => (program, deps) => m.registerEvaCommands(program, deps.getUrl),
   ),
+  group(
+    "access",
+    () => import("./commands/access.js"),
+    (m) => (program, deps) => m.registerAccessCommands(program, deps.getUrl),
+  ),
 ];
 
 export function selectCommandGroups(

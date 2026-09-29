@@ -48,6 +48,7 @@ import {
 import { useRouteState } from "@/hooks/useRouteState";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
 import { cn } from "@bb/shared-ui/lib/utils";
+import { EvaWordmark } from "@/components/ui/bb-logo";
 import { APP_OVERLAY_LAYER } from "@/components/ui/app-overlay-layers";
 import {
   COMPACT_SHELF_HIDDEN_FIXED_CHROME_CLASS,
@@ -205,7 +206,7 @@ function SidebarTriggerOverlay({
   usesDesktopChrome,
 }: SidebarTriggerOverlayProps) {
   const isCompactViewport = useIsCompactViewport();
-  const { openMobile } = useSidebar();
+  const { open, openMobile } = useSidebar();
   const panelShelfState = usePanelShelfState({
     isCompactViewport,
     isSidebarDrawerOpen: openMobile,
@@ -217,6 +218,8 @@ function SidebarTriggerOverlay({
       : "Toggle sidebar",
     "aria-keyshortcuts": shortcut?.ariaKeyshortcuts,
   };
+  const showBrand = isCompactViewport ? openMobile : open;
+  const brand = showBrand ? <EvaWordmark className="h-5 w-auto" /> : null;
   if (usesDesktopChrome) {
     return (
       <div
@@ -224,7 +227,7 @@ function SidebarTriggerOverlay({
         data-panel-shelf={panelShelfState}
         style={{ zIndex: APP_OVERLAY_LAYER.sidebarTrigger }}
         className={cn(
-          "fixed top-0",
+          "relative fixed top-0 gap-2",
           COMPACT_SHELF_HIDDEN_FIXED_CHROME_CLASS,
           CHROME_ROW_CLASS,
           reserveMacosTrafficLights
@@ -238,6 +241,7 @@ function SidebarTriggerOverlay({
           className={MACOS_CHROME_CONTROL_NO_DRAG_CLASS}
           {...triggerProps}
         />
+        {brand}
         <AppCommandShortcutHint
           shortcut={shortcut}
           className={cn(
@@ -258,13 +262,14 @@ function SidebarTriggerOverlay({
           : APP_OVERLAY_LAYER.sidebarTrigger,
       }}
       className={cn(
-        "fixed top-[env(safe-area-inset-top)] left-[env(safe-area-inset-left)]",
+        "relative fixed top-[env(safe-area-inset-top)] left-[env(safe-area-inset-left)] gap-2",
         COMPACT_SHELF_HIDDEN_FIXED_CHROME_CLASS,
         CHROME_ROW_CLASS,
         BROWSER_SIDEBAR_TRIGGER_INSET_CLASS,
       )}
     >
       <SidebarTrigger {...triggerProps} />
+      {brand}
       <AppCommandShortcutHint
         shortcut={shortcut}
         className="absolute left-full ml-1"
@@ -364,22 +369,7 @@ function AppHeader({
       ) : null}
     </>
   ) : null;
-  const actions = (
-    <>
-      {coreAuth?.user?.role === "admin" ? (
-        <Link
-          to="/admin"
-          className={cn(
-            HEADER_ICON_BUTTON_CLASS,
-            "inline-flex items-center justify-center px-3 text-xs font-medium text-muted-foreground hover:bg-state-hover hover:text-foreground",
-          )}
-        >
-          Admin
-        </Link>
-      ) : null}
-      {pageActions}
-    </>
-  );
+  const actions = <>{pageActions}</>;
 
   return <AppPageHeader center={center} actions={actions} />;
 }

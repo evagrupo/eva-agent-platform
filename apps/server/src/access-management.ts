@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { z } from "zod";
@@ -25,10 +25,10 @@ import {
 import { ApiError } from "./errors.js";
 import {
   checkDefaultAgentForPolicy,
-  parseCorePolicy,
   coreResourceTypeSchema,
-  type CoreResourceType,
+  parseCorePolicy,
   type CorePolicy,
+  type CoreResourceType,
   type CoreRole,
   type CoreStatus,
   resolveCorePolicy,
@@ -43,6 +43,7 @@ import {
 } from "./agents/eva-agent-catalog.js";
 import {
   evaAgentAllowsProviderForDb,
+  getEvaAgentForDb,
   isKnownEvaAgentIdForDb,
   listEvaAgentIds,
 } from "./agents/eva-agent-registry.js";
@@ -125,12 +126,12 @@ export interface AccessManagementService {
   createUser(args: {
     email: string;
     name: string;
-    password: string;
+    password?: string;
     role: CoreRole;
     policyId: string;
     defaultAgentId?: string | null;
     actorUserId: string;
-  }): Promise<ManagedUserSummary>;
+  }): Promise<ManagedUserSummary & { generatedPassword?: string }>;
   updateUser(args: {
     userId: string;
     actorUserId: string;
@@ -143,10 +144,16 @@ export interface AccessManagementService {
   }): ManagedUserSummary;
   resetPassword(args: {
     userId: string;
-    password: string;
+    password?: string;
     actorUserId: string;
-  }): Promise<void>;
+  }): Promise<{ generatedPassword?: string }>;
   revokeSessions(args: { userId: string; actorUserId: string }): number;
+  deleteUser(args: { userId: string; actorUserId: string }): void;
+  setUserAgents(args: {
+    userId: string;
+    agentIds: readonly string[];
+    actorUserId: string;
+  }): { agentIds: string[]; grants: ManagedGrant[] };
   listPolicies(): ManagedPolicy[];
   createPolicy(args: {
     id: string;
@@ -302,6 +309,25 @@ function normalizedName(value: string): string {
   return name;
 }
 
+function generateSecurePassword(length = 16): string {
+  const lowercase = "abcdefghijklmnopqrstuvwxyz";
+  const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const digits = "0123456789";
+  const special = "!@#$%^&*";
+  const alphabet = lowercase + uppercase + digits + special;
+  const pick = (chars: string): string =>
+    chars[randomBytes(1)[0]! % chars.length]!;
+  const chars = [pick(lowercase), pick(uppercase), pick(digits), pick(special)];
+  while (chars.length < length) chars.push(pick(alphabet));
+  for (let index = chars.length - 1; index > 0; index -= 1) {
+    const swap = randomBytes(1)[0]! % (index + 1);
+    const current = chars[index]!;
+    chars[index] = chars[swap]!;
+    chars[swap] = current;
+  }
+  return chars.join("");
+}
+
 function validatePassword(value: string): string {
   if (value.length < 12 || value.length > 128) {
     invalid("Password must contain 12 to 128 characters");
@@ -422,6 +448,56 @@ function validateDefaultAgentsForUsers(
       validateDefaultAgentAssignment(db, userId, principal.defaultAgentId);
     }
   }
+}
+
+function countAdminPrincipals(db: DbQueryConnection): number {
+  return db
+    .select({ userId: authPrincipals.userId })
+    .from(authPrincipals)
+    .where(eq(authPrincipals.role, "admin"))
+    .all().length;
+}
+
+function catalogGrantEnvelope(
+  db: DbQueryConnection,
+  agentId: string,
+  terminalAccess: string,
+  providerRegistry: Pick<ProviderRegistryService, "get"> | undefined,
+): {
+  agentId: string;
+  providerIds: string[];
+  modelPatterns: string[];
+  reasoningLevels: string[];
+  fixedExecution: boolean;
+  permissionMode: string | null;
+  terminalAccess: string;
+  toolIds: string[];
+  pluginIds: string[];
+} {
+  const agent = getEvaAgentForDb(db, agentId);
+  if (agent === null) invalid("Agent is unknown");
+  const registeredProviders = agent.providerIds.filter((providerId) =>
+    providerIsRegistered(providerId, providerRegistry),
+  );
+  const defaultProvider =
+    agent.defaultProviderId !== null &&
+    providerIsRegistered(agent.defaultProviderId, providerRegistry)
+      ? agent.defaultProviderId
+      : (registeredProviders[0] ?? null);
+  if (defaultProvider === null) {
+    invalid("Agent has no registered provider");
+  }
+  return {
+    agentId,
+    providerIds: [defaultProvider],
+    modelPatterns: [agent.defaultModel],
+    reasoningLevels: [agent.defaultReasoningLevel],
+    fixedExecution: agent.fixedExecution,
+    permissionMode: agent.defaultPermissionMode,
+    terminalAccess,
+    toolIds: ["*"],
+    pluginIds: [],
+  };
 }
 
 function groupMemberIds(db: DbQueryConnection, groupId: string): string[] {
@@ -864,7 +940,11 @@ export function createAccessManagementService(args: {
     async createUser(input) {
       const email = normalizedEmail(input.email);
       const name = normalizedName(input.name);
-      const password = validatePassword(input.password);
+      const generated =
+        input.password === undefined || input.password.trim().length === 0;
+      const password = validatePassword(
+        generated ? generateSecurePassword() : input.password!,
+      );
       policyRowOrThrow(db, input.policyId, input.role, providerRegistry);
       const passwordHash = await hashPassword(password);
       const userId = randomUUID();
@@ -936,7 +1016,10 @@ export function createAccessManagementService(args: {
         grantPersonalProjectAccess(tx, userId);
       });
       const created = userAndPrincipalOrThrow(db, userId);
-      return toSummary(created.user, created.principal);
+      return {
+        ...toSummary(created.user, created.principal),
+        ...(generated ? { generatedPassword: password } : {}),
+      };
     },
     updateUser(input) {
       const current = userAndPrincipalOrThrow(db, input.userId);
@@ -1049,7 +1132,11 @@ export function createAccessManagementService(args: {
       return this.getUser(input.userId);
     },
     async resetPassword(input) {
-      const password = validatePassword(input.password);
+      const generated =
+        input.password === undefined || input.password.trim().length === 0;
+      const password = validatePassword(
+        generated ? generateSecurePassword() : input.password!,
+      );
       userAndPrincipalOrThrow(db, input.userId);
       const passwordHash = await hashPassword(password);
       db.transaction((tx) => {
@@ -1096,6 +1183,7 @@ export function createAccessManagementService(args: {
           eventType: "user.password.reset",
         });
       });
+      return generated ? { generatedPassword: password } : {};
     },
     revokeSessions(input) {
       let revoked = 0;
@@ -1114,6 +1202,135 @@ export function createAccessManagementService(args: {
         });
       });
       return revoked;
+    },
+    deleteUser(input) {
+      db.transaction((tx) => {
+        const { user, principal } = userAndPrincipalOrThrow(tx, input.userId);
+        if (principal.role === "admin" && countAdminPrincipals(tx) <= 1) {
+          throw new ApiError(
+            409,
+            "conflict",
+            "The last administrator cannot be deleted",
+          );
+        }
+        if (input.userId === input.actorUserId) {
+          throw new ApiError(
+            409,
+            "conflict",
+            "You cannot delete your own account",
+          );
+        }
+        audit(tx, {
+          actorUserId: input.actorUserId,
+          targetUserId: input.userId,
+          eventType: "user.deleted",
+          metadata: { email: user.email, role: principal.role },
+        });
+        tx.delete(authSessions)
+          .where(eq(authSessions.userId, input.userId))
+          .run();
+        tx.delete(authAgentGrants)
+          .where(eq(authAgentGrants.userId, input.userId))
+          .run();
+        tx.delete(authGroupMembers)
+          .where(eq(authGroupMembers.userId, input.userId))
+          .run();
+        tx.delete(authResourceAccess)
+          .where(eq(authResourceAccess.userId, input.userId))
+          .run();
+        tx.delete(authInstructions)
+          .where(eq(authInstructions.userId, input.userId))
+          .run();
+        tx.delete(authPrincipals)
+          .where(eq(authPrincipals.userId, input.userId))
+          .run();
+        tx.delete(authAccounts)
+          .where(eq(authAccounts.userId, input.userId))
+          .run();
+        tx.delete(authUsers).where(eq(authUsers.id, input.userId)).run();
+      });
+    },
+    setUserAgents(input) {
+      const uniqueAgentIds = [
+        ...new Set(input.agentIds.map((agentId) => agentId.trim())),
+      ].filter((agentId) => agentId.length > 0);
+      uniqueAgentIds.sort((left, right) => left.localeCompare(right));
+      db.transaction((tx) => {
+        const { principal } = userAndPrincipalOrThrow(tx, input.userId);
+        const policy = ensurePolicy(
+          JSON.parse(
+            policyRowOrThrow(tx, principal.policyId, principal.role).policyJson,
+          ),
+        );
+        const current = tx
+          .select()
+          .from(authAgentGrants)
+          .where(eq(authAgentGrants.userId, input.userId))
+          .all();
+        const keptByAgent = new Map<string, (typeof current)[number]>();
+        const desired = new Set(uniqueAgentIds);
+        for (const agentId of uniqueAgentIds) {
+          if (!agentIsRegistered(tx, agentId)) invalid("Agent is unknown");
+        }
+        for (const grant of current) {
+          if (!desired.has(grant.agentId) || keptByAgent.has(grant.agentId)) {
+            tx.delete(authAgentGrants)
+              .where(eq(authAgentGrants.id, grant.id))
+              .run();
+            continue;
+          }
+          keptByAgent.set(grant.agentId, grant);
+        }
+        const createdAt = Date.now();
+        for (const agentId of uniqueAgentIds) {
+          if (keptByAgent.has(agentId)) continue;
+          const envelope = catalogGrantEnvelope(
+            tx,
+            agentId,
+            policy.terminalAccess,
+            providerRegistry,
+          );
+          validateGrantReferences(tx, envelope, providerRegistry);
+          validateFixedGrant(envelope);
+          tx.insert(authAgentGrants)
+            .values({
+              id: randomUUID(),
+              userId: input.userId,
+              groupId: null,
+              agentId: envelope.agentId,
+              providerIdsJson: JSON.stringify(envelope.providerIds),
+              modelPatternsJson: JSON.stringify(envelope.modelPatterns),
+              reasoningLevelsJson: JSON.stringify(envelope.reasoningLevels),
+              fixedExecution: envelope.fixedExecution,
+              permissionMode:
+                envelope.permissionMode as typeof authAgentGrants.$inferInsert.permissionMode,
+              terminalAccess:
+                envelope.terminalAccess as typeof authAgentGrants.$inferInsert.terminalAccess,
+              toolIdsJson: JSON.stringify(envelope.toolIds),
+              pluginIdsJson: JSON.stringify(envelope.pluginIds),
+              createdAt,
+              updatedAt: createdAt,
+            })
+            .run();
+        }
+        validateDefaultAgentsForUsers(tx, [input.userId]);
+        audit(tx, {
+          actorUserId: input.actorUserId,
+          targetUserId: input.userId,
+          eventType: "user.agents.updated",
+          metadata: { agentIds: uniqueAgentIds },
+        });
+      });
+      const grants = db
+        .select()
+        .from(authAgentGrants)
+        .where(eq(authAgentGrants.userId, input.userId))
+        .all()
+        .map(toGrant);
+      return {
+        agentIds: grants.map((grant) => grant.agentId),
+        grants,
+      };
     },
     listPolicies() {
       return db

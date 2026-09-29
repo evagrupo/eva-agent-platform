@@ -38,6 +38,7 @@ const HeaderCreationContext = createContext<HeaderCreationActions>({});
 export const SidebarHeaderActionsProvider = HeaderCreationContext.Provider;
 
 const SIDEBAR_ORGANIZE_OPTIONS = [
+  { label: "By agent", mode: "agent" },
   { label: "By project", mode: "project" },
   { label: "By machine", mode: "machine" },
   { label: "Custom", mode: "chronological" },
@@ -224,13 +225,6 @@ export function SidebarHeaderControls({
             </>
           ) : (
             <>
-              <DropdownMenuItem
-                disabled={!creation.onNewProject || creation.isCreatingProject}
-                onSelect={creation.onNewProject}
-              >
-                <Icon name="FolderPlus" />
-                New project
-              </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={!creation.onNewSection || creation.isCreatingSection}
                 onSelect={creation.onNewSection}

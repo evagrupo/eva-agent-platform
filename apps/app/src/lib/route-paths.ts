@@ -79,9 +79,14 @@ export type { ThreadRoutePathArgs } from "@bb/client-core";
 
 export const EVA_AGENTS_ROUTE_PATH = "/agents";
 export const EVA_AGENT_DETAIL_ROUTE_PATH = "/agents/:agentId";
+export const EVA_ADMIN_ROUTE_PATH = "/admin";
 
 export function getEvaAgentsRoutePath(): string {
   return EVA_AGENTS_ROUTE_PATH;
+}
+
+export function getEvaAdminRoutePath(): string {
+  return EVA_ADMIN_ROUTE_PATH;
 }
 
 export function getEvaAgentDetailRoutePath(agentId: string): string {

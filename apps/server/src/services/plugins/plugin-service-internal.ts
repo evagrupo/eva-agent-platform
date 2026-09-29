@@ -131,6 +131,7 @@ export interface PluginServiceDeps {
     path: string;
   }) => Promise<void>;
   onArtifactMaterialize?: (args: { path: string }) => void;
+  pluginLoopbackSecret?: Buffer;
   callPluginHost?: (args: {
     pluginId: string;
     contract: import("@get-bb/plugin-sdk").PluginRpcContract;

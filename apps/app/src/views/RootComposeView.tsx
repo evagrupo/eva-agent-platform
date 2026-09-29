@@ -8,6 +8,7 @@ import {
 } from "@/hooks/queries/system-queries";
 import {
   findLocalPathProjectSourceForHost,
+  PERSONAL_PROJECT_ID,
   type EnvironmentStatus,
   type Host,
   type ProviderInfo,
@@ -82,7 +83,6 @@ import {
 } from "@/lib/composer-focus-requests";
 import { PluginComposerHostProvider } from "@/components/plugin/plugin-composer-host";
 import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
-import { useQuickCreateProjectController } from "@/hooks/useQuickCreateProject";
 import type { PromptDraftAttachment } from "@bb/client-core";
 import {
   buildForkThreadRequest,
@@ -224,6 +224,42 @@ export function readRootComposeSectionTargetFromLocationState(
   if ("sectionId" in state) {
     const sectionId = readSectionIdFromLocationState(state);
     return sectionId ? { sectionId, kind: "set" } : { kind: "clear" };
+  }
+
+  if ("focusPrompt" in state && state.focusPrompt === true) {
+    return { kind: "clear" };
+  }
+
+  return null;
+}
+
+export function readInitialAgentIdFromLocationState(
+  state: unknown,
+): string | null {
+  if (typeof state !== "object" || state === null) {
+    return null;
+  }
+  if (!("agentId" in state) || typeof state.agentId !== "string") {
+    return null;
+  }
+  const agentId = state.agentId.trim();
+  return agentId.length > 0 ? agentId : null;
+}
+
+type RootComposeAgentTarget =
+  | { kind: "clear" }
+  | { agentId: string; kind: "set" };
+
+export function readRootComposeAgentTargetFromLocationState(
+  state: unknown,
+): RootComposeAgentTarget | null {
+  if (typeof state !== "object" || state === null) {
+    return null;
+  }
+
+  if ("agentId" in state) {
+    const agentId = readInitialAgentIdFromLocationState(state);
+    return agentId ? { agentId, kind: "set" } : { kind: "clear" };
   }
 
   if ("focusPrompt" in state && state.focusPrompt === true) {
@@ -509,6 +545,9 @@ export function RootComposeView() {
   const [rootComposeSectionId, setRootComposeSectionId] = useState<
     string | null
   >(() => readSectionIdFromLocationState(location.state));
+  const [rootComposeSeededAgentId, setRootComposeSeededAgentId] = useState<
+    string | null
+  >(() => readInitialAgentIdFromLocationState(location.state));
   const [lastCreatedThreadId, setLastCreatedThreadId] = useState<string | null>(
     null,
   );
@@ -520,6 +559,10 @@ export function RootComposeView() {
   const [forkSeed, setForkSeed] = useState<ForkThreadCreateSeed | null>(() =>
     readForkThreadCreateSeedFromLocationState(location.state),
   );
+  useEffect(() => {
+    if (rootComposeProjectId === PERSONAL_PROJECT_ID) return;
+    setRootComposeProjectId(PERSONAL_PROJECT_ID);
+  }, [rootComposeProjectId, setRootComposeProjectId]);
 
   const handleProjectChange = useCallback(
     (projectId: string) => {
@@ -567,6 +610,7 @@ export function RootComposeView() {
       setLastCreatedThreadId(thread.id);
       setForkSeed(null);
       setRootComposeSectionId(null);
+      setRootComposeSeededAgentId(null);
       if (shouldNavigateToCreatedThread) {
         navigate(
           getThreadRoutePath({
@@ -587,9 +631,8 @@ export function RootComposeView() {
   );
   const composerSeed = useMemo(
     () =>
-      forkSeed === null
-        ? undefined
-        : {
+      forkSeed !== null
+        ? {
             agentId: forkSeed.agentId,
             providerId: forkSeed.providerId,
             model: forkSeed.model,
@@ -600,8 +643,11 @@ export function RootComposeView() {
               type: "reuse" as const,
               environmentId: forkSeed.environmentId,
             },
-          },
-    [forkSeed],
+          }
+        : rootComposeSeededAgentId !== null
+          ? { agentId: rootComposeSeededAgentId }
+          : undefined,
+    [forkSeed, rootComposeSeededAgentId],
   );
 
   return (
@@ -624,6 +670,7 @@ export function RootComposeView() {
           setForkSeed={setForkSeed}
           setRootComposeProjectId={setRootComposeProjectId}
           setRootComposeSectionId={setRootComposeSectionId}
+          setRootComposeSeededAgentId={setRootComposeSeededAgentId}
           setStartedComposing={setStartedComposing}
           startedComposing={startedComposing}
         />
@@ -640,6 +687,7 @@ interface RootComposeSurfaceProps {
   setForkSeed: (seed: ForkThreadCreateSeed | null) => void;
   setRootComposeProjectId: (projectId: string) => void;
   setRootComposeSectionId: (sectionId: string | null) => void;
+  setRootComposeSeededAgentId: (agentId: string | null) => void;
   setStartedComposing: (started: boolean) => void;
   startedComposing: boolean;
 }
@@ -652,6 +700,7 @@ function RootComposeSurface({
   setForkSeed,
   setRootComposeProjectId,
   setRootComposeSectionId,
+  setRootComposeSeededAgentId,
   setStartedComposing,
   startedComposing,
 }: RootComposeSurfaceProps) {
@@ -664,7 +713,6 @@ function RootComposeSurface({
   const location = useLocation();
   const navigate = useNavigate();
   const isPointerCoarse = usePointerCoarse();
-  const quickCreateProject = useQuickCreateProjectController();
   const {
     projectId,
     isProjectless,
@@ -753,6 +801,9 @@ function RootComposeSurface({
     const sectionTarget = readRootComposeSectionTargetFromLocationState(
       location.state,
     );
+    const agentTarget = readRootComposeAgentTargetFromLocationState(
+      location.state,
+    );
     const reuseEnvironmentId = readReuseEnvironmentIdFromLocationState(
       location.state,
     );
@@ -767,6 +818,11 @@ function RootComposeSurface({
       setRootComposeSectionId(sectionTarget.sectionId);
     } else if (sectionTarget?.kind === "clear") {
       setRootComposeSectionId(null);
+    }
+    if (agentTarget?.kind === "set") {
+      setRootComposeSeededAgentId(agentTarget.agentId);
+    } else if (agentTarget?.kind === "clear") {
+      setRootComposeSeededAgentId(null);
     }
     if (reuseEnvironmentId !== null) {
       seedEnvironmentSelectionValue(encodeReuseValue(reuseEnvironmentId));
@@ -795,6 +851,7 @@ function RootComposeSurface({
     setProviderModelReasoning,
     setRootComposeProjectId,
     setRootComposeSectionId,
+    setRootComposeSeededAgentId,
     setServiceTier,
     setStartedComposing,
     stateInitialPrompt,
@@ -1956,12 +2013,6 @@ function RootComposeSurface({
     pluginComposerHost,
     textEffects: promptTextEffects,
     allowNoProject: true,
-    createProject: {
-      onCreate: quickCreateProject.openCreateDialog,
-      disabled:
-        !quickCreateProject.isAvailable || quickCreateProject.isCreating,
-      isCreating: quickCreateProject.isCreating,
-    },
     onRequestMachineSetup: handleRequestMachineSetup,
     locks: {
       project: isForkDraft,
@@ -2034,14 +2085,7 @@ function RootComposeSurface({
               }}
             >
               {showEmptyWelcome ? (
-                <RootComposeEmptyWelcome
-                  onCompose={handleStartComposing}
-                  onAddProject={quickCreateProject.openCreateDialog}
-                  addProjectDisabled={
-                    !quickCreateProject.isAvailable ||
-                    quickCreateProject.isCreating
-                  }
-                />
+                <RootComposeEmptyWelcome onCompose={handleStartComposing} />
               ) : (
                 promptBox
               )}

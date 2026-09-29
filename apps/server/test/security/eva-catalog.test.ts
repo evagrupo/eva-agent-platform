@@ -3,6 +3,7 @@ import {
   EVA_AGENT_CATALOG,
   EVA_DEFAULT_MODEL,
   EVA_DEFAULT_PERMISSION_MODE,
+  EVA_DEFAULT_PROVIDER_ID,
   EVA_DEFAULT_REASONING_LEVEL,
   EVA_REGISTERED_PROVIDER_IDS,
 } from "../../src/agents/eva-agent-catalog.js";
@@ -39,11 +40,21 @@ describe("EVA built-in agent catalog", () => {
       "Recobro",
       "RR. HH.",
     ]);
+    expect(EVA_DEFAULT_PROVIDER_ID).toBe("acp-cursor");
+    expect(EVA_DEFAULT_MODEL).toBe("grok-4.7");
+    expect(EVA_DEFAULT_REASONING_LEVEL).toBe("high");
     for (const agent of EVA_AGENT_CATALOG) {
       expect(agent.instructions.length).toBeGreaterThan(0);
-      expect(agent.defaultProviderId).toBe(agent.sourceProviderId ?? null);
-      expect(agent.defaultModel).toBe(EVA_DEFAULT_MODEL);
-      expect(agent.defaultReasoningLevel).toBe(EVA_DEFAULT_REASONING_LEVEL);
+      expect(agent.defaultProviderId).toBe(
+        agent.sourceProviderId ?? EVA_DEFAULT_PROVIDER_ID,
+      );
+      if (agent.sourceProviderId === "codex") {
+        expect(agent.defaultModel).toBe("gpt-5.6-luna");
+        expect(agent.defaultReasoningLevel).toBe("max");
+      } else {
+        expect(agent.defaultModel).toBe(EVA_DEFAULT_MODEL);
+        expect(agent.defaultReasoningLevel).toBe(EVA_DEFAULT_REASONING_LEVEL);
+      }
       expect(agent.defaultPermissionMode).toBe(EVA_DEFAULT_PERMISSION_MODE);
       expect(agent.providerIds).toEqual(
         agent.sourceProviderId

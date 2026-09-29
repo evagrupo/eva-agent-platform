@@ -3,6 +3,7 @@ import type { Hono } from "hono";
 import type { AppDeps } from "../types.js";
 import type { CoreAuthService } from "../core-auth.js";
 import { permissionModeValues, reasoningLevelSchema } from "@bb/domain";
+import { listHostScopeProviderModelsJson } from "@bb/db";
 import {
   assertCoreCapability,
   corePolicySchema,
@@ -37,7 +38,7 @@ const userCreateSchema = z
   .object({
     email: z.string().min(3).max(320),
     name: z.string().min(1).max(160),
-    password: z.string().min(12).max(128),
+    password: z.string().min(12).max(128).optional(),
     role: coreRoleSchema,
     policyId: idSchema,
     defaultAgentId: z.string().min(1).max(512).nullable().optional(),
@@ -54,7 +55,12 @@ const userUpdateSchema = z
   })
   .strict();
 const passwordResetSchema = z
-  .object({ password: z.string().min(12).max(128) })
+  .object({ password: z.string().min(12).max(128).optional() })
+  .strict();
+const userAgentsSchema = z
+  .object({
+    agentIds: z.array(z.string().min(1).max(512)).max(256),
+  })
   .strict();
 const policyCreateSchema = z
   .object({
@@ -98,6 +104,30 @@ const grantCreateSchema = z
     pluginIds: z.array(z.string().min(1).max(512)).max(256),
   })
   .strict();
+const storedModelsSchema = z.array(z.object({ model: z.string().min(1) }));
+
+function discoveredModelIdsByProvider(
+  rows: ReturnType<typeof listHostScopeProviderModelsJson>,
+): Map<string, string[]> {
+  const byProvider = new Map<string, string[]>();
+  for (const row of rows) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(row.modelsJson);
+    } catch {
+      continue;
+    }
+    const parsed = storedModelsSchema.safeParse(raw);
+    if (!parsed.success) continue;
+    const ids = byProvider.get(row.providerId) ?? [];
+    for (const { model } of parsed.data) {
+      if (!ids.includes(model)) ids.push(model);
+    }
+    byProvider.set(row.providerId, ids);
+  }
+  return byProvider;
+}
+
 const grantUpdateSchema = grantCreateSchema
   .omit({ id: true, userId: true, groupId: true })
   .partial()
@@ -187,6 +217,22 @@ export function registerAccessRoutes(
     providerRegistry: deps.providerRegistry,
   });
 
+  const providerModelIdMap = (): Map<string, string[]> => {
+    const discovered = discoveredModelIdsByProvider(
+      listHostScopeProviderModelsJson(deps.db),
+    );
+    const merged = new Map<string, string[]>();
+    for (const provider of deps.providerRegistry.list()) {
+      merged.set(provider.info.id, [
+        ...new Set([
+          ...provider.fallbackModels.map((model) => model.model),
+          ...(discovered.get(provider.info.id) ?? []),
+        ]),
+      ]);
+    }
+    return merged;
+  };
+
   app.get("/access/status", (context) => {
     const authContext = getCoreAuthContext(context);
     return context.json({
@@ -213,7 +259,9 @@ export function registerAccessRoutes(
     if (authContext === null)
       throw new ApiError(401, "unauthorized", "Unauthorized");
     assertCoreCapability(context, "workspaceBootstrap");
-    return context.json(policyBootstrapForContext(authContext));
+    return context.json(
+      policyBootstrapForContext(authContext, providerModelIdMap()),
+    );
   });
 
   app.get("/access/agents", (context) => {
@@ -246,6 +294,7 @@ export function registerAccessRoutes(
         `${right.pluginId}:${right.id}`,
       ),
     );
+    const providerModelIds = providerModelIdMap();
     return context.json({
       defaults: {
         providerId: EVA_DEFAULT_PROVIDER_ID,
@@ -259,7 +308,7 @@ export function registerAccessRoutes(
       providers: deps.providerRegistry.list().map((provider) => ({
         id: provider.info.id,
         displayName: provider.info.displayName,
-        modelIds: provider.fallbackModels.map((model) => model.model),
+        modelIds: providerModelIds.get(provider.info.id) ?? [],
         reasoningLevels: [...provider.serverCapabilities.reasoningLevels],
         permissionModes: [...provider.info.capabilities.permissionModes],
       })),
@@ -296,7 +345,9 @@ export function registerAccessRoutes(
     if (authContext === null)
       throw new ApiError(401, "unauthorized", "Unauthorized");
     assertCoreCapability(context, "workspaceBootstrap");
-    return context.json(policyBootstrapForContext(authContext));
+    return context.json(
+      policyBootstrapForContext(authContext, providerModelIdMap()),
+    );
   });
 
   app.get("/access/users", (context) => {
@@ -345,12 +396,12 @@ export function registerAccessRoutes(
       passwordResetSchema,
       "Invalid password reset request",
     );
-    await management.resetPassword({
+    const result = await management.resetPassword({
       ...input,
       userId: context.req.param("id"),
       actorUserId: actor.userId,
     });
-    return context.json({ ok: true });
+    return context.json({ ok: true, ...result });
   });
 
   app.post("/access/users/:id/revoke-sessions", (context) => {
@@ -360,6 +411,31 @@ export function registerAccessRoutes(
       actorUserId: actor.userId,
     });
     return context.json({ ok: true, revoked: count });
+  });
+
+  app.put("/access/users/:id/agents", async (context) => {
+    const actor = requireAdministrator();
+    const input = await parseBody(
+      context,
+      userAgentsSchema,
+      "Invalid user agent assignment",
+    );
+    return context.json(
+      management.setUserAgents({
+        userId: context.req.param("id"),
+        agentIds: input.agentIds,
+        actorUserId: actor.userId,
+      }),
+    );
+  });
+
+  app.delete("/access/users/:id", (context) => {
+    const actor = requireAdministrator();
+    management.deleteUser({
+      userId: context.req.param("id"),
+      actorUserId: actor.userId,
+    });
+    return context.json({ ok: true });
   });
 
   app.get("/access/policies", (context) => {

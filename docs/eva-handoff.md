@@ -126,6 +126,8 @@ trap 'rm -rf "$test_data_dir"' EXIT
 NODE_ENV=production \
 BB_AUTH_REQUIRED=true \
 BB_AUTH_SECRET="$(openssl rand -hex 32)" \
+BB_AUTH_OWNER_EMAIL='owner@eva.test' \
+BB_AUTH_OWNER_PASSWORD='replace-with-a-12-character-password' \
 BB_DATA_DIR="$test_data_dir/data" \
 BB_SERVER_BIND_HOST=127.0.0.1 \
 BB_SERVER_PORT=39886 \
@@ -142,6 +144,10 @@ In another shell while it is running:
 curl --fail http://127.0.0.1:39886/health
 curl --fail http://127.0.0.1:39886/readyz
 ```
+
+An empty data directory with `BB_AUTH_REQUIRED=true` exits before `/health` unless both
+owner variables are set on that first boot. Password must be 12–128 characters.
+Use a real secret store value in production; the example email/password are local-only.
 
 Stop the process cleanly. Never use `reset`, `clean`, or a broad deletion to
 repair a dirty checkout; preserve and inspect existing user changes first.

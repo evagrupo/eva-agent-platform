@@ -11,6 +11,7 @@ import {
 } from "@/lib/path-list-options";
 
 const HOSTS_QUERY_KEY = "hosts";
+const EVA_AGENTS_QUERY_KEY = "evaAgents";
 const HOST_QUERY_KEY = "host";
 const HOST_DIRECTORY_QUERY_KEY = "hostDirectory";
 const HOST_CLONE_DEFAULT_PATH_QUERY_KEY = "hostCloneDefaultPath";
@@ -527,6 +528,10 @@ interface ProjectDefaultExecutionOptionsQueryKeyArgs {
 
 export function hostsQueryKey(includeCreating = false): HostsQueryKey {
   return includeCreating ? [HOSTS_QUERY_KEY, true] : [HOSTS_QUERY_KEY];
+}
+
+export function evaAgentsQueryKey() {
+  return [EVA_AGENTS_QUERY_KEY] as const;
 }
 
 export function hostQueryKey(hostId: HostQueryId): HostQueryKey {

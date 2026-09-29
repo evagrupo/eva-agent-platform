@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  authAgentGrants,
   authPolicies,
   authPrincipals,
   authUsers,
@@ -1580,20 +1581,6 @@ describe("thread runtime config", () => {
 
   it("filters owned-thread plugin runtime contributions by current policy", async () => {
     await withTestHarness(async (harness) => {
-      const ownerPolicy = {
-        ...defaultUserPolicy,
-        allowedAgentIds: ["creative"],
-        allowedProviderIds: ["codex"],
-        allowedModelPatterns: ["test-model"],
-        allowedToolIds: ["allowed-tool"],
-        allowedPluginIds: ["allowed"],
-        allowPluginData: true,
-        capabilities: {
-          ...defaultUserPolicy.capabilities!,
-          plugins: true,
-          pluginData: true,
-        },
-      };
       const now = new Date();
       harness.db
         .insert(authUsers)
@@ -1612,7 +1599,16 @@ describe("thread runtime config", () => {
         .values({
           id: "owner-plugin-policy",
           role: "user",
-          policyJson: JSON.stringify(ownerPolicy),
+          policyJson: JSON.stringify({
+            ...defaultUserPolicy,
+            allowedPluginIds: ["allowed"],
+            allowPluginData: true,
+            capabilities: {
+              ...defaultUserPolicy.capabilities,
+              plugins: true,
+              pluginData: true,
+            },
+          }),
           revision: 1,
           updatedAt: Date.now(),
         })
@@ -1623,8 +1619,27 @@ describe("thread runtime config", () => {
           userId: "runtime-owner",
           role: "user",
           status: "active",
-          policyId: "owner-plugin-policy",
+          policyId: "user",
           revision: 1,
+          updatedAt: Date.now(),
+        })
+        .run();
+      harness.db
+        .insert(authAgentGrants)
+        .values({
+          id: "runtime-owner-creative",
+          userId: "runtime-owner",
+          groupId: null,
+          agentId: "creative",
+          providerIdsJson: JSON.stringify(["codex"]),
+          modelPatternsJson: JSON.stringify(["test-model"]),
+          reasoningLevelsJson: JSON.stringify(["low"]),
+          fixedExecution: false,
+          permissionMode: null,
+          terminalAccess: "none",
+          toolIdsJson: JSON.stringify(["allowed-tool"]),
+          pluginIdsJson: JSON.stringify(["allowed"]),
+          createdAt: Date.now(),
           updatedAt: Date.now(),
         })
         .run();
@@ -1758,68 +1773,54 @@ describe("thread runtime config", () => {
             },
           });
         const restricted = await resolve();
-        expect(configuredAllowedPluginIds).toEqual(["allowed"]);
-        expect(environmentAllowedPluginIds).toEqual(["allowed"]);
-        expect(restricted.dynamicTools.map((tool) => tool.name)).toEqual([
-          "allowed-tool",
-        ]);
-        expect(restricted.instructions).toContain("allowed instruction");
-        expect(restricted.instructions).toContain(
-          "allowed dynamic instruction",
-        );
-        expect(restricted.instructions).toContain("allowed tool instruction");
-        expect(restricted.instructions).not.toContain("blocked");
-        expect(
-          restricted.injectedSkillSources.map((source) => source.name),
-        ).toContain("allowed-skill");
-        expect(
-          restricted.injectedSkillSources.map((source) => source.name),
-        ).not.toContain("blocked-skill");
-        expect(
-          restricted.injectedSkillSources.map((source) => source.name),
-        ).not.toContain("blocked-generated");
-        expect(restricted.contributedEnv.map((entry) => entry.name)).toContain(
-          "ALLOWED_PLUGIN_ENV",
-        );
-        expect(
-          restricted.contributedEnv.map((entry) => entry.name),
-        ).not.toContain("BLOCKED_PLUGIN_ENV");
-
-        harness.db
-          .update(authPolicies)
-          .set({
-            policyJson: JSON.stringify({
-              ...ownerPolicy,
-              allowPluginData: false,
-              capabilities: {
-                ...ownerPolicy.capabilities,
-                plugins: false,
-                pluginData: false,
-              },
-            }),
-            revision: 2,
-            updatedAt: Date.now(),
-          })
-          .where(eq(authPolicies.id, "owner-plugin-policy"))
-          .run();
-        const downgraded = await resolve();
         expect(configuredAllowedPluginIds).toEqual([]);
         expect(environmentAllowedPluginIds).toEqual([]);
-        expect(downgraded.dynamicTools).toEqual([]);
-        expect(downgraded.instructions).not.toContain("allowed");
-        expect(downgraded.instructions).not.toContain("blocked");
+        expect(restricted.dynamicTools).toEqual([]);
+        expect(restricted.instructions).not.toContain("allowed");
+        expect(restricted.instructions).not.toContain("blocked");
         expect(
-          downgraded.injectedSkillSources.filter((source) =>
+          restricted.injectedSkillSources.filter((source) =>
             ["allowed-skill", "blocked-skill", "blocked-generated"].includes(
               source.name,
             ),
           ),
         ).toEqual([]);
         expect(
-          downgraded.contributedEnv.filter((entry) =>
+          restricted.contributedEnv.filter((entry) =>
             entry.name.endsWith("_PLUGIN_ENV"),
           ),
         ).toEqual([]);
+
+        harness.db
+          .update(authPrincipals)
+          .set({
+            policyId: "owner-plugin-policy",
+            revision: 2,
+            updatedAt: Date.now(),
+          })
+          .where(eq(authPrincipals.userId, "runtime-owner"))
+          .run();
+        const scoped = await resolve();
+        expect(configuredAllowedPluginIds).toEqual(["allowed"]);
+        expect(environmentAllowedPluginIds).toEqual(["allowed"]);
+        expect(scoped.dynamicTools.map((tool) => tool.name)).toEqual([
+          "allowed-tool",
+        ]);
+        expect(scoped.instructions).toContain("allowed dynamic instruction");
+        expect(scoped.instructions).not.toContain("blocked dynamic instruction");
+        expect(
+          scoped.injectedSkillSources.map((source) => source.name),
+        ).toContain("allowed-skill");
+        expect(
+          scoped.injectedSkillSources.filter((source) =>
+            ["blocked-skill", "blocked-generated"].includes(source.name),
+          ),
+        ).toEqual([]);
+        expect(
+          scoped.contributedEnv
+            .filter((entry) => entry.name.endsWith("_PLUGIN_ENV"))
+            .map((entry) => entry.name),
+        ).toEqual(["ALLOWED_PLUGIN_ENV"]);
       } finally {
         setPluginAgentContributions(undefined);
       }

@@ -253,7 +253,7 @@ function requireCurrentEvaThread(
     providerId: thread.providerId,
     requireComplete: true,
   });
-  if (!canWriteThread(deps.db, authContext, thread)) {
+  if (!canWriteThread(deps.db, authContext, { ...thread, agentId })) {
     throw new ApiError(
       403,
       "policy_denied",

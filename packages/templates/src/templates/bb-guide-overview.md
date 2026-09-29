@@ -67,3 +67,4 @@ Run `bb guide <chapter>` for command details:
   json                 The --json contract: output shapes and the error envelope
   commands [group]     Every core command on one page; add a group for options
   eva-agents           Listing and coordinating policy-approved EVA agents
+  access               Creating users and assigning which agents they can use

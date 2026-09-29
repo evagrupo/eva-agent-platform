@@ -26,6 +26,15 @@ export function footerPreferenceKey(item: {
   return `plugin:${encodeURIComponent(item.pluginId)}/${encodeURIComponent(item.id)}`;
 }
 
+const EVA_HIDDEN_SIDEBAR_FOOTER_PLUGIN_IDS = new Set([
+  "connect",
+  "provider-usage",
+]);
+
+export function isEvaSidebarFooterPluginVisible(pluginId: string): boolean {
+  return !EVA_HIDDEN_SIDEBAR_FOOTER_PLUGIN_IDS.has(pluginId);
+}
+
 export function useSidebarFooterPreferences() {
   const { sidebarFooterItems } = usePluginSlots();
   const [order, setOrder] = useAtom(sidebarFooterOrderAtom);
@@ -38,13 +47,15 @@ export function useSidebarFooterPreferences() {
       label: "Settings",
       icon: "Settings",
     },
-    ...sidebarFooterItems.map((slot): FooterItem => ({
-      kind: "plugin",
-      key: footerPreferenceKey(slot),
-      label: slot.label,
-      icon: slot.icon,
-      slot,
-    })),
+    ...sidebarFooterItems
+      .filter((slot) => isEvaSidebarFooterPluginVisible(slot.pluginId))
+      .map((slot): FooterItem => ({
+        kind: "plugin",
+        key: footerPreferenceKey(slot),
+        label: slot.label,
+        icon: slot.icon,
+        slot,
+      })),
   ];
   const { ordered, normalizedOrder } = arrangeByStoredOrder({
     items,

@@ -197,13 +197,6 @@ export function registerSystemRoutes(
   ): boolean {
     const authContext = getCoreAuthContext(context);
     if (authContext === null) return true;
-    const registration = deps.providerRegistry.get(providerId);
-    if (
-      registration !== null &&
-      !pluginVisible(context, registration.pluginId)
-    ) {
-      return false;
-    }
     if (agentId !== undefined) {
       return isProviderAllowedByPolicyForAgent(
         authContext.policy,
@@ -301,22 +294,35 @@ export function registerSystemRoutes(
     context: object,
     query: { agentId?: string; providerId?: string },
     result: Awaited<ReturnType<typeof resolveSystemExecutionOptions>>,
+    agentId: string | undefined,
   ) {
     const authContext = getCoreAuthContext(context);
     if (authContext === null) return result;
-    const agentId = requireExecutionAgent(context, query.agentId)!;
+    const resolvedAgentId = agentId!;
     const providers = result.providers.filter((provider) =>
-      providerVisible(context, provider.id, agentId),
+      providerVisible(context, provider.id, resolvedAgentId),
     );
     if (query.providerId === undefined) {
+      const modelLoadErrorProviderVisible =
+        result.modelLoadError !== null &&
+        providers.some(
+          (provider) => provider.id === result.modelLoadError!.providerId,
+        );
       return {
         ...result,
         providers,
         models: [],
         selectedOnlyModels: [],
+        modelLoadError: modelLoadErrorProviderVisible
+          ? result.modelLoadError
+          : null,
       };
     }
-    const allowedProvider = providerVisible(context, query.providerId, agentId);
+    const allowedProvider = providerVisible(
+      context,
+      query.providerId,
+      resolvedAgentId,
+    );
     if (!allowedProvider) {
       throw new ApiError(
         403,
@@ -329,7 +335,7 @@ export function registerSystemRoutes(
         filterModelForAgent(
           model,
           authContext.policy,
-          agentId,
+          resolvedAgentId,
           query.providerId!,
           authContext.evaAgents === undefined
             ? undefined
@@ -343,7 +349,7 @@ export function registerSystemRoutes(
         filterModelForAgent(
           model,
           authContext.policy,
-          agentId,
+          resolvedAgentId,
           query.providerId!,
           authContext.evaAgents === undefined
             ? undefined
@@ -354,7 +360,7 @@ export function registerSystemRoutes(
       .filter((model): model is AvailableModel => model !== null);
     const permissionCeiling = permissionCeilingForPolicyForAgent(
       authContext.policy,
-      agentId,
+      resolvedAgentId,
       query.providerId,
       authContext.evaAgents === undefined
         ? undefined
@@ -953,8 +959,17 @@ export function registerSystemRoutes(
   });
 
   get(routes.executionOptions, async (context, query) => {
-    const result = await resolveSystemExecutionOptions(deps, query);
-    return context.json(filterExecutionOptionsResponse(context, query, result));
+    const agentId = requireExecutionAgent(context, query.agentId);
+    const result = await resolveSystemExecutionOptions(deps, query, {
+      isPreferredProvider:
+        agentId === undefined
+          ? undefined
+          : (providerId: string) =>
+              providerVisible(context, providerId, agentId),
+    });
+    return context.json(
+      filterExecutionOptionsResponse(context, query, result, agentId),
+    );
   });
 
   post(routes.voiceTranscription, async (context) => {

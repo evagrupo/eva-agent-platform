@@ -20,6 +20,7 @@ export type {
   WorkspaceArgs,
 } from "@bb/server-contract";
 
+export type * from "./areas/access.js";
 export type * from "./realtime.js";
 export type * from "./areas/environments.js";
 export type * from "./areas/files.js";

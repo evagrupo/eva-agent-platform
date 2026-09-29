@@ -18,10 +18,18 @@ import {
 } from "jotai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ThreadListEntry } from "@bb/domain";
-import { ActiveSidebarModeSections, MachineModeSections } from "./ProjectList";
-import { buildMachineThreadGroups } from "@bb/client-core";
+import {
+  ActiveSidebarModeSections,
+  AgentModeSections,
+  MachineModeSections,
+} from "./ProjectList";
+import {
+  buildAgentThreadGroups,
+  buildMachineThreadGroups,
+} from "@bb/client-core";
 import {
   collapsedSidebarSectionIdsAtom,
+  sidebarAgentSectionOrderAtom,
   sidebarCollapsedMachinesAtom,
   sidebarManualSectionOrderAtom,
   sidebarMachineSectionOrderAtom,
@@ -35,10 +43,24 @@ import { useSidebarModeSectionOrder } from "./useSidebarModeSectionOrder";
 import { makeThreadListEntry } from "@bb/test-helpers/domain-fixtures";
 
 const mockUseHosts = vi.hoisted(() => vi.fn(() => ({ data: [] })));
+const mockUseEvaAgents = vi.hoisted(() =>
+  vi.fn(() => ({
+    data: {
+      agents: [] as { id: string; displayName: string; icon?: string }[],
+      availableCount: 0,
+      weeklyConversations: 0,
+      canManage: false,
+    },
+  })),
+);
 
 vi.mock("@/hooks/queries/host-queries", () => ({
   useHosts: mockUseHosts,
   usePrimaryHost: vi.fn(() => undefined),
+}));
+
+vi.mock("@/hooks/queries/eva-agents-query", () => ({
+  useEvaAgents: mockUseEvaAgents,
 }));
 
 vi.mock("@/hooks/queries/system-queries", () => ({
@@ -52,10 +74,12 @@ vi.mock("@bb/client-core", async (importOriginal) => {
   return {
     ...actual,
     buildMachineThreadGroups: vi.fn(actual.buildMachineThreadGroups),
+    buildAgentThreadGroups: vi.fn(actual.buildAgentThreadGroups),
   };
 });
 
 const mockBuildMachineThreadGroups = vi.mocked(buildMachineThreadGroups);
+const mockBuildAgentThreadGroups = vi.mocked(buildAgentThreadGroups);
 
 function getModeOrderProbeConfig(mode: SidebarOrganizationMode): {
   entitySectionIds: SidebarSectionId[];
@@ -68,6 +92,8 @@ function getModeOrderProbeConfig(mode: SidebarOrganizationMode): {
       return { entitySectionIds: ["section:a"] };
     case "machine":
       return { entitySectionIds: [], hasThreadsSection: true };
+    case "agent":
+      return { entitySectionIds: ["agent:hr"], hasThreadsSection: false };
   }
 }
 
@@ -85,6 +111,7 @@ function ModeOrderProbe({ mode }: { mode: SidebarOrganizationMode }) {
 
 interface ActiveModeOrderProbeProps {
   mode: SidebarOrganizationMode;
+  renderAgent?: () => ReactNode;
   renderChronological?: () => ReactNode;
   renderMachine?: () => ReactNode;
   renderProject?: () => ReactNode;
@@ -92,6 +119,7 @@ interface ActiveModeOrderProbeProps {
 
 function ActiveModeOrderProbe({
   mode,
+  renderAgent = () => <ModeOrderProbe key="agent" mode="agent" />,
   renderChronological = () => (
     <ModeOrderProbe key="chronological" mode="chronological" />
   ),
@@ -101,6 +129,7 @@ function ActiveModeOrderProbe({
   return (
     <ActiveSidebarModeSections
       mode={mode}
+      renderAgent={renderAgent}
       renderChronological={renderChronological}
       renderMachine={renderMachine}
       renderProject={renderProject}
@@ -183,6 +212,50 @@ function MachineModeProbe({ threads = [] }: { threads?: ThreadListEntry[] }) {
   );
 }
 
+function AgentModeProbe({ threads = [] }: { threads?: ThreadListEntry[] }) {
+  const [collapsedSectionIds, setCollapsedSectionIds] = useAtom(
+    collapsedSidebarSectionIdsAtom,
+  );
+  const collapsedSectionIdSet = useMemo(
+    () => new Set(collapsedSectionIds),
+    [collapsedSectionIds],
+  );
+  const handleToggleCollapsed = (id: CollapsibleSidebarSectionId) => {
+    setCollapsedSectionIds((current) =>
+      current.includes(id)
+        ? current.filter((sectionId) => sectionId !== id)
+        : [...current, id],
+    );
+  };
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AgentModeSections
+        threads={threads}
+        draftThreadIds={new Set()}
+        effectivePinnedThreadIds={new Set()}
+        status="ready"
+        showPinnedSection={false}
+        pinnedSection={{ label: "Pinned", content: null }}
+        pinnedReorderPending={false}
+        pinnedRootNodes={[]}
+        pinnedThreads={[]}
+        onReorderPinnedThread={vi.fn()}
+        threadsSection={{ label: "Threads" }}
+        collapsedSectionIds={collapsedSectionIdSet}
+        collapsedThreadIds={new Set()}
+        collapsedEnvironmentIds={new Set()}
+        compareThreads={() => 0}
+        renderSectionDisplayOptions={() => null}
+        isSectionDisplayOptionsOpen={() => false}
+        onToggleCollapsed={handleToggleCollapsed}
+        onToggleThreadCollapsed={vi.fn()}
+        onToggleEnvironmentCollapsed={vi.fn()}
+      />
+    </QueryClientProvider>
+  );
+}
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -195,6 +268,7 @@ describe("sidebar organization mode sections", () => {
     store.set(sidebarSectionOrderAtom, ["threads", "project:a", "pinned"]);
     store.set(sidebarManualSectionOrderAtom, ["section:stale"]);
     store.set(sidebarMachineSectionOrderAtom, ["machine:stale"]);
+    const renderAgent = vi.fn(() => <AgentModeProbe />);
     const renderChronological = vi.fn(() => (
       <ModeOrderProbe mode="chronological" />
     ));
@@ -205,6 +279,7 @@ describe("sidebar organization mode sections", () => {
       <JotaiProvider store={store}>
         <ActiveModeOrderProbe
           mode="project"
+          renderAgent={renderAgent}
           renderChronological={renderChronological}
           renderMachine={renderMachine}
           renderProject={renderProject}
@@ -214,10 +289,13 @@ describe("sidebar organization mode sections", () => {
 
     await screen.findByTestId("project-order");
     expect(renderProject).toHaveBeenCalledOnce();
+    expect(renderAgent).not.toHaveBeenCalled();
     expect(renderChronological).not.toHaveBeenCalled();
     expect(renderMachine).not.toHaveBeenCalled();
     expect(mockUseHosts).not.toHaveBeenCalled();
+    expect(mockUseEvaAgents).not.toHaveBeenCalled();
     expect(mockBuildMachineThreadGroups).not.toHaveBeenCalled();
+    expect(mockBuildAgentThreadGroups).not.toHaveBeenCalled();
     expect(store.get(sidebarManualSectionOrderAtom)).toEqual(["section:stale"]);
     expect(store.get(sidebarMachineSectionOrderAtom)).toEqual([
       "machine:stale",
@@ -229,9 +307,11 @@ describe("sidebar organization mode sections", () => {
     const projectOrder = ["threads", "project:a", "pinned"];
     const sectionOrder = ["section:a", "pinned", "threads"];
     const machineOrder = ["threads", "pinned"];
+    const agentOrder = ["agent:hr", "pinned"];
     store.set(sidebarSectionOrderAtom, projectOrder);
     store.set(sidebarManualSectionOrderAtom, sectionOrder);
     store.set(sidebarMachineSectionOrderAtom, machineOrder);
+    store.set(sidebarAgentSectionOrderAtom, agentOrder);
     store.set(sidebarOrganizationModeAtom, "project");
     render(
       <JotaiProvider store={store}>
@@ -244,6 +324,8 @@ describe("sidebar organization mode sections", () => {
     expect(await screen.findByTestId("chronological-order")).not.toBeNull();
     act(() => store.set(sidebarOrganizationModeAtom, "machine"));
     expect(await screen.findByTestId("machine-order")).not.toBeNull();
+    act(() => store.set(sidebarOrganizationModeAtom, "agent"));
+    expect(await screen.findByTestId("agent-order")).not.toBeNull();
     act(() => store.set(sidebarOrganizationModeAtom, "project"));
     expect(await screen.findByTestId("project-order")).not.toBeNull();
 
@@ -251,6 +333,7 @@ describe("sidebar organization mode sections", () => {
       expect(store.get(sidebarSectionOrderAtom)).toEqual(projectOrder);
       expect(store.get(sidebarManualSectionOrderAtom)).toEqual(sectionOrder);
       expect(store.get(sidebarMachineSectionOrderAtom)).toEqual(machineOrder);
+      expect(store.get(sidebarAgentSectionOrderAtom)).toEqual(agentOrder);
     });
   });
 
@@ -292,5 +375,35 @@ describe("sidebar organization mode sections", () => {
     expect(screen.queryByText("Machine activity")).toBeNull();
     expect(screen.getByLabelText("Plan mode active")).not.toBeNull();
     expect(screen.queryByLabelText("Thread working")).toBeNull();
+  });
+
+  it("lists catalog agents as folders including empty ones", () => {
+    mockUseEvaAgents.mockReturnValue({
+      data: {
+        agents: [
+          { id: "hr", displayName: "RR. HH." },
+          { id: "meta", displayName: "Meta", icon: "Meta" },
+        ],
+        availableCount: 2,
+        weeklyConversations: 1,
+        canManage: false,
+      },
+    });
+    const store = createStore();
+    render(
+      <JotaiProvider store={store}>
+        <AgentModeProbe />
+      </JotaiProvider>,
+    );
+
+    expect(screen.getByText("RR. HH.")).not.toBeNull();
+    expect(screen.getByText("Meta")).not.toBeNull();
+    expect(mockBuildAgentThreadGroups).toHaveBeenCalled();
+    const metaLabel = screen.getByTitle("Meta");
+    const hrLabel = screen.getByTitle("RR. HH.");
+    expect(metaLabel.previousElementSibling?.getAttribute("data-icon")).toBe(
+      "Meta",
+    );
+    expect(hrLabel.previousElementSibling).toBeNull();
   });
 });

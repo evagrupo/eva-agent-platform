@@ -33,6 +33,7 @@ import {
   ProjectListShell,
 } from "./ProjectList";
 import {
+  evaAgentsQueryKey,
   hostsQueryKey,
   sidebarNavigationQueryKey,
 } from "@/hooks/queries/query-keys";
@@ -269,6 +270,63 @@ const machineSidebarNavigation = {
   })),
 } satisfies SidebarBootstrapResponse;
 
+function storyEvaAgent(id: string, displayName: string) {
+  return {
+    id,
+    displayName,
+    description: displayName,
+    icon: "Sparkles",
+    status: "live" as const,
+    sourceProviderId: null,
+    providerIds: ["acp-cursor"],
+    defaultProviderId: "acp-cursor",
+    defaultModel: "grok-4.6",
+    defaultReasoningLevel: "high",
+    defaultPermissionMode: "default",
+    fixedExecution: false,
+    reasoningLevels: ["high"],
+    permissionModes: ["default"],
+    instructions: displayName,
+    skills: [],
+    workspace: {
+      workspaceKey: id,
+      relativePath: id,
+      status: "managed" as const,
+      lastScaffoldedAt: null,
+      managedFiles: [],
+    },
+    weeklyConversationCount: 0,
+  };
+}
+
+const storyEvaAgents = {
+  agents: [
+    storyEvaAgent("hr", "RR. HH."),
+    storyEvaAgent("meta", "Meta"),
+  ],
+  availableCount: 2,
+  weeklyConversations: 1,
+  canManage: true,
+};
+
+const agentSidebarNavigation = {
+  ...loadedSidebarNavigation,
+  personalProject: {
+    ...loadedSidebarNavigation.personalProject,
+    threads: loadedSidebarNavigation.personalProject.threads.map((thread) => ({
+      ...thread,
+      agentId: "hr",
+    })),
+  },
+  projects: loadedSidebarNavigation.projects.map((project) => ({
+    ...project,
+    threads: project.threads.map((thread) => ({
+      ...thread,
+      agentId: project.id === docsProject.id ? "meta" : "hr",
+    })),
+  })),
+} satisfies SidebarBootstrapResponse;
+
 function SidebarFrame({ children, navigation }: SidebarFrameProps) {
   return (
     <ProjectActionsProvider>
@@ -322,6 +380,7 @@ function LoadedSidebar({
 
   useEffect(() => {
     queryClient.setQueryData(SIDEBAR_NAVIGATION_STORY_QUERY_KEY, navigation);
+    queryClient.setQueryData(evaAgentsQueryKey(), storyEvaAgents);
     if (hosts) {
       queryClient.setQueryData(hostsQueryKey(), hosts);
     }
@@ -330,6 +389,10 @@ function LoadedSidebar({
     return () => {
       queryClient.removeQueries({
         queryKey: SIDEBAR_NAVIGATION_STORY_QUERY_KEY,
+        exact: true,
+      });
+      queryClient.removeQueries({
+        queryKey: evaAgentsQueryKey(),
         exact: true,
       });
       if (hosts) {
@@ -529,6 +592,16 @@ export function OrganizationModes() {
       columns={["Populated", "No threads"]}
       className="min-w-max items-start"
     >
+      <StoryRow label="By agent">
+        <OrganizationSidebar
+          mode="agent"
+          navigation={agentSidebarNavigation}
+        />
+        <OrganizationSidebar
+          mode="agent"
+          navigation={emptySidebarNavigation}
+        />
+      </StoryRow>
       <StoryRow label="By project">
         <OrganizationSidebar
           mode="project"

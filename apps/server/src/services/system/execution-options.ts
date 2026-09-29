@@ -395,8 +395,14 @@ export function appendCustomModels(
 export function resolveSystemExecutionOptions(
   deps: LoggedWorkSessionDeps,
   query: SystemExecutionOptionsRequest,
+  options?: { isPreferredProvider?: (providerId: string) => boolean },
 ): Promise<SystemExecutionOptionsResponse> {
-  return resolveExecutionOptions(deps, query, { kind: "picker" });
+  return resolveExecutionOptions(
+    deps,
+    query,
+    { kind: "picker" },
+    options?.isPreferredProvider,
+  );
 }
 
 export function resolveSystemExecutionOptionsForValidation(
@@ -414,6 +420,7 @@ async function resolveExecutionOptions(
   deps: LoggedWorkSessionDeps,
   query: SystemExecutionOptionsRequest,
   access: ProviderModelCatalogAccess,
+  isPreferredProvider?: (providerId: string) => boolean,
 ): Promise<SystemExecutionOptionsResponse> {
   if (query.providerId === undefined) {
     await deps.providerRegistry.whenRegistrationsSettled();
@@ -460,7 +467,11 @@ async function resolveExecutionOptions(
   const modelsProvider =
     earlyModelResultPromise !== null
       ? configuredRequestedProvider
-      : (requestedProvider ?? providers[0]);
+      : (requestedProvider ??
+        (isPreferredProvider
+          ? providers.find((provider) => isPreferredProvider(provider.id))
+          : undefined) ??
+        providers[0]);
 
   const permissionCeiling = getHostPermissionCeiling(deps, hostId);
 

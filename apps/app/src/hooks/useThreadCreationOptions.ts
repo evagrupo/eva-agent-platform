@@ -521,12 +521,19 @@ export function useThreadCreationOptions(
   ]);
   const rawSelectedProviderId =
     selectedProviderIdBeforeReadyFallback || readyProviderId || "";
+  const agentFallbackProviderId =
+    selectedAgentProviderIds === undefined
+      ? undefined
+      : selectedAgent?.defaultProviderId != null &&
+          selectedAgentProviderIds.includes(selectedAgent.defaultProviderId)
+        ? selectedAgent.defaultProviderId
+        : selectedAgentProviderIds[0];
   const executionOptionsProviderId = executionOptionsQueryEnabled
     ? rawSelectedProviderId.length > 0 &&
       (selectedAgentProviderIds === undefined ||
         selectedAgentProviderIds.includes(rawSelectedProviderId))
       ? rawSelectedProviderId
-      : undefined
+      : agentFallbackProviderId
     : undefined;
   const executionOptionsQuery = useSystemExecutionOptions({
     enabled: executionOptionsQueryEnabled,
@@ -569,8 +576,14 @@ export function useThreadCreationOptions(
     ) {
       return rawSelectedProviderId;
     }
+    if (
+      executionOptionsProviderId !== undefined &&
+      providers.some((provider) => provider.id === executionOptionsProviderId)
+    ) {
+      return executionOptionsProviderId;
+    }
     return providers[0]?.id ?? "";
-  }, [providers, rawSelectedProviderId]);
+  }, [executionOptionsProviderId, providers, rawSelectedProviderId]);
 
   const { setValue: setStoredSelectedModel, value: storedSelectedModel } =
     usePromptBoxModelPreference(effectiveProviderId);

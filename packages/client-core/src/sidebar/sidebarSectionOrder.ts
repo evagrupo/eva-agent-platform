@@ -4,8 +4,12 @@ import {
   buildNeighborReorderRequest,
 } from "./neighbor-reorder.js";
 
-type SidebarEntitySectionKind = "project" | "section" | "machine";
-export type LegacySidebarEntityAnchor = "projects" | "sections" | "machines";
+type SidebarEntitySectionKind = "project" | "section" | "machine" | "agent";
+export type LegacySidebarEntityAnchor =
+  | "projects"
+  | "sections"
+  | "machines"
+  | "agents";
 
 export function buildSidebarEntitySectionId(
   kind: SidebarEntitySectionKind,
@@ -20,7 +24,8 @@ function isSidebarSectionId(value: string): value is SidebarSectionId {
     value === "threads" ||
     value.startsWith("project:") ||
     value.startsWith("section:") ||
-    value.startsWith("machine:")
+    value.startsWith("machine:") ||
+    value.startsWith("agent:")
   );
 }
 

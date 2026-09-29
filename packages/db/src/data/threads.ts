@@ -594,10 +594,7 @@ function resolvePinnedThreadNeighbor(
   );
 }
 
-export interface ThreadWithPendingInteractionState
-  extends Omit<ThreadRow, "ownerUserId" | "agentId"> {
-  ownerUserId?: string | null;
-  agentId?: string | null;
+export interface ThreadWithPendingInteractionState extends ThreadRow {
   environmentBranchName: string | null;
   environmentHostId: string | null;
   environmentIsWorktree: boolean | null;

@@ -31,6 +31,7 @@ import CloudIcon from "@hugeicons/core-free-icons/CloudIcon";
 import CloudOffIcon from "@hugeicons/core-free-icons/CloudOffIcon";
 import Coffee02Icon from "@hugeicons/core-free-icons/Coffee02Icon";
 import CollapseIcon from "@hugeicons/core-free-icons/CollapseIcon";
+import CreditCardIcon from "@hugeicons/core-free-icons/CreditCardIcon";
 import DashedLine02Icon from "@hugeicons/core-free-icons/DashedLine02Icon";
 import DateTimeIcon from "@hugeicons/core-free-icons/DateTimeIcon";
 import DiscordIcon from "@hugeicons/core-free-icons/DiscordIcon";
@@ -54,10 +55,12 @@ import GitPullRequestArrow from "@hugeicons/core-free-icons/GitPullRequestIcon";
 import GitPullRequestClosedIcon from "@hugeicons/core-free-icons/GitPullRequestClosedIcon";
 import GitPullRequestDraftIcon from "@hugeicons/core-free-icons/GitPullRequestDraftIcon";
 import GitPullRequestIcon from "@hugeicons/core-free-icons/GitPullRequestIcon";
+import GoogleIcon from "@hugeicons/core-free-icons/GoogleIcon";
 import GridViewIcon from "@hugeicons/core-free-icons/GridViewIcon";
 import InternetIcon from "@hugeicons/core-free-icons/InternetIcon";
 import LaptopIcon from "@hugeicons/core-free-icons/LaptopIcon";
 import Layers01Icon from "@hugeicons/core-free-icons/Layers01Icon";
+import TranslateIcon from "@hugeicons/core-free-icons/TranslateIcon";
 import LayoutTwoColumnIcon from "@hugeicons/core-free-icons/Layout2ColumnIcon";
 import LayoutTwoRowIcon from "@hugeicons/core-free-icons/Layout2RowIcon";
 import LimitationIcon from "@hugeicons/core-free-icons/LimitationIcon";
@@ -68,12 +71,15 @@ import Mail02Icon from "@hugeicons/core-free-icons/Mail02Icon";
 import MailOpen01Icon from "@hugeicons/core-free-icons/MailOpen01Icon";
 import Menu02Icon from "@hugeicons/core-free-icons/Menu02Icon";
 import MessageAdd02Icon from "@hugeicons/core-free-icons/MessageAdd02Icon";
+import MetaIcon from "@hugeicons/core-free-icons/MetaIcon";
 import Mic02Icon from "@hugeicons/core-free-icons/Mic02Icon";
 import MinusSignIcon from "@hugeicons/core-free-icons/MinusSignIcon";
 import MoveToIcon from "@hugeicons/core-free-icons/MoveToIcon";
+import NetworkIcon from "@hugeicons/core-free-icons/NetworkIcon";
 import News01Icon from "@hugeicons/core-free-icons/News01Icon";
 import PackageReceiveIcon from "@hugeicons/core-free-icons/PackageReceiveIcon";
 import PauseIcon from "@hugeicons/core-free-icons/PauseIcon";
+import PhoneCallIcon from "@hugeicons/core-free-icons/PhoneCallIcon";
 import PinIcon from "@hugeicons/core-free-icons/PinIcon";
 import PinOffIcon from "@hugeicons/core-free-icons/PinOffIcon";
 import PlayIcon from "@hugeicons/core-free-icons/PlayIcon";
@@ -88,14 +94,17 @@ import SentIcon from "@hugeicons/core-free-icons/SentIcon";
 import SidebarBottomIcon from "@hugeicons/core-free-icons/SidebarBottomIcon";
 import SidebarRightIcon from "@hugeicons/core-free-icons/SidebarRightIcon";
 import SmartPhone01Icon from "@hugeicons/core-free-icons/SmartPhone01Icon";
+import SparklesIcon from "@hugeicons/core-free-icons/SparklesIcon";
 import Sorting01Icon from "@hugeicons/core-free-icons/Sorting01Icon";
 import SquareIcon from "@hugeicons/core-free-icons/SquareIcon";
 import SquareUnlock02Icon from "@hugeicons/core-free-icons/SquareUnlock02Icon";
 import StarIcon from "@hugeicons/core-free-icons/StarIcon";
 import TestTube01Icon from "@hugeicons/core-free-icons/TestTube01Icon";
 import TextWrapIcon from "@hugeicons/core-free-icons/TextWrapIcon";
+import TiktokIcon from "@hugeicons/core-free-icons/TiktokIcon";
 import TimeScheduleIcon from "@hugeicons/core-free-icons/TimeScheduleIcon";
 import Unarchive03Icon from "@hugeicons/core-free-icons/Unarchive03Icon";
+import UserGroupIcon from "@hugeicons/core-free-icons/UserGroupIcon";
 import UserIcon from "@hugeicons/core-free-icons/UserIcon";
 import ViewIcon from "@hugeicons/core-free-icons/ViewIcon";
 import ViewOffIcon from "@hugeicons/core-free-icons/ViewOffIcon";
@@ -242,11 +251,13 @@ export const EXTENDED_ICON_MAP: ExtendedIconMap = {
   Columns2: LayoutTwoColumnIcon,
   CornerDownLeft: ArrowMoveDownLeftIcon,
   CornerDownRight: ArrowMoveDownRightIcon,
+  CreditCard: CreditCardIcon,
   Discord: DiscordIcon,
   DiscordLogo: DiscordLogoIcon,
   DateTime: DateTimeIcon,
   Github: GithubIcon,
   GithubLogo: GithubLogoIcon,
+  Google: GoogleIcon,
   DragDropHorizontal: DragDropHorizontalIcon,
   DragDropVertical: DragDropVerticalIcon,
   EditFile: Edit04Icon,
@@ -272,6 +283,7 @@ export const EXTENDED_ICON_MAP: ExtendedIconMap = {
   GitPullRequestDraft: GitPullRequestDraftIcon,
   Globe: InternetIcon,
   GridView: GridViewIcon,
+  Languages: TranslateIcon,
   Laptop: LaptopIcon,
   Layers: Layers01Icon,
   Limitation: LimitationIcon,
@@ -280,10 +292,12 @@ export const EXTENDED_ICON_MAP: ExtendedIconMap = {
   Mail: Mail02Icon,
   MailOpen: MailOpen01Icon,
   Maximize2: ExpandIcon,
+  Meta: MetaIcon,
   Mic: Mic02Icon,
   Minus: MinusSignIcon,
   Minimize2: CollapseIcon,
   MoveTo: MoveToIcon,
+  Network: NetworkIcon,
   NewTab: DashedLine02Icon,
   News01: News01Icon,
   PackageReceive: PackageReceiveIcon,
@@ -292,6 +306,7 @@ export const EXTENDED_ICON_MAP: ExtendedIconMap = {
   PanelRight: SidebarRightIcon,
   Paperclip: AttachmentIcon,
   Pause: PauseIcon,
+  PhoneCall: PhoneCallIcon,
   Pin: PinIcon,
   PinOff: PinOffIcon,
   Play: PlayIcon,
@@ -300,17 +315,21 @@ export const EXTENDED_ICON_MAP: ExtendedIconMap = {
   Puzzle: PuzzleIcon,
   Repeat: RepeatIcon,
   SecurityCheck: SecurityCheckIcon,
+  ShieldCheck: SecurityCheckIcon,
   RotateCcw: Refresh01Icon,
   Rows2: LayoutTwoRowIcon,
   Sent: SentIcon,
   SideChat: MessageAdd02Icon,
   Smartphone: SmartPhone01Icon,
   Sort: Sorting01Icon,
+  Sparkles: SparklesIcon,
   Square: SquareIcon,
   SquareUnlock02: SquareUnlock02Icon,
   Star: StarIcon,
   TextWrap: TextWrapIcon,
+  TikTok: TiktokIcon,
   TimeSchedule: TimeScheduleIcon,
+  Users: UserGroupIcon,
   UserRound: UserIcon,
   ZoomIn: ZoomInAreaIcon,
   ZoomOut: ZoomOutAreaIcon,

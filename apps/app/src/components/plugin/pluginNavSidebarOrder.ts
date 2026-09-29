@@ -12,6 +12,7 @@ export const BUILT_IN_SIDEBAR_NAVIGATION_KEYS = {
   skills: "__bb__/skills",
   evaAgents: "__bb__/agents",
   automations: "__bb__/automations",
+  admin: "__bb__/admin",
 } as const;
 
 export const DEFAULT_HIDDEN_SIDEBAR_NAVIGATION_KEYS = [
@@ -25,6 +26,7 @@ export const DEFAULT_BUILT_IN_SIDEBAR_NAVIGATION_ORDER = [
   BUILT_IN_SIDEBAR_NAVIGATION_KEYS.skills,
   BUILT_IN_SIDEBAR_NAVIGATION_KEYS.evaAgents,
   BUILT_IN_SIDEBAR_NAVIGATION_KEYS.automations,
+  BUILT_IN_SIDEBAR_NAVIGATION_KEYS.admin,
 ] as const;
 
 export function seedSkillsNavigationPreference(

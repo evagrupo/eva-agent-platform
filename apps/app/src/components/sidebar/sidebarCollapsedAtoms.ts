@@ -40,6 +40,10 @@ export const sidebarMachineSectionOrderAtom = createSyncedPreferenceAtom(
   "sidebar.machineSectionOrder",
 );
 
+export const sidebarAgentSectionOrderAtom = createSyncedPreferenceAtom(
+  "sidebar.agentSectionOrder",
+);
+
 export const sidebarOrganizationModeAtom = createSyncedPreferenceAtom(
   "sidebar.organizationMode",
 );
@@ -70,4 +74,8 @@ export const sidebarCollapsedThreadSectionsAtom = createSyncedPreferenceAtom(
 
 export const sidebarCollapsedMachinesAtom = createSyncedPreferenceAtom(
   "sidebar.collapsedMachines",
+);
+
+export const sidebarCollapsedAgentsAtom = createSyncedPreferenceAtom(
+  "sidebar.collapsedAgents",
 );

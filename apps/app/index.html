@@ -21,22 +21,22 @@
     <title>EVA Internal Agent Platform</title>
     <link
       rel="icon"
-      type="image/svg+xml"
+      type="image/png"
       sizes="32x32"
-      href="/eva/logo-primary.svg"
+      href="/eva/favicon-leaf-32.png"
       id="favicon-32"
     />
     <link
       rel="icon"
-      type="image/svg+xml"
+      type="image/png"
       sizes="16x16"
-      href="/eva/logo-primary.svg"
+      href="/eva/favicon-leaf-16.png"
       id="favicon-16"
     />
     <link
       rel="apple-touch-icon"
       sizes="180x180"
-      href="/eva/logo-primary.svg"
+      href="/apple-touch-icon.png"
       id="apple-touch-icon"
     />
     <link
@@ -47,17 +47,7 @@
     />
     <script>
       (function () {
-        var dev = "%MODE%" === "development";
-        function setFavicon(dark) {
-          document.getElementById("favicon-32").href = "/eva/logo-primary.svg";
-          document.getElementById("favicon-16").href = "/eva/logo-primary.svg";
-        }
         var mq = window.matchMedia("(prefers-color-scheme: dark)");
-        setFavicon(mq.matches);
-        if (!dev)
-          mq.addEventListener("change", function (e) {
-            setFavicon(e.matches);
-          });
         function getFaviconColorSuffix() {
           try {
             var color = localStorage.getItem("bb.faviconColor");
@@ -74,7 +64,7 @@
         document.getElementById("app-manifest").href =
           "/manifest" + faviconColorSuffix + ".webmanifest";
         document.getElementById("apple-touch-icon").href =
-          "/eva/logo-primary.svg";
+          "/apple-touch-icon" + faviconColorSuffix + ".png";
         // Pre-paint browser-chrome color so PWA/status-bar chrome doesn't
         // flash the wrong shade before the app boots; useTheme.ts owns the
         // meta tag afterwards. Mirrors the bb.theme preference resolution and

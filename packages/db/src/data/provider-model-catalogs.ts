@@ -29,6 +29,19 @@ export function getStoredProviderModelCatalog(
   );
 }
 
+export function listHostScopeProviderModelsJson(
+  db: DbConnection,
+): Array<Pick<StoredProviderModelCatalog, "providerId" | "modelsJson">> {
+  return db
+    .select({
+      providerId: providerModelCatalogs.providerId,
+      modelsJson: providerModelCatalogs.modelsJson,
+    })
+    .from(providerModelCatalogs)
+    .where(eq(providerModelCatalogs.scopeKey, ""))
+    .all();
+}
+
 export function replaceStoredProviderModelCatalog(
   db: DbConnection,
   args: {

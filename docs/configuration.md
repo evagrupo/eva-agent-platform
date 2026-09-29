@@ -686,18 +686,20 @@ client wrote first, so a stale window cannot silently clobber a newer value.
 
 | Key                               | Value                                               |
 | --------------------------------- | --------------------------------------------------- |
-| `sidebar.organizationMode`        | `project`, `chronological`, or `machine`            |
+| `sidebar.organizationMode`        | `agent`, `project`, `chronological`, or `machine`   |
 | `sidebar.threadGrouping.environment` | `auto`, `true`, or `false`                       |
 | `sidebar.chronologicalSort`       | `updated`, `created`, `alpha`, or `none`            |
 | `sidebar.sectionOrder`            | Section id list for **By project**                  |
 | `sidebar.manualSectionOrder`      | Section id list for **Manually**                    |
 | `sidebar.machineSectionOrder`     | Section id list for **By machine**                  |
+| `sidebar.agentSectionOrder`       | Section id list for **By agent**                    |
 | `sidebar.collapsedSections`       | Collapsed built-in sections (`pinned`, `threads`)   |
 | `sidebar.collapsedProjects`       | Collapsed project ids                               |
 | `sidebar.collapsedThreads`        | Thread ids whose children are collapsed             |
 | `sidebar.collapsedEnvironments`   | Collapsed environment ids                           |
 | `sidebar.collapsedThreadSections` | Collapsed thread section ids                        |
 | `sidebar.collapsedMachines`       | Collapsed machine ids                               |
+| `sidebar.collapsedAgents`         | Collapsed agent ids                                 |
 | `sidebar.footerOrder`             | Footer action order                                 |
 | `sidebar.hiddenFooterItems`       | Footer actions moved into More                      |
 | `sidebar.pluginPanelOrder`        | Navigation entry order                              |
@@ -705,14 +707,14 @@ client wrote first, so a stale window cannot silently clobber a newer value.
 | `sidebar.navigationProvider`      | Plugin key, `__automatic__`, or `__builtin__`       |
 | `sidebar.threadListProvider`      | Plugin key, `__automatic__`, or `__builtin__`       |
 
-Custom (`chronological`) is the default for `sidebar.organizationMode` when no
+**By agent** (`agent`) is the default for `sidebar.organizationMode` when no
 value is saved. Existing server and legacy browser choices are preserved.
 
 `sidebar.threadGrouping.environment` decides whether two or more sibling threads
 that share one worktree environment collapse into a single worktree row inside
 their section. `true` groups them and `false` keeps every thread on its own row,
-in every organization mode. The default, `auto`, groups them in **By project**
-and **By machine** and leaves them flat in **Custom**, which is how each mode
+in every organization mode. The default, `auto`, groups them in **By agent**,
+**By project** and **By machine** and leaves them flat in **Custom**, which is how each mode
 behaved before the preference existed. The thread-list header's Organize menu
 exposes it under Groups as the By environment toggle, which writes `true` or
 `false` and so applies to every mode once you use it.
@@ -990,7 +992,7 @@ checks for these sessions every five minutes. Active turns, commands, agents,
 workflows, and monitors keep their sessions loaded.
 
 The `sidebarProgressiveDisclosure` experiment is off by default. In **By
-project** and **By machine**, it shows the first five groups in the current sort
+agent**, **By project** and **By machine**, it shows the first five groups in the current sort
 order, keeps attention groups visible, and reveals ten more per **Show more**
 click. Revealed groups stay visible through activity and sort-order changes.
 **Manually** is unchanged. Toggle it with `bb settings experiment

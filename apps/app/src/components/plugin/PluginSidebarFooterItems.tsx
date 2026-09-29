@@ -38,6 +38,7 @@ import {
 } from "@bb/shared-ui/dropdown-menu";
 import {
   useSidebarFooterPreferences,
+  isEvaSidebarFooterPluginVisible,
   SIDEBAR_FOOTER_MORE_ID,
   type FooterItem,
   type BuiltinFooterId,
@@ -59,7 +60,12 @@ function footerTriggerId(item: PluginSidebarFooterItemSlot): string {
 export function usePluginSidebarFooterDisclosure() {
   const { sidebarFooterItems } = usePluginSlots();
   const disclosures = useMemo(
-    () => sidebarFooterItems.filter((item) => item.kind === "disclosure"),
+    () =>
+      sidebarFooterItems.filter(
+        (item) =>
+          item.kind === "disclosure" &&
+          isEvaSidebarFooterPluginVisible(item.pluginId),
+      ),
     [sidebarFooterItems],
   );
   const [activeKey, setActiveKey] = useState<string | null>(null);

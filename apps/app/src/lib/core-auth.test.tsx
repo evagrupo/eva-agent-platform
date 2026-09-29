@@ -13,7 +13,38 @@ import {
   CoreAuthGate,
   CoreAuthProvider,
   CoreCapabilityGate,
+  useCoreAuth,
 } from "./core-auth";
+
+const EMPTY_CORE_CAPABILITIES = {
+  workspaceBootstrap: true,
+  sidebarFooter: false,
+  settings: false,
+  threadInfo: false,
+  secondaryPanelTabs: false,
+  terminalRead: false,
+  terminalControl: false,
+  terminalFull: false,
+  files: false,
+  environments: false,
+  hosts: false,
+  projects: false,
+  plugins: false,
+  pluginData: false,
+  threadOwnRead: true,
+  threadAllRead: false,
+  threadOwnWrite: true,
+  threadAllWrite: false,
+};
+
+function SignOutProbe() {
+  const auth = useCoreAuth();
+  return (
+    <button onClick={() => void auth?.signOut()}>
+      {auth?.authenticated ? "authenticated" : "signed out"}
+    </button>
+  );
+}
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -249,5 +280,54 @@ describe("core auth gate", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(screen.queryByText("settings should stay hidden")).toBeNull();
+  });
+
+  it("sends a JSON content type on sign-out so better-auth accepts the request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          authenticated: true,
+          required: true,
+          user: { id: "user-1", role: "user" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          policyRevision: 1,
+          capabilities: {
+            core: EMPTY_CORE_CAPABILITIES,
+            execution: { agents: [] },
+          },
+          plugins: { allowedIds: [] },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({ authenticated: false, required: true }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CoreAuthProvider>
+        <SignOutProbe />
+      </CoreAuthProvider>,
+    );
+
+    await screen.findByText("authenticated");
+    fireEvent.click(screen.getByRole("button"));
+
+    await waitFor(() => expect(screen.getByText("signed out")).toBeTruthy());
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/auth/sign-out",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        headers: expect.objectContaining({
+          "content-type": "application/json",
+        }),
+      }),
+    );
   });
 });

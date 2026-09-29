@@ -395,6 +395,22 @@ describe("ThreadRow", () => {
     },
   );
 
+  it("shows the starter name next to the title", () => {
+    renderThreadRow({
+      thread: createThread({
+        title: "Hi",
+        titleFallback: "Hi",
+        ownerName: "Access User",
+      }),
+    });
+
+    expect(screen.getByText("Access User")).not.toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Open Hi · Access User" }),
+    ).not.toBeNull();
+    expect(screen.getByTitle("Hi · Access User")).not.toBeNull();
+  });
+
   it("puts the draft icon in the trailing status slot", () => {
     const { container } = renderThreadRow({
       hasComposerDraft: true,

@@ -366,7 +366,9 @@ describe("EVA agent surface", () => {
       });
       expect(blockedStatus.status).toBe(403);
 
-      const initial = await harness.app.request(path, { headers: adminHeaders });
+      const initial = await harness.app.request(path, {
+        headers: adminHeaders,
+      });
       expect(initial.status).toBe(200);
       expect((await initial.json()).status.configured).toBe(false);
 

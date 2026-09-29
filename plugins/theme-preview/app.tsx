@@ -375,9 +375,7 @@ function ThreadTocFixture() {
 
 const NEW_THREAD_ACTIONS = [
   { icon: "MessageSquarePlus", title: "New thread", description: "Start a new conversation" },
-  { icon: "FolderGit", title: "Automatically import my projects", description: "Find repos touched in the last 30 days" },
-  { icon: "FolderPlus", title: "New project", description: "Create one from a local folder" },
-  { icon: "Explore", title: "Learn what bb can do", description: "Get a tour of its capabilities" },
+  { icon: "Bot", title: "Agents", description: "Browse and open the agent workspace" },
 ] as const;
 
 function Thread({ title = "Endless theme family — blacklight pass", active = true, narrow = false, brief = false, empty = false, showToc = false, story = "blacklight" }: { title?: string; active?: boolean; narrow?: boolean; brief?: boolean; empty?: boolean; showToc?: boolean; story?: "blacklight" | "specimen" }) {

@@ -450,5 +450,6 @@ export const threadListEntrySchema = threadWithRuntimeSchema.extend({
   environmentProviderId: z.string().nullable(),
   environmentIsWorktree: z.boolean().nullable(),
   environmentWorkspaceDisplayKind: environmentWorkspaceDisplayKindSchema,
+  ownerName: z.string().nullable().optional(),
 });
 export type ThreadListEntry = z.infer<typeof threadListEntrySchema>;

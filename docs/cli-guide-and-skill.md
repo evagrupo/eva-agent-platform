@@ -7,6 +7,9 @@ Keep the discoverable surfaces in sync whenever you add or change a `bb` CLI com
 - `bb eva` is the core CLI surface for policy-approved EVA agents. Keep its
   command index, guide chapter, SDK area, and authenticated API routes aligned
   when the agent list, workspace, thread, or collaboration behavior changes.
+- `bb access users` is the core CLI surface for administrator account
+  management and per-user agent assignment. Keep its command index, guide
+  chapter, SDK `access` area, and `/access/users` routes aligned.
 - Match the existing chapter/section style; keep entries concise and accurate against the implementation.
 
 Environment lifecycle hooks are core policy: bb runs `.bb-env-setup.sh` after

@@ -1,4 +1,4 @@
-import { memo, useId } from "react";
+import { memo } from "react";
 import type { PermissionMode, ReasoningLevel, ServiceTier } from "@bb/domain";
 import type {
   SystemExecutionOptionsModelLoadError,
@@ -20,7 +20,7 @@ interface ExecutionProviderConfig {
   hasMultiple?: boolean;
 }
 
-interface ExecutionAgentConfig {
+export interface ExecutionAgentConfig {
   options: readonly { id: string; displayName: string }[];
   selectedId?: string | null;
   onChange?: (value: string) => void;
@@ -81,7 +81,6 @@ export const ExecutionControls = memo(function ExecutionControls({
   fixedExecution = false,
   disabled,
 }: ExecutionControlsProps) {
-  const agentSelectId = useId();
   const handleServiceTierChange = serviceTier?.onChange ?? (() => {});
   const selectedProviderId = provider.selectedId ?? "";
 
@@ -99,31 +98,9 @@ export const ExecutionControls = memo(function ExecutionControls({
       canSwitchProviders ||
       selectedProviderId.length > 0 ||
       handoff !== undefined);
-  const showAgentPicker = agent !== undefined && agent.options.length > 0;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {showAgentPicker ? (
-        <label
-          className="flex items-center gap-1.5 text-xs text-muted-foreground"
-          htmlFor={agentSelectId}
-        >
-          <span>Agent</span>
-          <select
-            id={agentSelectId}
-            value={agent.selectedId ?? ""}
-            onChange={(event) => agent.onChange?.(event.target.value)}
-            disabled={disabled || agent.onChange === undefined}
-            className="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            {agent.options.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
       {showModelPicker ? (
         <ModelReasoningPicker
           agentId={agent?.selectedId ?? undefined}

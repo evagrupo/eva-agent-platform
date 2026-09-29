@@ -422,6 +422,28 @@ describe("getThreadSidebarExpansion", () => {
     ).toEqual({ machineKey: "no-machine" });
   });
 
+  it("expands the owning agent group in agent mode", () => {
+    expect(
+      getThreadSidebarExpansion({
+        organizationMode: "agent",
+        isPinned: false,
+        sidebarProjectId: "proj_app",
+        thread: thread({
+          projectId: "proj_app",
+          agentId: "hr",
+        }),
+      }),
+    ).toEqual({ agentKey: "hr" });
+    expect(
+      getThreadSidebarExpansion({
+        organizationMode: "agent",
+        isPinned: false,
+        sidebarProjectId: "proj_app",
+        thread: thread({ projectId: "proj_app" }),
+      }),
+    ).toEqual({ agentKey: "no-agent" });
+  });
+
   it("expands the pinned section for pinned threads", () => {
     expect(
       getThreadSidebarExpansion({

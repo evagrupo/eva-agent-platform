@@ -37,11 +37,19 @@ interface ResolveRootComposeEffectiveEnvironmentValueArgs {
 interface ResolveProjectlessEnvironmentValueArgs {
   environmentProviders: readonly SystemEnvironmentProvider[] | undefined;
   environmentSelectionValue: string;
+  knownHostIds: ReadonlySet<string>;
   parsedSelection: ReturnType<typeof parseEnvironmentValue>;
   primaryHostId: string | null;
   reuseThreadOptions: readonly ReuseThreadOption[];
   reuseThreadOptionsLoading: boolean;
   seededReuseEnvironment: SeededReuseEnvironment | null;
+}
+
+function projectlessHostIsReady(
+  primaryHostId: string | null,
+  knownHostIds: ReadonlySet<string>,
+): boolean {
+  return primaryHostId !== null || knownHostIds.size > 0;
 }
 
 function reuseSelectionSurvives({
@@ -155,18 +163,22 @@ export function buildReuseThreadOptions(
 export function resolveProjectlessDefaultEnvironmentProvider(
   providers: readonly SystemEnvironmentProvider[],
 ): SystemEnvironmentProvider | null {
+  const projectlessProviders = providers.filter(
+    (provider) => provider.requires.projectless,
+  );
   return (
-    providers.find(
-      (provider) =>
-        provider.id === PERSONAL_WORKSPACE_ENVIRONMENT_PROVIDER_ID &&
-        provider.requires.projectless,
-    ) ?? null
+    projectlessProviders.find(
+      (provider) => provider.id === PERSONAL_WORKSPACE_ENVIRONMENT_PROVIDER_ID,
+    ) ??
+    projectlessProviders[0] ??
+    null
   );
 }
 
 function resolveProjectlessEnvironmentValue({
   environmentProviders,
   environmentSelectionValue,
+  knownHostIds,
   parsedSelection,
   primaryHostId,
   reuseThreadOptions,
@@ -188,18 +200,19 @@ function resolveProjectlessEnvironmentValue({
   if (environmentProviders === undefined) {
     return "";
   }
+  const hostReady = projectlessHostIsReady(primaryHostId, knownHostIds);
   if (
     parsedSelection?.type === "provider" &&
     environmentProviders.some((provider) => {
       if (provider.id !== parsedSelection.environmentProviderId) return false;
-      return provider.requires.projectless && primaryHostId !== null;
+      return provider.requires.projectless && hostReady;
     })
   ) {
     return environmentSelectionValue;
   }
   const defaultProvider = resolveProjectlessDefaultEnvironmentProvider(
     environmentProviders.filter(
-      (provider) => provider.requires.projectless && primaryHostId !== null,
+      (provider) => provider.requires.projectless && hostReady,
     ),
   );
   return defaultProvider === null
@@ -224,6 +237,7 @@ export function resolveRootComposeEffectiveEnvironmentValue({
     return resolveProjectlessEnvironmentValue({
       environmentProviders,
       environmentSelectionValue,
+      knownHostIds,
       parsedSelection,
       primaryHostId,
       reuseThreadOptions,

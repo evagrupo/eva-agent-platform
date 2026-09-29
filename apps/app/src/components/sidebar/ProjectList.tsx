@@ -38,6 +38,7 @@ import {
   useHostPathExistence,
 } from "@/hooks/queries/host-path-queries";
 import { useHosts, usePrimaryHost } from "@/hooks/queries/host-queries";
+import { useEvaAgents } from "@/hooks/queries/eva-agents-query";
 import { useDialogState } from "@/hooks/useDialogState";
 import { usePromptDraftInputThreadIds } from "@/hooks/usePromptDraftStorage";
 import {
@@ -50,6 +51,7 @@ import { useSectionThreadDnd } from "./useSectionThreadDnd";
 import { useRenderedSectionThreadDnd } from "./useRenderedSectionThreadDnd";
 import { getRootComposeRoutePath } from "@/lib/route-paths";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
+import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
 import { getMutationErrorMessage } from "@/lib/mutation-errors";
 import { BbHttpError } from "@bb/sdk/browser";
 import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
@@ -82,12 +84,14 @@ import {
 } from "./ProjectRow";
 import type { ProjectThreadListState } from "./ProjectRow";
 import {
+  buildAgentThreadGroups,
   buildMachineThreadGroups,
   buildPinnedSidebarState,
   CHRONOLOGICAL_CONTAINER_ID,
   compareByCreatedAtDescending,
   compareStandardThreads,
   createSidebarProjectIdResolver,
+  filterThreadsForAgentCatalog,
   isSidebarProjectThread,
   buildSidebarEntitySectionId,
   type ProjectThreadItem,
@@ -115,6 +119,7 @@ import {
   sidebarChronologicalSortAtom,
   sidebarGroupThreadsByEnvironmentAtom,
   sidebarSortDirectionAtom,
+  sidebarCollapsedAgentsAtom,
   sidebarCollapsedMachinesAtom,
   sidebarOrganizationModeAtom,
   type SidebarChronologicalSort,
@@ -526,6 +531,7 @@ interface BuiltInSectionRenderState {
 
 interface ActiveSidebarModeSectionsProps {
   mode: SidebarOrganizationMode;
+  renderAgent: () => ReactNode;
   renderChronological: () => ReactNode;
   renderMachine: () => ReactNode;
   renderProject: () => ReactNode;
@@ -533,10 +539,12 @@ interface ActiveSidebarModeSectionsProps {
 
 export function ActiveSidebarModeSections({
   mode,
+  renderAgent,
   renderChronological,
   renderMachine,
   renderProject,
 }: ActiveSidebarModeSectionsProps) {
+  if (mode === "agent") return renderAgent();
   if (mode === "machine") return renderMachine();
   if (mode === "chronological") return renderChronological();
   return renderProject();
@@ -1311,6 +1319,262 @@ export function MachineModeSections({
   );
 }
 
+interface AgentModeSectionsProps
+  extends BuiltInSectionRenderState, GroupedModePinnedProps {
+  collapsedEnvironmentIds: Set<string>;
+  collapsedThreadIds: Set<string>;
+  compareThreads: ThreadComparator;
+  draftThreadIds: ReadonlySet<string>;
+  effectivePinnedThreadIds: ReadonlySet<string>;
+  onProjectSelect?: () => void;
+  onToggleEnvironmentCollapsed: ToggleCollapsedId;
+  onToggleThreadCollapsed: ToggleCollapsedId;
+  pinnedSection: BuiltInSidebarSectionOptions;
+  renderSectionDisplayOptions: (
+    sectionId: SidebarSectionId,
+    label: string,
+  ) => ReactNode;
+  isSectionDisplayOptionsOpen: (sectionId: SidebarSectionId) => boolean;
+  selectedThreadId?: string;
+  status: ConnectionAwareQueryStatus;
+  threads: ThreadListEntry[];
+  threadsSection: Omit<BuiltInSidebarSectionOptions, "content">;
+}
+
+export function AgentModeSections({
+  collapsedEnvironmentIds,
+  collapsedSectionIds,
+  collapsedThreadIds,
+  compareThreads,
+  draftThreadIds,
+  effectivePinnedThreadIds,
+  isSectionDisplayOptionsOpen,
+  onProjectSelect,
+  onToggleCollapsed,
+  onToggleEnvironmentCollapsed,
+  onToggleThreadCollapsed,
+  pinnedReorderPending,
+  pinnedRootNodes,
+  pinnedSection,
+  pinnedThreads,
+  onReorderPinnedThread,
+  renderSectionDisplayOptions,
+  selectedThreadId,
+  showPinnedSection,
+  status,
+  threads,
+  threadsSection,
+}: AgentModeSectionsProps) {
+  const progressiveDisclosureEnabled = useSidebarProgressiveDisclosureEnabled();
+  const groupThreadsByEnvironment = useAtomValue(
+    sidebarGroupThreadsByEnvironmentAtom,
+  );
+  const { data: evaAgents } = useEvaAgents();
+  const [collapsedAgentKeyList, setCollapsedAgentKeyList] = useAtom(
+    sidebarCollapsedAgentsAtom,
+  );
+  const collapsedAgentKeys = useMemo(
+    () => new Set(collapsedAgentKeyList),
+    [collapsedAgentKeyList],
+  );
+  const toggleAgentCollapsed = useCallback<ToggleCollapsedId>(
+    (agentKey) => {
+      setCollapsedAgentKeyList((current) =>
+        toggleCollapsedIdList({ current, id: agentKey }),
+      );
+    },
+    [setCollapsedAgentKeyList],
+  );
+  const nonPinnedThreads = useMemo(
+    () =>
+      threads.filter(
+        (thread) =>
+          !effectivePinnedThreadIds.has(thread.id) &&
+          isSidebarProjectThread(thread),
+      ),
+    [effectivePinnedThreadIds, threads],
+  );
+  const allThreadsListState = getProjectThreadListState({
+    status,
+    threads: nonPinnedThreads,
+  });
+  const agentSections = useMemo(
+    () =>
+      buildAgentThreadGroups(nonPinnedThreads, evaAgents?.agents ?? []).map(
+        (group) => ({
+          activity: getCollapsedChildActivity(group.threads, draftThreadIds),
+          key: group.key,
+          label: group.label,
+          icon: group.icon,
+          threadListState: {
+            status: "ready",
+            threads: group.threads,
+          } satisfies ProjectThreadListState,
+        }),
+      ),
+    [draftThreadIds, evaAgents, nonPinnedThreads],
+  );
+  const agentSectionIds = useMemo(
+    () =>
+      agentSections.map((section) =>
+        buildSidebarEntitySectionId("agent", section.key),
+      ),
+    [agentSections],
+  );
+  const agentSectionsById = useMemo(
+    () =>
+      new Map(
+        agentSections.map((section) => [
+          buildSidebarEntitySectionId("agent", section.key),
+          section,
+        ]),
+      ),
+    [agentSections],
+  );
+  const { onOrderChange, order, persistedOrder } = useSidebarModeSectionOrder({
+    mode: "agent",
+    entitySectionIds: agentSectionIds,
+    hasThreadsSection: agentSections.length === 0,
+    showPinnedSection,
+  });
+  const reorderDisabled = order.length < 2;
+  const allThreadItems = useMemo(
+    () =>
+      agentSections.length === 0
+        ? buildProjectThreadGroups(
+            nonPinnedThreads,
+            compareThreads,
+            draftThreadIds,
+            groupThreadsByEnvironment,
+          )
+        : [],
+    [
+      agentSections.length,
+      compareThreads,
+      draftThreadIds,
+      groupThreadsByEnvironment,
+      nonPinnedThreads,
+    ],
+  );
+  const agentGroups = useMemo(
+    () =>
+      agentSections.map((section) =>
+        buildGroupSectionItem(
+          section.key,
+          buildSidebarEntitySectionId("agent", section.key),
+          section.label,
+          section.threadListState.threads,
+          compareThreads,
+          draftThreadIds,
+          groupThreadsByEnvironment,
+        ),
+      ),
+    [agentSections, compareThreads, draftThreadIds, groupThreadsByEnvironment],
+  );
+  const agentItemsBySectionId = useMemo(
+    () =>
+      new Map(agentGroups.map((group) => [group.group.key, group.group.items])),
+    [agentGroups],
+  );
+  const groupRootItems = useMemo<ProjectThreadItem[]>(
+    () => [...allThreadItems, ...agentGroups],
+    [agentGroups, allThreadItems],
+  );
+  const threadDnd = useGroupedModeThreadDnd({
+    collapsedThreadIds,
+    compareThreads,
+    draftThreadIds,
+    onToggleThreadCollapsed,
+    order: persistedOrder,
+    onOrderChange,
+    pinned: {
+      pinnedReorderPending,
+      pinnedRootNodes,
+      pinnedThreads,
+      onReorderPinnedThread,
+    },
+    rootItems: groupRootItems,
+    threads: nonPinnedThreads,
+  });
+  const builtInSections: BuiltInSidebarSectionOptionsById = {
+    pinned: pinnedSection,
+    threads: {
+      ...threadsSection,
+      activity: getCollapsedChildActivity(nonPinnedThreads, draftThreadIds),
+      collapsedThreads: nonPinnedThreads,
+      content: (
+        <ProjectThreadTree
+          dndParentKey={CHRONOLOGICAL_CONTAINER_ID}
+          rootItems={allThreadItems}
+          threadListState={allThreadsListState}
+          progressiveDisclosureEnabled={progressiveDisclosureEnabled}
+          compareThreads={compareThreads}
+          variant="section"
+          selectedThreadId={selectedThreadId}
+          collapsedThreadIds={collapsedThreadIds}
+          collapsedEnvironmentIds={collapsedEnvironmentIds}
+          onProjectSelect={onProjectSelect}
+          onToggleThreadCollapsed={onToggleThreadCollapsed}
+          onToggleEnvironmentCollapsed={onToggleEnvironmentCollapsed}
+        />
+      ),
+    },
+  };
+
+  return (
+    <ReorderableSidebarSectionOrderList order={order} threadDnd={threadDnd}>
+      {(sectionId, consumeClickSuppression) => {
+        const builtInSection = renderBuiltInSidebarSection({
+          sectionId,
+          sections: builtInSections,
+          disabled: reorderDisabled,
+          collapsedSectionIds,
+          onToggleCollapsed,
+          consumeClickSuppression,
+          showPinnedSection,
+        });
+        if (builtInSection !== undefined) return builtInSection;
+        const section = agentSectionsById.get(sectionId);
+        if (!section) return null;
+        return (
+          <SortableSidebarSection
+            key={sectionId}
+            id={sectionId}
+            label={section.label}
+            icon={section.icon}
+            disabled={reorderDisabled}
+            actions={renderSectionDisplayOptions(sectionId, section.label)}
+            actionsOpen={isSectionDisplayOptionsOpen(sectionId)}
+            actionsMobileAlways
+            collapsedActivity={section.activity}
+            collapsedThreads={section.threadListState.threads}
+            collapseControl={{
+              isCollapsed: collapsedAgentKeys.has(section.key),
+              onToggleCollapsed: () => toggleAgentCollapsed(section.key),
+            }}
+            consumeClickSuppression={consumeClickSuppression}
+          >
+            <ProjectThreadTree
+              dndParentKey={sectionId}
+              rootItems={agentItemsBySectionId.get(sectionId)}
+              threadListState={section.threadListState}
+              progressiveDisclosureEnabled={progressiveDisclosureEnabled}
+              compareThreads={compareThreads}
+              variant="section"
+              selectedThreadId={selectedThreadId}
+              collapsedThreadIds={collapsedThreadIds}
+              collapsedEnvironmentIds={collapsedEnvironmentIds}
+              onProjectSelect={onProjectSelect}
+              onToggleThreadCollapsed={onToggleThreadCollapsed}
+              onToggleEnvironmentCollapsed={onToggleEnvironmentCollapsed}
+            />
+          </SortableSidebarSection>
+        );
+      }}
+    </ReorderableSidebarSectionOrderList>
+  );
+}
+
 function ProjectListComponent({
   onNewProject,
   onProjectSelect,
@@ -1320,6 +1584,11 @@ function ProjectListComponent({
   const setRootComposeProjectId = useSetRootComposeProjectId();
   const sidebarNavigationQuery = useSidebarNavigation();
   const sidebarNavigation = sidebarNavigationQuery.data;
+  const { data: evaAgents } = useEvaAgents();
+  const coreAuth = useCoreAuth();
+  const canReadAllThreads =
+    coreAuth?.user?.role === "admin" ||
+    canUseCoreCapability(coreAuth, "threadAllRead");
   const sections = sidebarNavigation?.sections ?? EMPTY_SECTION_DEFINITIONS;
   const projects = useMemo(
     () => sidebarNavigation?.projects.map(stripProjectThreads),
@@ -1334,8 +1603,10 @@ function ProjectListComponent({
       sidebarThreads.push(...project.threads);
     }
     sidebarThreads.push(...sidebarNavigation.personalProject.threads);
-    return sidebarThreads;
-  }, [sidebarNavigation]);
+    return canReadAllThreads
+      ? sidebarThreads
+      : filterThreadsForAgentCatalog(sidebarThreads, evaAgents?.agents);
+  }, [canReadAllThreads, evaAgents, sidebarNavigation]);
   const draftThreadIds = usePromptDraftInputThreadIds(threads);
   const titleMentionResources = useThreadTitleMentionResources();
   const uiPreferencesReady = useUiPreferencesReady();
@@ -1382,13 +1653,14 @@ function ProjectListComponent({
     [reorderPinnedThreadMutate],
   );
   const openRootComposeForProject = useCallback(
-    (projectId: string, sectionId?: string) => {
+    (projectId: string, sectionId?: string, agentId?: string) => {
       setRootComposeProjectId(projectId);
       onProjectSelect?.();
       navigate(getRootComposeRoutePath(), {
         state: {
           focusPrompt: true,
           ...(sectionId ? { sectionId } : {}),
+          ...(agentId ? { agentId } : {}),
         },
       });
     },
@@ -1400,9 +1672,12 @@ function ProjectListComponent({
     },
     [openRootComposeForProject],
   );
-  const handleCreateProjectlessThread = useCallback(() => {
-    openRootComposeForProject(PERSONAL_PROJECT_ID);
-  }, [openRootComposeForProject]);
+  const handleCreateProjectlessThread = useCallback(
+    (agentId?: string) => {
+      openRootComposeForProject(PERSONAL_PROJECT_ID, undefined, agentId);
+    },
+    [openRootComposeForProject],
+  );
   const handleCreateThreadInSection = useCallback(
     (sectionId: string) => {
       openRootComposeForProject(PERSONAL_PROJECT_ID, sectionId);
@@ -1530,10 +1805,13 @@ function ProjectListComponent({
     label: string,
   ) => {
     const menuId = `displayOptions:${sectionId}` as const;
+    const agentId = sectionId.startsWith("agent:")
+      ? sectionId.slice("agent:".length)
+      : undefined;
     return (
       <SidebarHeaderControls
         label={label}
-        onNewThread={handleCreateProjectlessThread}
+        onNewThread={() => handleCreateProjectlessThread(agentId)}
         open={openSidebarMenu === menuId}
         onOpenChange={(open) => setSidebarMenuOpen(menuId, open)}
       />
@@ -1717,6 +1995,34 @@ function ProjectListComponent({
       <ProjectListShell>
         <ActiveSidebarModeSections
           mode={organizationMode}
+          renderAgent={() => (
+            <AgentModeSections
+              threads={threads}
+              draftThreadIds={draftThreadIds}
+              effectivePinnedThreadIds={
+                pinnedSidebarState.effectivePinnedThreadIds
+              }
+              status={projectsState.status}
+              showPinnedSection={hasPinnedSection}
+              pinnedSection={pinnedSection}
+              pinnedReorderPending={isPinnedReorderPending}
+              pinnedRootNodes={pinnedSidebarState.rootNodes}
+              pinnedThreads={pinnedRootThreads}
+              onReorderPinnedThread={handleReorderPinnedRoot}
+              threadsSection={threadsSection}
+              selectedThreadId={selectedThreadId}
+              collapsedSectionIds={collapsedSidebarSectionIds}
+              collapsedThreadIds={collapsedThreadIds}
+              collapsedEnvironmentIds={collapsedEnvironmentIds}
+              compareThreads={sidebarThreadComparator}
+              renderSectionDisplayOptions={renderSectionDisplayOptions}
+              isSectionDisplayOptionsOpen={isSectionDisplayOptionsOpen}
+              onProjectSelect={onProjectSelect}
+              onToggleCollapsed={toggleSidebarSectionCollapsed}
+              onToggleThreadCollapsed={toggleThreadCollapsed}
+              onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
+            />
+          )}
           renderMachine={() => (
             <MachineModeSections
               threads={threads}

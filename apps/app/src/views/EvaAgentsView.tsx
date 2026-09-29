@@ -25,6 +25,7 @@ import {
   getEvaAgentDetailRoutePath,
   getThreadRoutePath,
 } from "@/lib/route-paths";
+import { PageShell } from "@/components/ui/page-shell.js";
 
 type AgentStatus = SdkEvaAgent["status"];
 
@@ -261,7 +262,7 @@ function AgentListView() {
 
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-6xl px-5 py-8" aria-busy="true">
+      <div aria-busy="true">
         <div className="h-8 w-48 animate-pulse rounded bg-surface-recessed" />
         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {[1, 2, 3].map((item) => (
@@ -277,7 +278,7 @@ function AgentListView() {
 
   if (error !== null) {
     return (
-      <main className="mx-auto flex w-full max-w-2xl flex-col items-center px-5 py-16 text-center">
+      <div className="mx-auto flex w-full max-w-2xl flex-col items-center py-16 text-center">
         <Icon
           name="AlertCircle"
           aria-hidden="true"
@@ -290,13 +291,13 @@ function AgentListView() {
         <Button className="mt-5" variant="outline" onClick={() => void load()}>
           Try again
         </Button>
-      </main>
+      </div>
     );
   }
 
   const agents = response?.agents ?? [];
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 py-8 lg:px-8">
+    <div>
       <header className="flex flex-col gap-5 border-b border-border pb-7 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
@@ -358,7 +359,7 @@ function AgentListView() {
           Grants still control which agents each account can see or run.
         </p>
       ) : null}
-    </main>
+    </div>
   );
 }
 
@@ -911,16 +912,16 @@ function AgentDetailView({ agentId }: { agentId: string }) {
 
   if (loading) {
     return (
-      <main className="mx-auto w-full max-w-5xl px-5 py-8" aria-busy="true">
+      <div aria-busy="true">
         <div className="h-7 w-56 animate-pulse rounded bg-surface-recessed" />
         <div className="mt-7 h-72 animate-pulse rounded-2xl bg-surface-recessed" />
-      </main>
+      </div>
     );
   }
 
   if (error !== null && agent === null) {
     return (
-      <main className="mx-auto flex w-full max-w-2xl flex-col items-center px-5 py-16 text-center">
+      <div className="mx-auto flex w-full max-w-2xl flex-col items-center py-16 text-center">
         <Icon
           name="AlertCircle"
           aria-hidden="true"
@@ -933,13 +934,13 @@ function AgentDetailView({ agentId }: { agentId: string }) {
         <Button className="mt-5" variant="outline" onClick={() => void load()}>
           Try again
         </Button>
-      </main>
+      </div>
     );
   }
 
   if (agent === null) return null;
   return (
-    <main className="mx-auto w-full max-w-5xl px-5 py-8 lg:px-8">
+    <div>
       <Link
         className="inline-flex min-h-10 items-center gap-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         to={getEvaAgentsRoutePath()}
@@ -1208,15 +1209,19 @@ function AgentDetailView({ agentId }: { agentId: string }) {
           </div>
         </section>
       ) : null}
-    </main>
+    </div>
   );
 }
 
 export function EvaAgentsView() {
   const { agentId } = useParams<{ agentId?: string }>();
-  return agentId === undefined ? (
-    <AgentListView />
-  ) : (
-    <AgentDetailView agentId={agentId} />
+  return (
+    <PageShell maxWidthClassName="max-w-6xl" contentClassName="pt-6 md:pt-8">
+      {agentId === undefined ? (
+        <AgentListView />
+      ) : (
+        <AgentDetailView agentId={agentId} />
+      )}
+    </PageShell>
   );
 }

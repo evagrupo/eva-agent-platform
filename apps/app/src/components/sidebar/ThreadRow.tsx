@@ -287,6 +287,8 @@ function ThreadRowComponent({
   );
   const threadTitle = getThreadDisplayTitle(thread);
   const labelTitle = useThreadTitleDisplayText(threadTitle);
+  const ownerName = thread.ownerName?.trim() || null;
+  const rowTitle = ownerName ? `${labelTitle} · ${ownerName}` : labelTitle;
   const crossProjectName = useSidebarProjectName(crossProjectId);
   const crossProjectLabel =
     crossProjectId === null
@@ -374,11 +376,11 @@ function ThreadRowComponent({
     pluginThreadRowStatus?.tone === "running",
   );
   const splitIndicatorLabel = trailingIndicatorResolution.accessibleLabel
-    ? `${labelTitle} — open in split; ${trailingIndicatorResolution.accessibleLabel}`
-    : `${labelTitle} — open in split`;
+    ? `${rowTitle} — open in split; ${trailingIndicatorResolution.accessibleLabel}`
+    : `${rowTitle} — open in split`;
   const linkLabel = hasComposerDraft
-    ? `Open ${labelTitle} (unsubmitted draft)`
-    : `Open ${labelTitle}`;
+    ? `Open ${rowTitle} (unsubmitted draft)`
+    : `Open ${rowTitle}`;
   const rowDragBindings = options.dragBindings;
   const nestTargetState = options.nestDrop?.state ?? null;
   const reorderPlacement = options.nestDrop?.reorderPlacement ?? null;
@@ -468,12 +470,17 @@ function ThreadRowComponent({
         ) : (
           <span
             className="bb-thread-title"
-            title={labelTitle}
+            title={rowTitle}
             onDoubleClick={startTitleEditing}
           >
             <ThreadTitleMentions title={threadTitle} />
           </span>
         )}
+        {ownerName !== null ? (
+          <span className="min-w-0 truncate text-xs text-muted-foreground">
+            {ownerName}
+          </span>
+        ) : null}
         {crossProjectLabel !== null ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -497,8 +504,8 @@ function ThreadRowComponent({
         {parentOptions && hasChildren ? (
           <SidebarChildToggleChevron
             isCollapsed={isParentCollapsed}
-            expandLabel={`Expand ${labelTitle} threads`}
-            collapseLabel={`Collapse ${labelTitle} threads`}
+            expandLabel={`Expand ${rowTitle} threads`}
+            collapseLabel={`Collapse ${rowTitle} threads`}
             onToggle={() => parentOptions.onToggleCollapsed(thread.id)}
             revealOnHover={!isParentCollapsed}
           />

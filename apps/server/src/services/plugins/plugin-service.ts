@@ -613,6 +613,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
   } = createPluginRuntime({
     deps,
     machineEnrollments: deps.machineEnrollments ?? null,
+    pluginLoopbackSecret: deps.pluginLoopbackSecret,
     settingsChanged: notifyPluginsChanged,
   });
 

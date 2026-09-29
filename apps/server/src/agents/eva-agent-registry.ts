@@ -187,7 +187,18 @@ export function ensureEvaAgentRegistry(db: DbConnection): void {
     for (const entry of EVA_AGENT_CATALOG) {
       tx.insert(evaAgents)
         .values(catalogValues(entry, now))
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+          target: evaAgents.id,
+          set: {
+            defaultProviderId: entry.defaultProviderId,
+            defaultModel: entry.defaultModel,
+            defaultReasoningLevel: entry.defaultReasoningLevel,
+            defaultPermissionMode: entry.defaultPermissionMode,
+            providerIdsJson: JSON.stringify(entry.providerIds),
+            sourceProviderId: entry.sourceProviderId,
+            updatedAt: now,
+          },
+        })
         .run();
       tx.insert(evaAgentWorkspaces)
         .values({

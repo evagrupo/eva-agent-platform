@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useAtom } from "jotai";
 import {
+  sidebarAgentSectionOrderAtom,
   sidebarManualSectionOrderAtom,
   sidebarMachineSectionOrderAtom,
   sidebarSectionOrderAtom,
@@ -30,6 +31,10 @@ const MODE_SECTION_ORDER_CONFIG: Record<
   machine: {
     atom: sidebarMachineSectionOrderAtom,
     legacyEntityAnchor: "machines",
+  },
+  agent: {
+    atom: sidebarAgentSectionOrderAtom,
+    legacyEntityAnchor: "agents",
   },
 };
 

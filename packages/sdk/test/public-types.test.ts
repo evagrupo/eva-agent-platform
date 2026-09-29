@@ -221,6 +221,7 @@ interface NodeSurface {
 }
 
 type ExpectedBbSdkKey =
+  | "access"
   | "experimental_desktopBrowsers"
   | "experimental_server"
   | "environments"

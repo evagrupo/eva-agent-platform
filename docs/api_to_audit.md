@@ -2088,7 +2088,7 @@ Implementation: the shared workflow is
    by a plugin should participate in that surface before stabilizing.
 
 5. **Seeding props and the round-trip guarantee.** The `default*` props
-   (`defaultProviderId`, `defaultModel`, `defaultReasoningLevel`,
+   (`defaultAgentId`, `defaultProviderId`, `defaultModel`, `defaultReasoningLevel`,
    `defaultServiceTier`, `defaultPermissionMode`, `defaultEnvironment`) seed
    the composer from a stored `NewThreadRequest` so a plugin can re-open a
    saved configuration without silently resetting it to project defaults.

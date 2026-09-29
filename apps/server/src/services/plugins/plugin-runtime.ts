@@ -38,6 +38,10 @@ import {
 import { PluginHostArtifactRegistry } from "./plugin-host-artifact-registry.js";
 import { getPluginBuildToolchain } from "./build-toolchain.js";
 import { createNodeBbSdk, type BbSdk } from "@bb/sdk";
+import {
+  createPluginLoopbackFetch,
+  createPluginLoopbackSecret,
+} from "./plugin-loopback-auth.js";
 import { experimental_aiServicesHostContract } from "@get-bb/plugin-sdk/ai-services";
 import {
   getInstalledPlugin,
@@ -288,6 +292,7 @@ interface ServiceInstance {
 interface PluginRuntimeContext {
   machineEnrollments: MachineEnrollmentService | null;
   deps: PluginServiceDeps;
+  pluginLoopbackSecret?: Buffer;
   settingsChanged?: () => void;
 }
 
@@ -299,6 +304,8 @@ export interface PluginLoadHold {
 
 export function createPluginRuntime(context: PluginRuntimeContext) {
   const { deps } = context;
+  const pluginLoopbackSecret =
+    context.pluginLoopbackSecret ?? createPluginLoopbackSecret();
   const settingsChanged = context.settingsChanged ?? (() => {});
   const logger = deps.logger;
   const loadTimeoutMs = deps.loadTimeoutMs ?? DEFAULT_LOAD_TIMEOUT_MS;
@@ -1836,7 +1843,10 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   }
 
   function bindSdk(args: { baseUrl: string }): void {
-    boundSdk = createNodeBbSdk({ baseUrl: args.baseUrl });
+    boundSdk = createNodeBbSdk({
+      baseUrl: args.baseUrl,
+      fetch: createPluginLoopbackFetch(pluginLoopbackSecret),
+    });
     boundLoopbackBaseUrl = args.baseUrl;
   }
 

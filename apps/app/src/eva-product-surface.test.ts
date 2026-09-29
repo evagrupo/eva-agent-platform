@@ -52,6 +52,7 @@ describe("EVA product surface", () => {
       "utf8",
     );
     expect(source).toContain("EVA Internal Agent Platform");
-    expect(source).toContain("/eva/logo-primary.svg");
+    expect(source).toContain("/eva/favicon-leaf-32.png");
+    expect(source).toContain("/eva/favicon-leaf-16.png");
   });
 });

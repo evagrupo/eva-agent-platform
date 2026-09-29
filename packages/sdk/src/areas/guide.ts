@@ -27,6 +27,7 @@ const guideChapters: Record<string, TemplateId> = {
   automations: "bbGuideAutomations",
   json: "bbGuideJson",
   "eva-agents": "bbGuideEvaAgents",
+  access: "bbGuideAccess",
 };
 
 const guideChapterAliases: Record<string, string> = {
@@ -63,6 +64,9 @@ const guideChapterAliases: Record<string, string> = {
   "json-output": "json",
   output: "json",
   errors: "json",
+  users: "access",
+  user: "access",
+  access: "access",
 };
 
 function resolveGuideChapter(chapter: string): string {

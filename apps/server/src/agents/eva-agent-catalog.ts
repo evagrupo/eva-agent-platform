@@ -1,10 +1,13 @@
 import type { PermissionMode, ReasoningLevel } from "@bb/domain";
 import type { CorePolicy } from "../access-policy.js";
 
-export const EVA_DEFAULT_PROVIDER_ID = "codex" as const;
-export const EVA_DEFAULT_MODEL = "gpt-5.6-luna" as const;
-export const EVA_DEFAULT_REASONING_LEVEL = "max" as const;
+export const EVA_DEFAULT_PROVIDER_ID = "acp-cursor" as const;
+export const EVA_DEFAULT_MODEL = "grok-4.7" as const;
+export const EVA_DEFAULT_REASONING_LEVEL = "high" as const;
 export const EVA_DEFAULT_PERMISSION_MODE = "accept-edits" as const;
+
+const EVA_CODEX_DEFAULT_MODEL = "gpt-5.6-luna" as const;
+const EVA_CODEX_DEFAULT_REASONING_LEVEL = "max" as const;
 
 export const EVA_REGISTERED_PROVIDER_IDS = [
   "codex",
@@ -59,6 +62,8 @@ function sourceAgent(args: {
   instructions: string;
 }): EvaAgentCatalogEntry {
   const sourceProviderId = args.sourceProviderId ?? null;
+  const defaultProviderId = sourceProviderId ?? EVA_DEFAULT_PROVIDER_ID;
+  const pinnedToCodex = defaultProviderId === "codex";
   return {
     ...args,
     status: "draft",
@@ -66,9 +71,11 @@ function sourceAgent(args: {
     providerIds: sourceProviderId
       ? [sourceProviderId]
       : [...EVA_REGISTERED_PROVIDER_IDS],
-    defaultProviderId: sourceProviderId,
-    defaultModel: EVA_DEFAULT_MODEL,
-    defaultReasoningLevel: EVA_DEFAULT_REASONING_LEVEL,
+    defaultProviderId,
+    defaultModel: pinnedToCodex ? EVA_CODEX_DEFAULT_MODEL : EVA_DEFAULT_MODEL,
+    defaultReasoningLevel: pinnedToCodex
+      ? EVA_CODEX_DEFAULT_REASONING_LEVEL
+      : EVA_DEFAULT_REASONING_LEVEL,
     defaultPermissionMode: EVA_DEFAULT_PERMISSION_MODE,
     fixedExecution: false,
     reasoningLevels: EVA_REASONING_LEVELS,

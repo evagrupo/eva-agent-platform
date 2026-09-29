@@ -66,6 +66,18 @@ describe("normalizeSidebarSectionOrder", () => {
       }),
     ).toEqual(["pinned", section, "threads"]);
   });
+
+  it("uses the same reconciliation for agents", () => {
+    const agents = buildSidebarEntitySectionId("agent", "hr");
+    expect(
+      normalizeSidebarSectionOrder({
+        storedOrder: ["pinned", "agents", "threads"],
+        entitySectionIds: [agents],
+        legacyEntityAnchor: "agents",
+        hasPinnedSection: true,
+      }),
+    ).toEqual(["pinned", agents, "threads"]);
+  });
 });
 
 describe("reorderSidebarSectionOrder", () => {

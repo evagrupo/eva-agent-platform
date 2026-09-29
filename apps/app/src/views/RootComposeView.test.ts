@@ -26,6 +26,8 @@ import {
   hasSingleUseRootComposeTargetState,
   readSectionIdFromLocationState,
   readRootComposeSectionTargetFromLocationState,
+  readInitialAgentIdFromLocationState,
+  readRootComposeAgentTargetFromLocationState,
   readInitialPromptFromLocationState,
   shouldReplaceInitialPromptFromLocationState,
   shouldStartComposingFromLocationState,
@@ -552,6 +554,46 @@ describe("readRootComposeSectionTargetFromLocationState", () => {
   it("returns null when no section target instruction is present", () => {
     expect(readRootComposeSectionTargetFromLocationState(null)).toBeNull();
     expect(readRootComposeSectionTargetFromLocationState({})).toBeNull();
+  });
+});
+
+describe("readInitialAgentIdFromLocationState", () => {
+  it("returns a trimmed agent id seeded by navigation state", () => {
+    expect(readInitialAgentIdFromLocationState({ agentId: " crm " })).toBe(
+      "crm",
+    );
+  });
+
+  it("returns null when no usable agent id is present", () => {
+    expect(readInitialAgentIdFromLocationState(null)).toBeNull();
+    expect(readInitialAgentIdFromLocationState({})).toBeNull();
+    expect(readInitialAgentIdFromLocationState({ agentId: "" })).toBeNull();
+    expect(readInitialAgentIdFromLocationState({ agentId: 42 })).toBeNull();
+  });
+});
+
+describe("readRootComposeAgentTargetFromLocationState", () => {
+  it("returns an agent target when navigation provides an agent id", () => {
+    expect(
+      readRootComposeAgentTargetFromLocationState({ agentId: " crm " }),
+    ).toEqual({ agentId: "crm", kind: "set" });
+  });
+
+  it("clears the agent target for plain new-thread focus navigation", () => {
+    expect(
+      readRootComposeAgentTargetFromLocationState({ focusPrompt: true }),
+    ).toEqual({ kind: "clear" });
+  });
+
+  it("clears the agent target for an unusable agent id", () => {
+    expect(
+      readRootComposeAgentTargetFromLocationState({ agentId: "" }),
+    ).toEqual({ kind: "clear" });
+  });
+
+  it("returns null when no agent target instruction is present", () => {
+    expect(readRootComposeAgentTargetFromLocationState(null)).toBeNull();
+    expect(readRootComposeAgentTargetFromLocationState({})).toBeNull();
   });
 });
 
@@ -1122,6 +1164,40 @@ describe("resolveRootComposeEffectiveEnvironmentValue", () => {
         reuseThreadOptionsLoading: false,
       }),
     ).toBe("provider:personal-workspace");
+  });
+
+  it("preselects a projectless provider when the configured primary host is missing", () => {
+    expect(
+      resolveRootComposeEffectiveEnvironmentValue({
+        seededReuseEnvironment: null,
+        knownHostIds: new Set(["host_1"]),
+        environmentSelectionValue: "",
+        environmentProviders: [
+          makeProjectlessProvider("personal-workspace", true),
+        ],
+        isProjectless: true,
+        primaryHostId: null,
+        projectSources: [],
+        reuseThreadOptions: [],
+        reuseThreadOptionsLoading: false,
+      }),
+    ).toBe("provider:personal-workspace");
+  });
+
+  it("preselects the first projectless provider when personal workspace is absent", () => {
+    expect(
+      resolveRootComposeEffectiveEnvironmentValue({
+        seededReuseEnvironment: null,
+        knownHostIds: new Set(["host_1"]),
+        environmentSelectionValue: "",
+        environmentProviders: [makeProjectlessProvider("alpha-sandbox", true)],
+        isProjectless: true,
+        primaryHostId: "host_1",
+        projectSources: [],
+        reuseThreadOptions: [],
+        reuseThreadOptionsLoading: false,
+      }),
+    ).toBe("provider:alpha-sandbox");
   });
 
   it("selects nothing for a projectless thread until its providers have loaded", () => {

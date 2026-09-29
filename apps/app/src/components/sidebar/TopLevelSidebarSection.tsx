@@ -55,6 +55,7 @@ interface TopLevelSidebarSectionCollapseControl {
 
 export interface TopLevelSidebarSectionProps {
   label: string;
+  icon?: string | null;
   children: ReactNode;
   childrenInset?: boolean;
   showChildrenWhenCollapsed?: boolean;
@@ -77,6 +78,7 @@ export interface TopLevelSidebarSectionProps {
 
 export function TopLevelSidebarSection({
   label,
+  icon = null,
   children,
   childrenInset = true,
   showChildrenWhenCollapsed = false,
@@ -193,6 +195,13 @@ export function TopLevelSidebarSection({
         {...(dragBindings?.listeners ?? {})}
       >
         <span className="relative z-10 flex min-w-0 flex-1 items-center gap-1 text-left">
+          {icon ? (
+            <Icon
+              name={icon}
+              className="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          ) : null}
           <span className="min-w-0 truncate" title={label}>
             {label}
           </span>

@@ -25,6 +25,7 @@ import { useRememberPluginNavPanelChrome } from "@/lib/plugin-nav-panel-chrome";
 import { useWebSocket } from "./hooks/useWebSocket";
 import {
   AUTH_CALLBACK_ROUTE_PATH,
+  EVA_ADMIN_ROUTE_PATH,
   EVA_AGENT_DETAIL_ROUTE_PATH,
   EVA_AGENTS_ROUTE_PATH,
   LEGACY_AUTOMATION_DETAIL_ROUTE_PATH,
@@ -310,7 +311,7 @@ export function AppRoutes() {
       <Suspense fallback={null}>
         <Routes>
           <Route
-            path="/admin"
+            path={EVA_ADMIN_ROUTE_PATH}
             element={
               <AdministratorRoute>
                 <CapabilityRoute capability="settings">

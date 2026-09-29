@@ -213,6 +213,31 @@ describe("bb thread list command output", () => {
     expect(output).toMatch(/thr_unknownproj\s+x+…\s+proj_missing\s+idle/);
   });
 
+  it("bb thread list prints the owner name for administrators", async () => {
+    const list = vi.fn(async () => [
+      {
+        ...fixtures.makeThread({
+          id: "thr_owned",
+          projectId: "proj_bsst4jxfwv",
+          providerId: "codex",
+          status: "idle",
+          title: "Hi",
+          titleFallback: "Hi",
+          createdAt: 1,
+          updatedAt: 1,
+        }),
+        ownerName: "Access User",
+      },
+    ]);
+    const projects = vi.fn(async () => [{ id: "proj_bsst4jxfwv", name: "qa" }]);
+    stubServerApi({ "v1.threads.$get": list, "v1.projects.$get": projects });
+
+    await runCommand(["thread", "list"], register);
+    const output = collectLogPayloads(vi.mocked(console.log)).join("\n");
+    expect(output).toMatch(/^ID\s+Title\s+Owner\s+Project\s+Status/m);
+    expect(output).toMatch(/thr_owned\s+Hi\s+Access User\s+qa\s+idle/);
+  });
+
   it("bb thread list --json does not fetch projects", async () => {
     const list = vi.fn(async () => []);
     const projects = vi.fn(async () => []);

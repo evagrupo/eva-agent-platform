@@ -223,7 +223,7 @@ describe("PluginSidebarFooterItems", () => {
       });
     });
     setPluginSlotRegistrations(
-      "connect",
+      "connect-fixture",
       collectPluginAppRegistrations(definition),
     );
 
@@ -232,8 +232,44 @@ describe("PluginSidebarFooterItems", () => {
 
     expect(onActivate).toHaveBeenCalledOnce();
     expect(screen.getByLabelText("Current path").textContent).toBe(
-      "/settings/plugins/connect",
+      "/settings/plugins/connect-fixture",
     );
+  });
+
+  it("omits connect and provider-usage footer actions", () => {
+    const connectDefinition = definePluginApp((app) => {
+      app.experimental_sidebarFooter.register({
+        kind: "action",
+        id: "remote-access",
+        label: "Remote access",
+        icon: "Smartphone",
+        onActivate() {},
+      });
+    });
+    const usageDefinition = definePluginApp((app) => {
+      app.experimental_sidebarFooter.register({
+        kind: "disclosure",
+        id: "usage",
+        label: "Provider usage",
+        icon: "ChartColumn",
+        component: UsageDisclosure,
+      });
+    });
+    setPluginSlotRegistrations(
+      "connect",
+      collectPluginAppRegistrations(connectDefinition),
+    );
+    setPluginSlotRegistrations(
+      "provider-usage",
+      collectPluginAppRegistrations(usageDefinition),
+    );
+
+    renderWithProviders(<FooterHarness />);
+
+    expect(screen.queryByRole("button", { name: "Remote access" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Provider usage" })).toBeNull();
+    expect(document.querySelector('[data-icon="Smartphone"]')).toBeNull();
+    expect(document.querySelector('[data-icon="ChartColumn"]')).toBeNull();
   });
 
   it("toggles and dismisses a disclosure accessibly", () => {

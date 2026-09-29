@@ -340,6 +340,17 @@ server.
 - `bb eva delegate`
 - `bb eva message`
 
+## access
+
+- `bb access`
+- `bb access users`
+- `bb access users list`
+- `bb access users show`
+- `bb access users create`
+- `bb access users update`
+- `bb access users delete`
+- `bb access users set-agents`
+
 ## browser
 
 - `bb browser`

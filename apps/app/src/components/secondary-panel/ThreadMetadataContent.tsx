@@ -1006,8 +1006,6 @@ export function ThreadMetadataContent(props: ThreadMetadataContentProps) {
     isLoadingParentThreads,
     isParentThreadsError,
     environment,
-    environmentProvisioningFailure,
-    environmentDisplayHost,
     workspaceStatus,
     workspaceStatusError,
     workspaceUnavailable,
@@ -1047,16 +1045,6 @@ export function ThreadMetadataContent(props: ThreadMetadataContentProps) {
         onRetryParentThreads={onRetryParentThreads}
       />
       <ForksRow thread={thread} projectId={projectId} />
-      <EnvironmentRow
-        thread={thread}
-        environment={environment}
-        environmentDisplayHost={environmentDisplayHost}
-      />
-      <EnvironmentProvisioningFailureRow
-        failed={environmentProvisioningFailure}
-      />
-      <WorkspacePathRow environment={environment} />
-      <BranchRow workspaceStatus={workspaceStatus} />
       <MergeBaseRow
         workspaceStatus={workspaceStatus}
         selectedMergeBaseBranch={selectedMergeBaseBranch}

@@ -11,13 +11,15 @@ import type { ReasoningLevel } from "@bb/domain";
 import { describe, expect, it } from "vitest";
 import {
   assertExecutionAllowedForUser,
-  defaultDenyPolicy,
+  canReadThread,
+  canWriteThread,
   defaultUserPolicy,
   isPluginAllowedByPolicy,
   isPluginAllowedByPolicyForAgent,
   policyBootstrapForContext,
   reasoningLevelsAllowedByPolicyForAgent,
   resolveCorePolicy,
+  type CoreAuthContext,
   type CorePolicy,
 } from "../../src/access-policy.js";
 import { createTestDb } from "../helpers/test-app.js";
@@ -40,29 +42,22 @@ function tuplePolicy(): CorePolicy {
   };
 }
 
-function insertPolicy(
-  db: ReturnType<typeof createTestDb>,
-  id: string,
-  role: "admin" | "user",
-  policy: CorePolicy,
-): void {
+function ensureUserPolicy(db: ReturnType<typeof createTestDb>): void {
   db.insert(authPolicies)
     .values({
-      id,
-      role,
-      policyJson: JSON.stringify(policy),
+      id: "user",
+      role: "user",
+      policyJson: JSON.stringify(tuplePolicy()),
       revision: 1,
       updatedAt: Date.now(),
     })
+    .onConflictDoNothing()
     .run();
 }
 
-function insertUser(
-  db: ReturnType<typeof createTestDb>,
-  userId: string,
-  policyId: string,
-): void {
+function insertUser(db: ReturnType<typeof createTestDb>, userId: string): void {
   const now = new Date();
+  ensureUserPolicy(db);
   db.insert(authUsers)
     .values({
       id: userId,
@@ -79,7 +74,7 @@ function insertUser(
       userId,
       role: "user",
       status: "active",
-      policyId,
+      policyId: "user",
       revision: 1,
       updatedAt: Date.now(),
     })
@@ -141,14 +136,12 @@ function execution(
 describe("agent-bound execution policy", () => {
   it("does not combine provider and model grants across agents or infer an agent", () => {
     const db = createTestDb();
-    insertPolicy(db, "base", "user", tuplePolicy());
-    insertPolicy(db, "group-policy", "admin", tuplePolicy());
-    insertUser(db, "tuple-user", "base");
+    insertUser(db, "tuple-user");
     db.insert(authGroups)
       .values({
         id: "group-b",
         name: "Group B",
-        policyId: "group-policy",
+        policyId: "user",
         updatedAt: Date.now(),
       })
       .run();
@@ -237,13 +230,62 @@ describe("agent-bound execution policy", () => {
   });
 
   it("keeps plugin scopes bound to the selected agent tuple", () => {
-    const db = createTestDb();
-    insertPolicy(db, "plugin-base", "user", {
+    const policy: CorePolicy = {
       ...tuplePolicy(),
-      allowedPluginIds: ["plugin-a", "plugin-b"],
+      allowedAgentIds: ["creative", "crm"],
+      allowedPluginIds: [],
       allowPluginData: true,
-    });
-    insertUser(db, "plugin-user", "plugin-base");
+      agentExecutionTuples: [
+        {
+          agentId: "creative",
+          allowedProviderIds: ["p1"],
+          allowedModelPatterns: ["m1"],
+          allowedReasoningLevels: ["low"],
+          defaultProviderId: "p1",
+          defaultModel: "m1",
+          defaultReasoningLevel: "low",
+          defaultPermissionMode: "auto",
+          fixedExecution: false,
+          maxPermissionMode: "auto",
+          terminalAccess: "none",
+          allowedToolIds: [],
+          allowedPluginIds: ["plugin-a"],
+        },
+        {
+          agentId: "crm",
+          allowedProviderIds: ["p2"],
+          allowedModelPatterns: ["m2"],
+          allowedReasoningLevels: ["medium"],
+          defaultProviderId: "p2",
+          defaultModel: "m2",
+          defaultReasoningLevel: "medium",
+          defaultPermissionMode: "auto",
+          fixedExecution: false,
+          maxPermissionMode: "auto",
+          terminalAccess: "none",
+          allowedToolIds: [],
+          allowedPluginIds: ["plugin-b"],
+        },
+      ],
+    };
+
+    expect(isPluginAllowedByPolicy(policy, "plugin-a")).toBe(true);
+    expect(isPluginAllowedByPolicy(policy, "plugin-b")).toBe(true);
+    expect(isPluginAllowedByPolicy(policy, "plugin-c")).toBe(false);
+    expect(
+      isPluginAllowedByPolicyForAgent(policy, "creative", "plugin-a"),
+    ).toBe(true);
+    expect(
+      isPluginAllowedByPolicyForAgent(policy, "creative", "plugin-b"),
+    ).toBe(false);
+    expect(isPluginAllowedByPolicyForAgent(policy, "crm", "plugin-a")).toBe(
+      false,
+    );
+  });
+
+  it("denies plugin access to a granted user because the user policy grants none", () => {
+    const db = createTestDb();
+    insertUser(db, "plugin-user");
     insertGrant(db, {
       id: "plugin-grant-a",
       userId: "plugin-user",
@@ -254,16 +296,6 @@ describe("agent-bound execution policy", () => {
       permissionMode: "auto",
       pluginIds: ["plugin-a"],
     });
-    insertGrant(db, {
-      id: "plugin-grant-b",
-      userId: "plugin-user",
-      agentId: "crm",
-      providerIds: ["p2"],
-      modelPatterns: ["m2"],
-      reasoningLevels: ["medium"],
-      permissionMode: "auto",
-      pluginIds: ["plugin-b"],
-    });
 
     const resolved = resolveCorePolicy(db, "plugin-user");
     expect(resolved).not.toBeNull();
@@ -272,28 +304,16 @@ describe("agent-bound execution policy", () => {
         agentId: tuple.agentId,
         pluginIds: tuple.allowedPluginIds,
       })),
-    ).toEqual([
-      { agentId: "creative", pluginIds: ["plugin-a"] },
-      { agentId: "crm", pluginIds: ["plugin-b"] },
-    ]);
-    expect(isPluginAllowedByPolicy(resolved!.policy, "plugin-a")).toBe(true);
-    expect(isPluginAllowedByPolicy(resolved!.policy, "plugin-b")).toBe(true);
+    ).toEqual([{ agentId: "creative", pluginIds: [] }]);
+    expect(isPluginAllowedByPolicy(resolved!.policy, "plugin-a")).toBe(false);
     expect(
       isPluginAllowedByPolicyForAgent(resolved!.policy, "creative", "plugin-a"),
-    ).toBe(true);
-    expect(
-      isPluginAllowedByPolicyForAgent(resolved!.policy, "creative", "plugin-b"),
-    ).toBe(false);
-    expect(
-      isPluginAllowedByPolicyForAgent(resolved!.policy, "crm", "plugin-a"),
     ).toBe(false);
   });
 
   it("derives usable defaults for a fixed grant and rechecks a current downgrade", () => {
     const db = createTestDb();
-    insertPolicy(db, "base", "user", tuplePolicy());
-    insertPolicy(db, "deny", "user", defaultDenyPolicy);
-    insertUser(db, "fixed-user", "base");
+    insertUser(db, "fixed-user");
     insertGrant(db, {
       id: "fixed-grant",
       userId: "fixed-user",
@@ -349,7 +369,7 @@ describe("agent-bound execution policy", () => {
       .run();
 
     db.update(authPrincipals)
-      .set({ policyId: "deny", revision: 2, updatedAt: Date.now() })
+      .set({ status: "revoked", revision: 2, updatedAt: Date.now() })
       .where(eq(authPrincipals.userId, "fixed-user"))
       .run();
     expect(resolveCorePolicy(db, "fixed-user")).toBeNull();
@@ -420,6 +440,81 @@ describe("agent-bound execution policy", () => {
         },
       },
     });
+  });
+
+  it("skips providers whose models the policy forbids and defaults to one that has models", () => {
+    const policy: CorePolicy = {
+      ...tuplePolicy(),
+      allowedAgentIds: ["orchestrator"],
+      allowedProviderIds: ["acp-cursor", "claude-code"],
+      allowedModelPatterns: ["claude-sonnet-5"],
+      allowedReasoningLevels: ["low", "medium", "high"],
+    };
+    const bootstrap = policyBootstrapForContext(
+      {
+        userId: "bootstrap-user",
+        email: "bootstrap-user@eva.test",
+        name: "Bootstrap User",
+        sessionId: "session",
+        role: "user",
+        policy,
+        policyRevision: 1,
+        resourceAccess: [],
+      },
+      new Map([
+        ["acp-cursor", ["grok-4.7", "composer-2.5"]],
+        ["claude-code", ["claude-sonnet-5", "claude-opus-5"]],
+      ]),
+    );
+
+    expect(bootstrap).toMatchObject({
+      capabilities: {
+        execution: {
+          agents: [
+            {
+              id: "orchestrator",
+              providerIds: ["claude-code"],
+              defaultProviderId: "claude-code",
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it("hides a user's own threads once their agent is no longer allowed", () => {
+    const db = createTestDb();
+    const context = (
+      role: "user" | "admin",
+      allowedAgentIds: string[],
+    ): CoreAuthContext => ({
+      userId: "thread-owner",
+      email: "thread-owner@eva.test",
+      name: "Thread Owner",
+      sessionId: "session",
+      role,
+      policy: { ...tuplePolicy(), allowedAgentIds },
+      policyRevision: 1,
+      resourceAccess: [],
+    });
+    const thread = (agentId: string | null) => ({
+      id: "thr_owned",
+      ownerUserId: "thread-owner",
+      agentId,
+    });
+
+    expect(canReadThread(db, context("user", ["meta"]), thread("meta"))).toBe(
+      true,
+    );
+    expect(
+      canReadThread(db, context("user", ["creative"]), thread("meta")),
+    ).toBe(false);
+    expect(
+      canWriteThread(db, context("user", ["creative"]), thread("meta")),
+    ).toBe(false);
+    expect(canReadThread(db, context("user", []), thread("meta"))).toBe(false);
+    expect(canReadThread(db, context("user", []), thread(null))).toBe(true);
+    expect(canReadThread(db, context("admin", []), thread("meta"))).toBe(true);
   });
 
   it("keeps reasoning choices bound to the selected model within an agent", () => {

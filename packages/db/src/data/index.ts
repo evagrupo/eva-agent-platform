@@ -254,6 +254,7 @@ export {
 export {
   deleteStoredProviderModelCatalogsForHost,
   getStoredProviderModelCatalog,
+  listHostScopeProviderModelsJson,
   replaceStoredProviderModelCatalog,
 } from "./provider-model-catalogs.js";
 export type {
@@ -398,6 +399,8 @@ export {
   setPendingInteractionResolved,
 } from "./pending-interactions.js";
 export type { PendingInteractionRow } from "./pending-interactions.js";
+
+export { listAuthUserNamesByIds } from "./auth-users.js";
 
 export {
   openSession,

@@ -38,6 +38,7 @@ import FolderUnknownIcon from "@hugeicons/core-free-icons/FolderUnknownIcon";
 import HelpCircleIcon from "@hugeicons/core-free-icons/HelpCircleIcon";
 import InformationCircleIcon from "@hugeicons/core-free-icons/InformationCircleIcon";
 import Loading03Icon from "@hugeicons/core-free-icons/Loading03Icon";
+import Logout03Icon from "@hugeicons/core-free-icons/Logout03Icon";
 import MessageQuestionIcon from "@hugeicons/core-free-icons/MessageQuestionIcon";
 import MoreHorizontalIcon from "@hugeicons/core-free-icons/MoreHorizontalIcon";
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
@@ -141,6 +142,7 @@ const CORE_ICON_MAP = {
   Info: InformationCircleIcon,
   ListTodo: CheckListIcon,
   Loading: Loading03Icon,
+  LogOut: Logout03Icon,
   MessageQuestion: MessageQuestionIcon,
   MessageCirclePlus: BubbleChatAddIcon,
   MessageSquarePlus: BubbleChatAddIcon,

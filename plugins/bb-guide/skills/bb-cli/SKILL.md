@@ -124,6 +124,9 @@ show <agent-id>` and `bb eva workspace <agent-id>` for bounded mandate and
   workspace manifests, then `bb eva start`, `delegate`, or `message` for
   approved conversations. Delegation requires an owned `--parent-thread` and
   never accepts arbitrary workspace paths or credentials.
+- Use `bb access users list --json` to inspect accounts. Create users with
+  `bb access users create`, assign agents with `bb access users set-agents`,
+  and delete with `bb access users delete --yes`.
 
 - Inspect real status, logs, API results, or diffs instead of assumptions.
 - For launcher startup errors and console output, read `logs/server-stdio.log`

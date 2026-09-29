@@ -47,13 +47,13 @@ export const KNOWN_ACP_AGENTS: readonly AcpAgentDefinition[] = [
     parameterizedModelPicker: true,
     primaryModels: [
       "default",
-      "grok-4.6",
+      "grok-4.7",
       "gpt-5.6-sol",
       "claude-opus-5",
       "claude-fable-5",
       "composer-2.5",
     ],
-    reasoningProbePriorityModelIds: ["grok-4.6", "grok-4.5"],
+    reasoningProbePriorityModelIds: ["grok-4.7", "grok-4.6", "grok-4.5"],
     fork: "none",
     launch: {
       displayName: "Cursor",

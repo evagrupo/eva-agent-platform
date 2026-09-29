@@ -8,11 +8,7 @@ import {
   type FaviconColor,
   type FaviconColorPreference,
 } from "@bb/domain";
-import {
-  DARK_COLOR_SCHEME_QUERY,
-  getMediaQuerySnapshot,
-  subscribeMediaQuery,
-} from "@bb/shared-ui/hooks/use-media-query";
+import { getMediaQuerySnapshot } from "@bb/shared-ui/hooks/use-media-query";
 import { invalidateSystemConfig } from "@/hooks/cache-owners/system-cache-effects";
 import { useSystemConfig } from "@/hooks/queries/system-queries";
 import { sdk } from "@/lib/sdk";
@@ -135,6 +131,11 @@ const APPLE_TOUCH_ICON_LINK_ID = "apple-touch-icon";
 
 type FaviconSize = (typeof FAVICON_SIZES)[number];
 
+const EVA_FAVICON_HREFS: Record<FaviconSize, string> = {
+  16: "/eva/favicon-leaf-16.png",
+  32: "/eva/favicon-leaf-32.png",
+};
+
 interface FaviconRenderState {
   badge: FaviconBadge;
   colorPreference: FaviconColorPreference;
@@ -156,12 +157,7 @@ interface UnreadBadgeDot {
 }
 
 export function getFaviconGlyphHref(): string {
-  return import.meta.env.DEV ? "/favicon-32x32-dev.png" : "/favicon-32x32.png";
-}
-
-function getFaviconVariantSuffix(): string {
-  if (import.meta.env.DEV) return "-dev";
-  return getMediaQuerySnapshot(DARK_COLOR_SCHEME_QUERY) ? "-dark" : "";
+  return EVA_FAVICON_HREFS[32];
 }
 
 function getFaviconLink(size: number): HTMLLinkElement | null {
@@ -283,13 +279,11 @@ let applyToken = 0;
 async function applyFaviconState(state: FaviconRenderState): Promise<void> {
   const token = ++applyToken;
   if (getMediaQuerySnapshot(STANDALONE_DISPLAY_MODE_QUERY)) return;
-  const suffix = getFaviconVariantSuffix();
   const links = await Promise.all(
     FAVICON_SIZES.map(async (size): Promise<RenderedFaviconLink> => {
-      const baseHref = `/favicon-${size}x${size}${suffix}.png`;
       const href = await createFaviconHref({
+        baseHref: EVA_FAVICON_HREFS[size],
         badge: state.badge,
-        baseHref,
         colorPreference: state.colorPreference,
       });
       return { href, size };
@@ -319,6 +313,5 @@ export function initializeFavicon(): void {
   };
   store.sub(faviconColorAtom, apply);
   store.sub(faviconBadgeAtom, apply);
-  subscribeMediaQuery(DARK_COLOR_SCHEME_QUERY, apply);
   apply();
 }

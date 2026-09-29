@@ -1100,9 +1100,8 @@ describe("PluginNewThreadComposer seeding", () => {
     expect(submitted[0]).toMatchObject({
       projectId: PERSONAL_PROJECT_ID,
       environment: {
-        type: "provider",
-        environmentProviderId: "personal-workspace",
-        inputs: null,
+        type: "host",
+        workspace: { type: "personal" },
       },
     });
   });
@@ -1537,7 +1536,7 @@ describe("PluginNewThreadComposer seeding", () => {
         </Provider>,
       );
       await waitFor(() => {
-        expect(latestPromptBoxProps().project.value).toBe("proj_1");
+        expect(latestPromptBoxProps().project.value).toBeNull();
       });
       const setItem = vi.spyOn(Storage.prototype, "setItem");
 
@@ -1558,7 +1557,7 @@ describe("PluginNewThreadComposer seeding", () => {
           PERSONAL_PROJECT_ID,
         );
       });
-      expect(latestPromptBoxProps().project.value).toBe("proj_1");
+      expect(latestPromptBoxProps().project.value).toBeNull();
       setItem.mockRestore();
     },
   );
@@ -1588,11 +1587,7 @@ describe("PluginNewThreadComposer seeding", () => {
       );
       const first = mountRoot();
       await waitFor(() => {
-        expect(latestPromptBoxProps().project.value).toBe(
-          inheritedProjectId === PERSONAL_PROJECT_ID
-            ? null
-            : inheritedProjectId,
-        );
+        expect(latestPromptBoxProps().project.value).toBeNull();
       });
       first.unmount();
       const remoteProjectId =
@@ -1603,14 +1598,10 @@ describe("PluginNewThreadComposer seeding", () => {
       );
       mountRoot();
       await waitFor(() => {
-        expect(latestPromptBoxProps().project.value).toBe(
-          inheritedProjectId === PERSONAL_PROJECT_ID
-            ? null
-            : inheritedProjectId,
-        );
+        expect(latestPromptBoxProps().project.value).toBeNull();
       });
       expect(window.sessionStorage.getItem("bb.root-compose.project-id")).toBe(
-        inheritedProjectId,
+        PERSONAL_PROJECT_ID,
       );
       expect(window.localStorage.getItem("bb.root-compose.project-id")).toBe(
         remoteProjectId,

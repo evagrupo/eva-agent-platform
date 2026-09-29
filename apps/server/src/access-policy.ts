@@ -2003,16 +2003,36 @@ function readThreadAccess(
   );
 }
 
+type ThreadAccessTarget = {
+  id: string;
+  ownerUserId?: string | null;
+  agentId: string | null;
+};
+
+function threadAgentAllowed(
+  authContext: CoreAuthContext,
+  thread: ThreadAccessTarget,
+): boolean {
+  if (thread.agentId == null) return true;
+  return isAgentAllowedByPolicy(
+    authContext.policy,
+    thread.agentId,
+    knownAgentIdsForAuthContext(authContext),
+  );
+}
+
 export function canReadThread(
   db: DbConnection,
   authContext: CoreAuthContext | null,
-  thread: { id: string; ownerUserId?: string | null },
+  thread: ThreadAccessTarget,
 ): boolean {
   if (authContext === null) return true;
+  if (authContext.role === "admin") return true;
   const ownRead = hasCoreCapability(authContext.policy, "threadOwnRead");
   const allRead = hasCoreCapability(authContext.policy, "threadAllRead");
   if (!ownRead && !allRead) return false;
   if (allRead) return true;
+  if (!threadAgentAllowed(authContext, thread)) return false;
   if (ownRead && thread.ownerUserId === authContext.userId) return true;
   return readThreadAccess(db, thread.id, authContext.userId)?.canRead === true;
 }
@@ -2020,13 +2040,15 @@ export function canReadThread(
 export function canWriteThread(
   db: DbConnection,
   authContext: CoreAuthContext | null,
-  thread: { id: string; ownerUserId?: string | null },
+  thread: ThreadAccessTarget,
 ): boolean {
   if (authContext === null) return true;
+  if (authContext.role === "admin") return true;
   const ownWrite = hasCoreCapability(authContext.policy, "threadOwnWrite");
   const allWrite = hasCoreCapability(authContext.policy, "threadAllWrite");
   if (!ownWrite && !allWrite) return false;
   if (allWrite) return true;
+  if (!threadAgentAllowed(authContext, thread)) return false;
   if (ownWrite && thread.ownerUserId === authContext.userId) return true;
   return readThreadAccess(db, thread.id, authContext.userId)?.canWrite === true;
 }
@@ -2199,9 +2221,7 @@ export function requireAuthorizedThreadForUser(
   return thread;
 }
 
-export function filterThreadsForContext<
-  T extends { id: string; ownerUserId?: string | null },
->(db: DbConnection, context: CoreRequestContext, threads: readonly T[]): T[] {
+export function filterThreadsForContext<T extends ThreadAccessTarget>(db: DbConnection, context: CoreRequestContext, threads: readonly T[]): T[] {
   const authContext = getCoreAuthContext(context);
   return threads.filter((thread) => canReadThread(db, authContext, thread));
 }
@@ -2218,6 +2238,7 @@ export function canAccessRealtimeTarget(
   }
   if (target.kind === "thread-list") {
     return (
+      authContext.role === "admin" ||
       hasCoreCapability(authContext.policy, "threadOwnRead") ||
       hasCoreCapability(authContext.policy, "threadAllRead")
     );
@@ -2254,6 +2275,7 @@ export function canAccessRealtimeTarget(
 
 export function policyBootstrapForContext(
   authContext: CoreAuthContext | null,
+  providerModelIds: ReadonlyMap<string, readonly string[]> = new Map(),
 ): Record<string, unknown> {
   if (authContext === null) {
     return {
@@ -2270,7 +2292,7 @@ export function policyBootstrapForContext(
     .filter((agent) => permits(policy.allowedAgentIds, agent.id))
     .flatMap((agent) => {
       const tuples = agentTuples.filter((tuple) => tuple.agentId === agent.id);
-      const providerIds =
+      const permittedProviderIds =
         tuples.length > 0
           ? agent.providerIds.filter((providerId) =>
               tuples.some((tuple) =>
@@ -2280,6 +2302,26 @@ export function policyBootstrapForContext(
           : agent.providerIds.filter((providerId) =>
               permits(policy.allowedProviderIds, providerId),
             );
+      const providerHasPermittedModels = (providerId: string): boolean => {
+        const modelIds = providerModelIds.get(providerId);
+        if (modelIds === undefined || modelIds.length === 0) return true;
+        return modelIds.some((model) =>
+          tuples.length > 0
+            ? tuples.some(
+                (tuple) =>
+                  permits(tuple.allowedProviderIds, providerId) &&
+                  modelPermits(tuple.allowedModelPatterns, model),
+              )
+            : modelPermits(policy.allowedModelPatterns, model),
+        );
+      };
+      const providersWithModels = permittedProviderIds.filter(
+        providerHasPermittedModels,
+      );
+      const providerIds =
+        providersWithModels.length > 0
+          ? providersWithModels
+          : permittedProviderIds;
       const reasoningLevels =
         tuples.length > 0
           ? reasoningLevelValues.filter((level) =>
@@ -2331,14 +2373,20 @@ export function policyBootstrapForContext(
             fixedExecution === true && fixedDefaultPermissionMode !== null
               ? [fixedDefaultPermissionMode]
               : permissionModes,
-          defaultProviderId:
-            singleTuple?.defaultProviderId ??
-            (fixedExecution === true && policy.defaultProviderId !== null
-              ? policy.defaultProviderId
-              : catalogDefaultProviderId !== null &&
-                  permits(policy.allowedProviderIds, catalogDefaultProviderId)
-                ? catalogDefaultProviderId
-                : null),
+          defaultProviderId: (() => {
+            const candidate =
+              singleTuple?.defaultProviderId ??
+              (fixedExecution === true && policy.defaultProviderId !== null
+                ? policy.defaultProviderId
+                : catalogDefaultProviderId !== null &&
+                    permits(policy.allowedProviderIds, catalogDefaultProviderId)
+                  ? catalogDefaultProviderId
+                  : null);
+            if (candidate === null || providerIds.includes(candidate)) {
+              return candidate;
+            }
+            return providerIds[0] ?? candidate;
+          })(),
           defaultModel:
             singleTuple?.defaultModel ??
             (fixedExecution === true && policy.defaultModel !== null

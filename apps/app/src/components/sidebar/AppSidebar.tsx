@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@bb/shared-ui/lib/utils";
+import { Icon } from "@bb/shared-ui/icon";
 import { THREAD_JUMP_APP_COMMAND_IDS } from "@bb/domain";
 import { useNavigate } from "react-router-dom";
 import { OverflowFade } from "@/components/ui/overflow-fade.js";
@@ -8,6 +9,8 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
   useCloseMobileSidebar,
   useSidebar,
 } from "@/components/ui/sidebar.js";
@@ -23,7 +26,6 @@ import { SidebarPluginAttentionGlyph } from "./SidebarPluginAttentionGlyph";
 import { SidebarUpdatesBadge } from "./SidebarUpdatesBadge";
 import { SidebarResizeHandle, SidebarTopReserveRow } from "./SidebarChrome";
 import { SIDEBAR_FOOTER_ACTION_CLASS } from "./sidebarRowClasses";
-import { useQuickCreateProjectController } from "@/hooks/useQuickCreateProject";
 import { getRootComposeRoutePath, getThreadRoutePath } from "@/lib/route-paths";
 import { usePaneContentSplitDrag } from "./usePaneContentSplitDrag";
 import {
@@ -60,7 +62,6 @@ export function AppSidebar({
   settingsRoutePath,
   mobileHosted,
 }: AppSidebarProps) {
-  const quickCreateProject = useQuickCreateProjectController();
   const coreAuth = useCoreAuth();
   const threadListReplacement = useThreadListReplacement();
   const { threadId: activeThreadId } = useRouteState();
@@ -87,6 +88,7 @@ export function AppSidebar({
   const settingsShortcut = useAppCommandShortcut("settings.open");
   const pluginSidebarFooter = usePluginSidebarFooterDisclosure();
   const sidebarFooterAllowed = canUseCoreCapability(coreAuth, "sidebarFooter");
+  const signOutAvailable = coreAuth?.authenticated === true;
   const settingsAllowed = canUseCoreCapability(coreAuth, "settings");
   const threadReadAllowed =
     canUseCoreCapability(coreAuth, "threadOwnRead") ||
@@ -199,13 +201,7 @@ export function AppSidebar({
 
   const originalThreadList = (
     <ProjectList
-      onNewProject={
-        quickCreateProject.isAvailable
-          ? quickCreateProject.openCreateDialog
-          : undefined
-      }
       onProjectSelect={closeOnMobile}
-      isCreatingProject={quickCreateProject.isCreating}
     />
   );
 
@@ -243,43 +239,72 @@ export function AppSidebar({
           />
         </SidebarContent>
       ) : null}
-      {sidebarFooterAllowed ? (
+      {sidebarFooterAllowed || signOutAvailable ? (
         <SidebarFooter className="relative">
           <OverflowFade placement="above" tone="sidebar" size="sm" />
-          <PluginSidebarFooterDisclosure
-            item={pluginSidebarFooter.activeItem}
-            onDismiss={pluginSidebarFooter.dismiss}
-          />
+          {sidebarFooterAllowed ? (
+            <PluginSidebarFooterDisclosure
+              item={pluginSidebarFooter.activeItem}
+              onDismiss={pluginSidebarFooter.dismiss}
+            />
+          ) : null}
           <SidebarMenu className="flex-row flex-wrap-reverse items-center gap-1">
-            <PluginSidebarFooterItems
-              activeDisclosureKey={pluginSidebarFooter.activeKey}
-              onDisclosureCommand={pluginSidebarFooter.handleCommand}
-              onNavigate={closeOnMobile}
-              builtInActions={
-                settingsAllowed
-                  ? [
-                      {
-                        id: "settings",
-                        href: settingsRoutePath,
-                        ariaLabel: settingsShortcut
-                          ? `Settings (${settingsShortcut.label})`
-                          : "Settings",
-                        ariaKeyShortcuts: settingsShortcut?.ariaKeyshortcuts,
-                        onActivate: () => {
-                          closeOnMobile();
-                          void navigate(settingsRoutePath);
+            {sidebarFooterAllowed ? (
+              <PluginSidebarFooterItems
+                activeDisclosureKey={pluginSidebarFooter.activeKey}
+                onDisclosureCommand={pluginSidebarFooter.handleCommand}
+                onNavigate={closeOnMobile}
+                builtInActions={
+                  settingsAllowed
+                    ? [
+                        {
+                          id: "settings",
+                          href: settingsRoutePath,
+                          ariaLabel: settingsShortcut
+                            ? `Settings (${settingsShortcut.label})`
+                            : "Settings",
+                          ariaKeyShortcuts: settingsShortcut?.ariaKeyshortcuts,
+                          onActivate: () => {
+                            closeOnMobile();
+                            void navigate(settingsRoutePath);
+                          },
                         },
-                      },
-                    ]
-                  : []
-              }
-            />
+                      ]
+                    : []
+                }
+              />
+            ) : null}
             <li aria-hidden="true" className="min-w-0 flex-1" />
-            <SidebarPluginAttentionGlyph
-              className={SIDEBAR_FOOTER_ACTION_CLASS}
-              onNavigate={closeOnMobile}
-            />
-            <SidebarUpdatesBadge onNavigate={closeOnMobile} />
+            {sidebarFooterAllowed ? (
+              <>
+                <SidebarPluginAttentionGlyph
+                  className={SIDEBAR_FOOTER_ACTION_CLASS}
+                  onNavigate={closeOnMobile}
+                />
+                <SidebarUpdatesBadge onNavigate={closeOnMobile} />
+              </>
+            ) : null}
+            {signOutAvailable ? (
+              <SidebarMenuItem className="min-w-0">
+                <SidebarMenuButton
+                  aria-label="Sign out"
+                  tooltip={{ children: "Sign out", hidden: false, side: "top" }}
+                  className={SIDEBAR_FOOTER_ACTION_CLASS}
+                  data-testid="sidebar-footer-sign-out"
+                  onClick={() => {
+                    closeOnMobile();
+                    void coreAuth?.signOut();
+                  }}
+                >
+                  <Icon
+                    name="LogOut"
+                    className="size-4 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span className="sr-only">Sign out</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ) : null}
           </SidebarMenu>
         </SidebarFooter>
       ) : null}

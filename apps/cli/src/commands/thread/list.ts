@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { PERSONAL_PROJECT_ID, type Thread } from "@bb/domain";
+import { PERSONAL_PROJECT_ID, type ThreadListEntry } from "@bb/domain";
 import { action } from "../../action.js";
 import { createCliBbSdk } from "../../client.js";
 import { resolveExplicitIdFlag } from "../../context-env.js";
@@ -84,25 +84,37 @@ export function registerListCommand(
 const MAX_TITLE_WIDTH = 60;
 
 function printThreadTable(
-  threads: Thread[],
+  threads: ThreadListEntry[],
   projectNames: ReadonlyMap<string, string>,
 ): void {
-  const rows = threads.map((thread) => [
-    thread.id,
-    truncateCell(formatThreadListTitle(thread), MAX_TITLE_WIDTH),
-    formatThreadListProject(thread, projectNames),
-    formatThreadListStatus(thread),
-  ]);
+  const showOwner = threads.some(
+    (thread) => (thread.ownerName?.trim().length ?? 0) > 0,
+  );
+  const rows = threads.map((thread) => {
+    const ownerName = thread.ownerName?.trim() ?? "";
+    const cells = [
+      thread.id,
+      truncateCell(formatThreadListTitle(thread), MAX_TITLE_WIDTH),
+      formatThreadListProject(thread, projectNames),
+      formatThreadListStatus(thread),
+    ];
+    if (showOwner) cells.splice(2, 0, ownerName.length > 0 ? ownerName : "-");
+    return cells;
+  });
   printBorderlessTable(
     {
-      head: ["ID", "Title", "Project", "Status"],
-      colWidths: columnWidths(rows, [4, 5, 7, 12]),
+      head: showOwner
+        ? ["ID", "Title", "Owner", "Project", "Status"]
+        : ["ID", "Title", "Project", "Status"],
+      colWidths: showOwner
+        ? columnWidths(rows, [4, 5, 5, 7, 12])
+        : columnWidths(rows, [4, 5, 7, 12]),
     },
     rows,
   );
 }
 
-function formatThreadListTitle(thread: Thread): string {
+function formatThreadListTitle(thread: ThreadListEntry): string {
   const title = thread.title?.trim();
   if (title) return title;
   const fallback = thread.titleFallback?.trim();
@@ -111,14 +123,14 @@ function formatThreadListTitle(thread: Thread): string {
 }
 
 function formatThreadListProject(
-  thread: Thread,
+  thread: ThreadListEntry,
   projectNames: ReadonlyMap<string, string>,
 ): string {
   if (thread.projectId === PERSONAL_PROJECT_ID) return "-";
   return projectNames.get(thread.projectId) ?? thread.projectId;
 }
 
-function formatThreadListStatus(thread: Thread): string {
+function formatThreadListStatus(thread: ThreadListEntry): string {
   const flags: string[] = [];
   if (thread.archivedAt !== null) {
     flags.push("archived");

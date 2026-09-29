@@ -7,6 +7,7 @@ const sidebarOrganizationModeSchema = z.enum([
   "project",
   "chronological",
   "machine",
+  "agent",
 ]);
 export type SidebarOrganizationMode = z.infer<
   typeof sidebarOrganizationModeSchema
@@ -43,12 +44,14 @@ export const UI_PREFERENCE_KEYS = [
   "sidebar.sectionOrder",
   "sidebar.manualSectionOrder",
   "sidebar.machineSectionOrder",
+  "sidebar.agentSectionOrder",
   "sidebar.collapsedSections",
   "sidebar.collapsedProjects",
   "sidebar.collapsedThreads",
   "sidebar.collapsedEnvironments",
   "sidebar.collapsedThreadSections",
   "sidebar.collapsedMachines",
+  "sidebar.collapsedAgents",
   "sidebar.footerOrder",
   "sidebar.hiddenFooterItems",
   "sidebar.pluginPanelOrder",
@@ -80,8 +83,8 @@ function defineUiPreference<Schema extends z.ZodTypeAny>(
 export const uiPreferenceDefinitions = {
   "sidebar.organizationMode": defineUiPreference(
     sidebarOrganizationModeSchema,
-    "chronological",
-    "How the sidebar groups threads: by project, Custom (chronological), or by machine. Defaults to Custom when unset.",
+    "agent",
+    "How the sidebar groups threads: by agent, by project, Custom (chronological), or by machine. Defaults to By agent when unset.",
   ),
   "sidebar.threadGrouping.environment": defineUiPreference(
     sidebarThreadGroupingSchema,
@@ -112,6 +115,11 @@ export const uiPreferenceDefinitions = {
     uiPreferenceStringListSchema,
     ["pinned", "machines", "threads"],
     "Top-level section order when the sidebar is organized by machine.",
+  ),
+  "sidebar.agentSectionOrder": defineUiPreference(
+    uiPreferenceStringListSchema,
+    ["pinned", "agents", "threads"],
+    "Top-level section order when the sidebar is organized by agent.",
   ),
   "sidebar.collapsedSections": defineUiPreference(
     z
@@ -144,6 +152,11 @@ export const uiPreferenceDefinitions = {
     uiPreferenceStringListSchema,
     [],
     "Machine ids whose sidebar rows are collapsed.",
+  ),
+  "sidebar.collapsedAgents": defineUiPreference(
+    uiPreferenceStringListSchema,
+    [],
+    "Agent ids whose sidebar rows are collapsed.",
   ),
   "sidebar.footerOrder": defineUiPreference(
     uiPreferenceStringListSchema,

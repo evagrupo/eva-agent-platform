@@ -69,7 +69,7 @@ async function openMenu(label = "Pinned") {
   fireEvent.keyDown(screen.getByRole("button", { name: `${label} actions` }), {
     key: "Enter",
   });
-  await screen.findByRole("menuitem", { name: "New project" });
+  await screen.findByRole("menuitem", { name: "New section" });
 }
 
 async function openSubmenu(label: string) {
@@ -99,7 +99,7 @@ describe("sidebar header controls", () => {
         screen.queryByRole("menuitemcheckbox", { name: "By environment" }),
       ).toBeNull();
       expect(
-        screen.queryByRole("menuitem", { name: "New project" }),
+        screen.queryByRole("menuitem", { name: "New section" }),
       ).toBeNull();
     });
   });
@@ -142,7 +142,6 @@ describe("sidebar header controls", () => {
     expect(
       screen.getAllByRole("menuitem").map((item) => item.textContent),
     ).toEqual([
-      "New project",
       "New section",
       "Organize",
       "Sort by",
@@ -154,7 +153,7 @@ describe("sidebar header controls", () => {
     expect(newSection).toHaveBeenCalledOnce();
     await waitFor(() =>
       expect(
-        screen.queryByRole("menuitem", { name: "New project" }),
+        screen.queryByRole("menuitem", { name: "New section" }),
       ).toBeNull(),
     );
   });
@@ -171,6 +170,16 @@ describe("sidebar header controls", () => {
         .getByRole("menuitemradio", { name: "By project" })
         .getAttribute("aria-checked"),
     ).toBe("true");
+
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "By agent" }));
+    expect(store.get(sidebarOrganizationModeAtom)).toBe("agent");
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("menuitemradio", { name: "By agent" })
+          .getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
 
     fireEvent.click(machine);
     expect(store.get(sidebarOrganizationModeAtom)).toBe("machine");
@@ -310,7 +319,7 @@ describe("sidebar header controls", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Pinned actions" }));
     expect(
-      await screen.findByRole("menuitem", { name: "New project" }),
+      await screen.findByRole("menuitem", { name: "New section" }),
     ).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: "Back" })).toBeNull();
   });

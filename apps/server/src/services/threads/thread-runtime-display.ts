@@ -3,6 +3,7 @@ import {
   getLatestSessionForHost,
   getSessionById,
   listActiveBackgroundTaskCountsByThreadIds,
+  listAuthUserNamesByIds,
   listLatestThreadStateEventRowsByThreadIds,
   listLatestSessionsForHosts,
   listOpenTurnInputAcceptedRowsByThreadIds,
@@ -38,6 +39,10 @@ import { listQueuedThreadMessageCountsByThreadIds } from "@bb/db";
 import { resolveEnvironmentWorkspaceDisplayKind } from "../environments/environment-response.js";
 import { canThreadSpawnChild } from "./thread-parent.js";
 import { toThreadEventWithMeta } from "./timeline.js";
+import {
+  getCoreAuthContext,
+  hasCoreCapability,
+} from "../../access-policy.js";
 
 type ThreadRuntimeDisplayHub = Pick<
   NotificationHub,
@@ -86,6 +91,7 @@ interface ToThreadListEntryResponseFromLatestSessionArgs {
   hostConnected: boolean;
   latestSession: HostDaemonSessionRow | null;
   now?: number;
+  ownerName?: string | null;
   queuedWork: ThreadQueuedWork;
   thread: ThreadWithPendingInteractionState;
 }
@@ -568,6 +574,7 @@ export function toThreadListEntryResponses(
     deps,
     args.threads,
   );
+  const ownerNamesByUserId = ownerNamesForThreadList(deps.db, args.threads);
   return args.threads.map((thread) => {
     return toThreadListEntryResponseFromLatestSession({
       activity: activityByThreadId.get(thread.id) ?? EMPTY_THREAD_ACTIVITY,
@@ -580,9 +587,36 @@ export function toThreadListEntryResponses(
           ? null
           : (latestSessionByHostId.get(thread.environmentHostId) ?? null),
       now: args.now,
+      ownerName:
+        ownerNamesByUserId === null
+          ? undefined
+          : thread.ownerUserId
+            ? (ownerNamesByUserId.get(thread.ownerUserId) ?? null)
+            : null,
       thread,
     });
   });
+}
+
+function ownerNamesForThreadList(
+  db: DbConnection,
+  threads: readonly ThreadWithPendingInteractionState[],
+): Map<string, string> | null {
+  const authContext = getCoreAuthContext({});
+  if (
+    authContext === null ||
+    !hasCoreCapability(authContext.policy, "threadAllRead")
+  ) {
+    return null;
+  }
+  const ownerIds = [
+    ...new Set(
+      threads.flatMap((thread) =>
+        thread.ownerUserId ? [thread.ownerUserId] : [],
+      ),
+    ),
+  ];
+  return listAuthUserNamesByIds(db, ownerIds);
 }
 
 function toThreadListEntryResponseFromLatestSession(
@@ -612,5 +646,6 @@ function toThreadListEntryResponseFromLatestSession(
       now: args.now,
       status: thread.status,
     }),
+    ...(args.ownerName === undefined ? {} : { ownerName: args.ownerName }),
   };
 }

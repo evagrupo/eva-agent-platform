@@ -2423,6 +2423,12 @@ export interface NewThreadComposerProps {
    */
   defaultProjectId?: string;
   /**
+   * Seeds the EVA agent picker. Same seed semantics as {@link defaultProviderId}.
+   * The id must be a catalog agent id. When omitted, the composer uses the
+   * signed-in user's default agent.
+   */
+  defaultAgentId?: string;
+  /**
    * Seeds the provider picker. Like every `default*` prop this is a SEED, not
    * a controlled value: the composer stays uncontrolled, the user can change
    * it, and when omitted the composer falls back to the project's remembered

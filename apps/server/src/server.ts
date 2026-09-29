@@ -54,6 +54,10 @@ import {
   createPluginService,
   type PluginService,
 } from "./services/plugins/plugin-service.js";
+import {
+  createPluginLoopbackSecret,
+  requestHasPluginLoopbackAuth,
+} from "./services/plugins/plugin-loopback-auth.js";
 import { setPluginAgentContributions } from "./services/plugins/plugin-agent-contributions.js";
 import { setPluginThreadEventEmitter } from "./services/plugins/plugin-thread-events.js";
 import { setPluginHookProvider } from "./services/plugins/plugin-hook-registry.js";
@@ -500,6 +504,7 @@ export function createApp(
     coreAuth,
     db: deps.db,
   });
+  const pluginLoopbackSecret = createPluginLoopbackSecret();
   const app = new Hono();
   app.use("*", async (context, next) => {
     await next();
@@ -633,7 +638,8 @@ export function createApp(
     if (
       authContext === null &&
       (coreAuth.required || coreAuth.hasSessionCookie(context.req.raw)) &&
-      !allowsAnonymousCoreAuthPath(context.req.path)
+      !allowsAnonymousCoreAuthPath(context.req.path) &&
+      !requestHasPluginLoopbackAuth(context.req.raw, pluginLoopbackSecret)
     ) {
       return unauthorizedResponse();
     }
@@ -756,6 +762,7 @@ export function createApp(
     pendingInteractions: deps.pendingInteractions,
     dataDir: deps.config.dataDir,
     appVersion: deps.config.appVersion,
+    pluginLoopbackSecret,
     getAppUrl: () => deps.config.appUrl ?? null,
     sharedPorts: deps.sharedPorts,
     providerRegistry: deps.providerRegistry,

@@ -1,11 +1,8 @@
 import { hashPassword, verifyPassword } from "better-auth/crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import {
   authAccounts,
   authAgentGrants,
-  authPolicies,
   authPrincipals,
   authSessions,
   authUsers,
@@ -13,15 +10,9 @@ import {
   getPersonalProject,
   threads,
 } from "@bb/db";
+import { systemExecutionOptionsResponseSchema } from "@bb/server-contract";
 import { describe, expect, it } from "vitest";
-import {
-  defaultAdminPolicy,
-  defaultDenyPolicy,
-  defaultUserPolicy,
-  effectiveCoreCapabilities,
-  grantCoreResourceAccess,
-  type CorePolicy,
-} from "../../src/access-policy.js";
+import { grantCoreResourceAccess } from "../../src/access-policy.js";
 import { isPluginAggregateRoutePath } from "../../src/routes/plugins.js";
 import {
   createTestDb,
@@ -47,26 +38,8 @@ interface SeedIdentityArgs {
   email: string;
   name: string;
   password: string;
-  policyId: string;
   role?: "admin" | "user";
   userId: string;
-}
-
-function insertPolicy(
-  harness: TestAppHarness,
-  policyId: string,
-  policy: CorePolicy,
-): void {
-  harness.db
-    .insert(authPolicies)
-    .values({
-      id: policyId,
-      role: policyId === "admin" ? "admin" : "user",
-      policyJson: JSON.stringify(policy),
-      revision: 1,
-      updatedAt: Date.now(),
-    })
-    .run();
 }
 
 async function seedIdentity(
@@ -111,7 +84,7 @@ async function seedIdentity(
       userId: args.userId,
       role: args.role ?? "user",
       status: "active",
-      policyId: args.policyId,
+      policyId: args.role === "admin" ? "admin" : "user",
       revision: 1,
       updatedAt: Date.now(),
     })
@@ -185,147 +158,34 @@ async function seedOwnedThreads(
   return { project, threadA, threadB };
 }
 
-function restrictedPolicy(): CorePolicy {
-  return {
-    ...defaultUserPolicy,
-    allowedAgentIds: ["creative"],
-    allowedProviderIds: ["codex"],
-    allowedModelPatterns: ["allowed-model"],
-    allowedReasoningLevels: ["low"],
-    capabilities: {
-      ...effectiveCoreCapabilities(defaultDenyPolicy),
-      workspaceBootstrap: true,
-      projects: true,
-      threadOwnRead: true,
-      threadOwnWrite: true,
-    },
-    allowThreadReadOwn: true,
-    allowThreadWrite: true,
-    allowBootstrap: true,
-    defaultProviderId: "codex",
-    defaultModel: "allowed-model",
-    defaultReasoningLevel: "low",
-    defaultPermissionMode: "auto",
-    maxPermissionMode: "auto",
-    fixedExecution: true,
-  };
-}
-
-function executionDeniedPolicy(): CorePolicy {
-  return {
-    ...defaultUserPolicy,
-    allowedAgentIds: ["creative"],
-    allowThreadReadOwn: true,
-    allowThreadWrite: true,
-    allowBootstrap: true,
-    allowedProviderIds: [],
-    allowedModelPatterns: [],
-    allowedReasoningLevels: [],
-    defaultProviderId: null,
-    defaultModel: null,
-    defaultReasoningLevel: null,
-    defaultPermissionMode: "accept-edits",
-  };
-}
-
-function pluginRestrictedPolicy(): CorePolicy {
-  return {
-    ...restrictedPolicy(),
-    capabilities: {
-      ...effectiveCoreCapabilities(restrictedPolicy()),
-      plugins: true,
-      pluginData: true,
-    },
-    allowPluginData: true,
-    allowedPluginIds: ["allowed"],
-  };
-}
-
-function tuplePluginPolicy(): CorePolicy {
-  return {
-    ...restrictedPolicy(),
-    allowedAgentIds: ["creative", "crm"],
-    fixedExecution: false,
-    capabilities: {
-      ...effectiveCoreCapabilities(restrictedPolicy()),
-      plugins: true,
-      pluginData: true,
-    },
-    allowPluginData: true,
-    allowedPluginIds: ["*"],
-  };
-}
-
-function insertPluginGrant(
+function insertAgentGrant(
   harness: TestAppHarness,
-  args: { agentId: string; id: string; pluginId: string },
+  args: {
+    agentId: string;
+    fixedExecution?: boolean;
+    id: string;
+    userId: string;
+  },
 ): void {
   harness.db
     .insert(authAgentGrants)
     .values({
       id: args.id,
-      userId: "user-a",
+      userId: args.userId,
       groupId: null,
       agentId: args.agentId,
       providerIdsJson: JSON.stringify(["codex"]),
       modelPatternsJson: JSON.stringify(["allowed-model"]),
       reasoningLevelsJson: JSON.stringify(["low"]),
-      fixedExecution: false,
+      fixedExecution: args.fixedExecution ?? false,
       permissionMode: "auto",
       terminalAccess: "none",
       toolIdsJson: JSON.stringify([]),
-      pluginIdsJson: JSON.stringify([args.pluginId]),
+      pluginIdsJson: JSON.stringify([]),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     })
     .run();
-}
-
-async function writePolicyPlugin(
-  harness: TestAppHarness,
-  name: "allowed" | "blocked",
-): Promise<string> {
-  const rootDir = join(harness.config.dataDir, "plugin-policy", name);
-  await mkdir(rootDir, { recursive: true });
-  await writeFile(
-    join(rootDir, "package.json"),
-    JSON.stringify({
-      name: `bb-plugin-${name}`,
-      version: "0.1.0",
-      bb: {
-        name: `${name} policy fixture`,
-        description: `${name} policy fixture`,
-        branding: { icon: "Zap" },
-        server: "./server.ts",
-      },
-    }),
-  );
-  await writeFile(
-    join(rootDir, "server.ts"),
-    `
-      import { defineRpcContract } from "@get-bb/plugin-sdk";
-      import { z } from "zod";
-      const contract = defineRpcContract({
-        echo: {
-          input: z.object({ value: z.string() }),
-          output: z.object({ plugin: z.string(), value: z.string() }),
-        },
-      });
-      export default function plugin(bb: any) {
-        bb.cli.register({
-          name: "fixture-${name}",
-          summary: "${name} fixture command",
-          commands: [],
-          run: () => ({ exitCode: 0, stdout: "${name}" }),
-        });
-        bb.http.route("GET", "/hello", (c: any) => c.json({ plugin: "${name}" }));
-        bb.http.route("GET", "/plugins/rpc", (c: any) => c.json({ plugin: "${name}" }));
-        bb.http.route("GET", "/guarded", (c: any) => c.json({ plugin: "${name}" }), { auth: "token" });
-        bb.rpc.register(contract, { echo: (input: any) => ({ plugin: "${name}", value: input.value }) }, { experimental_discoverable: true });
-      }
-    `,
-  );
-  return rootDir;
 }
 
 describe("core auth foundation", () => {
@@ -407,62 +267,13 @@ describe("core auth foundation", () => {
     db.$client.close();
   });
 
-  it("repairs the exact legacy user policy during service startup", async () => {
+  it("serves an active user its role policy during service startup", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
-      const customizedAdminPolicy = {
-        ...defaultAdminPolicy,
-        allowBootstrap: false,
-      };
-      harness.db
-        .update(authPolicies)
-        .set({
-          policyJson: JSON.stringify(defaultDenyPolicy),
-          revision: 1,
-          updatedAt: Date.now(),
-        })
-        .where(eq(authPolicies.id, "user"))
-        .run();
-      harness.db
-        .update(authPolicies)
-        .set({
-          policyJson: JSON.stringify(customizedAdminPolicy),
-          revision: 9,
-          updatedAt: Date.now(),
-        })
-        .where(eq(authPolicies.id, "admin"))
-        .run();
-
-      createCoreAuthService({
-        db: harness.db,
-        config: { isDevelopment: true, serverPort: 3334, authRequired: true },
-        env: { ...process.env, NODE_ENV: "test" },
-      });
-
-      const repairedUserPolicy = harness.db
-        .select()
-        .from(authPolicies)
-        .where(eq(authPolicies.id, "user"))
-        .get();
-      const preservedAdminPolicy = harness.db
-        .select()
-        .from(authPolicies)
-        .where(eq(authPolicies.id, "admin"))
-        .get();
-      expect(repairedUserPolicy?.revision).toBe(2);
-      expect(JSON.parse(repairedUserPolicy?.policyJson ?? "null")).toEqual(
-        defaultUserPolicy,
-      );
-      expect(preservedAdminPolicy?.revision).toBe(9);
-      expect(JSON.parse(preservedAdminPolicy?.policyJson ?? "null")).toEqual(
-        customizedAdminPolicy,
-      );
-
       await seedIdentity(harness, {
         email: USER_A_EMAIL,
-        name: "Legacy User",
+        name: "Role User",
         password: USER_A_PASSWORD,
-        policyId: "user",
-        userId: "legacy-user",
+        userId: "role-user",
       });
       const cookie = await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD);
       expect(
@@ -482,40 +293,6 @@ describe("core auth foundation", () => {
     });
   });
 
-  it("leaves a customized built-in user policy unchanged during startup", async () => {
-    const db = createTestDb();
-    const customizedUserPolicy = {
-      ...defaultUserPolicy,
-      allowBootstrap: false,
-    };
-    db.insert(authPolicies)
-      .values({
-        id: "user",
-        role: "user",
-        policyJson: JSON.stringify(customizedUserPolicy),
-        revision: 7,
-        updatedAt: Date.now(),
-      })
-      .run();
-
-    createCoreAuthService({
-      db,
-      config: { isDevelopment: true, serverPort: 3334, authRequired: false },
-      env: { ...process.env, NODE_ENV: "test" },
-    });
-
-    const policy = db
-      .select()
-      .from(authPolicies)
-      .where(eq(authPolicies.id, "user"))
-      .get();
-    expect(policy?.revision).toBe(7);
-    expect(JSON.parse(policy?.policyJson ?? "null")).toEqual(
-      customizedUserPolicy,
-    );
-    db.$client.close();
-  });
-
   it("recognizes only canonical aggregate plugin routes", () => {
     expect(isPluginAggregateRoutePath("/plugins/rpc")).toBe(true);
     expect(isPluginAggregateRoutePath("/api/v1/plugins/rpc/")).toBe(true);
@@ -533,14 +310,12 @@ describe("core auth foundation", () => {
         email: USER_A_EMAIL,
         name: "User A",
         password: USER_A_PASSWORD,
-        policyId: "user",
         userId: "user-a",
       });
       await seedIdentity(harness, {
         email: USER_B_EMAIL,
         name: "User B",
         password: USER_B_PASSWORD,
-        policyId: "user",
         userId: "user-b",
       });
       const { project, threadA } = await seedOwnedThreads(harness, {
@@ -577,7 +352,6 @@ describe("core auth foundation", () => {
         email: ADMIN_EMAIL,
         name: "EVA Administrator",
         password: ADMIN_PASSWORD,
-        policyId: "admin",
         role: "admin",
         userId: "admin-user",
       });
@@ -604,7 +378,6 @@ describe("core auth foundation", () => {
         email: USER_A_EMAIL,
         name: "User A",
         password: USER_A_PASSWORD,
-        policyId: "user",
         userId: "user-a",
       });
       const cookie = await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD);
@@ -638,20 +411,10 @@ describe("core auth foundation", () => {
 
   it("requires plugin data capability for the registry and installed plugins", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
-      const pluginsOnlyPolicy: CorePolicy = {
-        ...defaultUserPolicy,
-        capabilities: {
-          ...effectiveCoreCapabilities(defaultDenyPolicy),
-          plugins: true,
-          pluginData: false,
-        },
-      };
-      insertPolicy(harness, "plugins-only", pluginsOnlyPolicy);
       await seedIdentity(harness, {
         email: USER_A_EMAIL,
         name: "User A",
         password: USER_A_PASSWORD,
-        policyId: "plugins-only",
         userId: "user-a",
       });
       const cookie = await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD);
@@ -668,19 +431,26 @@ describe("core auth foundation", () => {
 
   it("enforces owner isolation through lists, direct IDs, and mutations", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
-      insertPolicy(harness, "restricted", restrictedPolicy());
       await seedIdentity(harness, {
         email: USER_A_EMAIL,
         name: "User A",
         password: USER_A_PASSWORD,
-        policyId: "restricted",
         userId: "user-a",
       });
       await seedIdentity(harness, {
         email: USER_B_EMAIL,
         name: "User B",
         password: USER_B_PASSWORD,
-        policyId: "restricted",
+        userId: "user-b",
+      });
+      insertAgentGrant(harness, {
+        agentId: "creative",
+        id: "user-a-creative",
+        userId: "user-a",
+      });
+      insertAgentGrant(harness, {
+        agentId: "creative",
+        id: "user-b-creative",
         userId: "user-b",
       });
       const { threadA, threadB, project } = await seedOwnedThreads(harness, {
@@ -788,19 +558,16 @@ describe("core auth foundation", () => {
 
   it("filters inaccessible projects from reorder responses", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
-      insertPolicy(harness, "restricted", restrictedPolicy());
       await seedIdentity(harness, {
         email: USER_A_EMAIL,
         name: "User A",
         password: USER_A_PASSWORD,
-        policyId: "restricted",
         userId: "user-a",
       });
       await seedIdentity(harness, {
         email: USER_B_EMAIL,
         name: "User B",
         password: USER_B_PASSWORD,
-        policyId: "restricted",
         userId: "user-b",
       });
       const { host } = seedHostSession(harness.deps, { id: "reorder-host" });
@@ -853,20 +620,23 @@ describe("core auth foundation", () => {
 
   it("enforces fixed provider, model, and reasoning settings on direct requests", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
-      insertPolicy(harness, "restricted", restrictedPolicy());
       await seedIdentity(harness, {
         email: USER_A_EMAIL,
         name: "User A",
         password: USER_A_PASSWORD,
-        policyId: "restricted",
         userId: "user-a",
       });
       await seedIdentity(harness, {
         email: USER_B_EMAIL,
         name: "User B",
         password: USER_B_PASSWORD,
-        policyId: "user",
         userId: "user-b",
+      });
+      insertAgentGrant(harness, {
+        agentId: "creative",
+        fixedExecution: true,
+        id: "user-a-creative",
+        userId: "user-a",
       });
       const { threadA, project } = await seedOwnedThreads(harness, {
         a: "user-a",
@@ -914,257 +684,49 @@ describe("core auth foundation", () => {
     });
   });
 
-  it("enforces per-plugin policy across aggregates, direct IDs, and plugin tokens", async () => {
+  it("lists execution options for a granted provider when the policy denies plugin access", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
-      insertPolicy(harness, "plugin-restricted", pluginRestrictedPolicy());
       await seedIdentity(harness, {
         email: USER_A_EMAIL,
         name: "User A",
         password: USER_A_PASSWORD,
-        policyId: "plugin-restricted",
         userId: "user-a",
       });
-      const { threadA } = await seedOwnedThreads(harness, {
-        a: "user-a",
-        b: "user-a",
-      });
-      const allowedRoot = await writePolicyPlugin(harness, "allowed");
-      const blockedRoot = await writePolicyPlugin(harness, "blocked");
-      expect((await harness.pluginService.installPath(allowedRoot)).id).toBe(
-        "allowed",
-      );
-      expect((await harness.pluginService.installPath(blockedRoot)).id).toBe(
-        "blocked",
-      );
-      const cookie = await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD);
-      const headers = { cookie };
-      const blockedToken = await harness.pluginService.httpToken("blocked");
-      expect(blockedToken).toEqual(expect.any(String));
-      const allowedToken = await harness.pluginService.httpToken("allowed");
-      expect(allowedToken).toEqual(expect.any(String));
-
-      const listed = await harness.app.request("/api/v1/plugins", {
-        headers,
-      });
-      expect(listed.status).toBe(200);
-      expect(
-        (
-          (await listed.json()) as { plugins: Array<{ id: string }> }
-        ).plugins.map((plugin) => plugin.id),
-      ).toEqual(["allowed"]);
-
-      const contributions = await harness.app.request(
-        "/api/v1/plugins/contributions",
-        { headers },
-      );
-      expect(contributions.status).toBe(200);
-      expect(
-        (
-          (await contributions.json()) as {
-            cliCommands: Array<{ pluginId: string }>;
-          }
-        ).cliCommands.map((contribution) => contribution.pluginId),
-      ).toEqual(["allowed"]);
-
-      const aggregateRpc = await harness.app.request("/api/v1/plugins/rpc", {
-        headers,
-      });
-      expect(aggregateRpc.status).toBe(200);
-      expect(
-        ((await aggregateRpc.json()) as Array<{ pluginId: string }>).map(
-          (contribution) => contribution.pluginId,
-        ),
-      ).toEqual(["allowed"]);
-
-      expect(
-        (
-          await harness.app.request("/api/v1/plugins/rpc?pluginId=blocked", {
-            headers,
-          })
-        ).status,
-      ).toBe(403);
-      expect(
-        (
-          await harness.app.request(
-            "/api/v1/plugins/blocked/http/plugins/rpc",
-            { headers },
-          )
-        ).status,
-      ).toBe(403);
-
-      expect(
-        (
-          await harness.app.request("/api/v1/plugins/allowed/http/hello", {
-            headers,
-          })
-        ).status,
-      ).toBe(200);
-      expect(
-        (
-          await harness.app.request("/api/v1/plugins/allowed/http/guarded", {
-            headers: { ...headers, "x-bb-plugin-token": allowedToken! },
-          })
-        ).status,
-      ).toBe(200);
-
-      for (const request of [
-        harness.app.request("/api/v1/plugins/blocked/http/hello", {
-          headers,
-        }),
-        harness.app.request("/api/v1/plugins/blocked/http/guarded", {
-          headers: { ...headers, "x-bb-plugin-token": blockedToken! },
-        }),
-        harness.app.request("/api/v1/plugins/blocked/rpc/echo", {
-          method: "POST",
-          headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify({ value: "blocked" }),
-        }),
-        harness.app.request("/api/v1/plugins/blocked/token", {
-          method: "POST",
-          headers,
-        }),
-        harness.app.request("/api/v1/plugins/blocked/settings", {
-          headers,
-        }),
-        harness.app.request("/api/v1/plugins/blocked/assets/icon", {
-          headers,
-        }),
-        harness.app.request("/api/v1/plugins/blocked/source", { headers }),
-        harness.app.request("/api/v1/plugins/blocked/logs", { headers }),
-        harness.app.request(
-          `/api/v1/threads/${threadA.id}/plugin-metadata?pluginId=blocked`,
-          { headers },
-        ),
-        harness.app.request(`/api/v1/threads/${threadA.id}/plugin-metadata`, {
-          method: "PATCH",
-          headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify({ pluginId: "blocked", set: { secret: true } }),
-        }),
-        harness.app.request("/api/v1/plugins/blocked/disable", {
-          method: "POST",
-          headers,
-        }),
-        harness.app.request("/api/v1/plugins/reload?id=blocked", {
-          method: "POST",
-          headers,
-        }),
-        harness.app.request("/api/v1/plugins/updates/check", {
-          method: "POST",
-          headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify({ id: "blocked" }),
-        }),
-      ]) {
-        expect((await request).status).toBe(403);
-      }
-
-      const install = await harness.app.request("/api/v1/plugins/install", {
-        method: "POST",
-        headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify({ source: "builtin:keep-awake" }),
-      });
-      expect(install.status).toBe(403);
-      expect(
-        (
-          await harness.app.request("/api/v1/plugins/reload", {
-            method: "POST",
-            headers,
-          })
-        ).status,
-      ).toBe(403);
-      expect(
-        (
-          await harness.app.request("/api/v1/plugins/blocked/http/guarded", {
-            headers: { "x-bb-plugin-token": blockedToken! },
-          })
-        ).status,
-      ).toBe(401);
-    });
-  });
-
-  it("binds thread plugin metadata to the thread's selected agent", async () => {
-    await withTestHarness({ authRequired: true }, async (harness) => {
-      insertPolicy(harness, "tuple-plugins", tuplePluginPolicy());
-      await seedIdentity(harness, {
-        email: USER_A_EMAIL,
-        name: "User A",
-        password: USER_A_PASSWORD,
-        policyId: "tuple-plugins",
-        userId: "user-a",
-      });
-      const { threadA, threadB } = await seedOwnedThreads(harness, {
-        a: "user-a",
-        b: "user-a",
-      });
-      harness.db
-        .update(threads)
-        .set({ agentId: "crm" })
-        .where(eq(threads.id, threadB.id))
-        .run();
-      insertPluginGrant(harness, {
+      insertAgentGrant(harness, {
         agentId: "creative",
-        id: "creative-plugin-grant",
-        pluginId: "allowed",
+        id: "user-a-creative",
+        userId: "user-a",
       });
-      insertPluginGrant(harness, {
-        agentId: "crm",
-        id: "crm-plugin-grant",
-        pluginId: "blocked",
-      });
-      await harness.pluginService.installPath(
-        await writePolicyPlugin(harness, "allowed"),
-      );
-      await harness.pluginService.installPath(
-        await writePolicyPlugin(harness, "blocked"),
-      );
-      const cookie = await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD);
-      const headers = { cookie };
+      const headers = {
+        cookie: await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD),
+      };
 
-      const allowedMetadata = await harness.app.request(
-        `/api/v1/threads/${threadA.id}/plugin-metadata?pluginId=allowed`,
+      const listed = await harness.app.request(
+        "/api/v1/system/execution-options?agentId=creative",
         { headers },
       );
-      if (allowedMetadata.status !== 200) {
-        throw new Error(
-          `${allowedMetadata.status}: ${await allowedMetadata.text()}`,
-        );
-      }
-      expect(
-        (
-          await harness.app.request(
-            `/api/v1/threads/${threadB.id}/plugin-metadata?pluginId=blocked`,
-            { headers },
-          )
-        ).status,
-      ).toBe(200);
-      for (const request of [
-        harness.app.request(
-          `/api/v1/threads/${threadA.id}/plugin-metadata?pluginId=blocked`,
-          { headers },
-        ),
-        harness.app.request(
-          `/api/v1/threads/${threadB.id}/plugin-metadata?pluginId=allowed`,
-          { headers },
-        ),
-        harness.app.request(`/api/v1/threads/${threadA.id}/plugin-metadata`, {
-          method: "PATCH",
-          headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify({ pluginId: "blocked", set: { marker: true } }),
-        }),
-      ]) {
-        expect((await request).status).toBe(403);
-      }
+      expect(listed.status).toBe(200);
+      const listedBody = systemExecutionOptionsResponseSchema.parse(
+        await listed.json(),
+      );
+      expect(listedBody.providers.map((provider) => provider.id)).toEqual([
+        "codex",
+      ]);
+
+      const selected = await harness.app.request(
+        "/api/v1/system/execution-options?agentId=creative&providerId=codex",
+        { headers },
+      );
+      expect(selected.status).toBe(200);
     });
   });
 
   it("rechecks policy and session revocation for an existing thread", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
-      insertPolicy(harness, "restricted", restrictedPolicy());
-      insertPolicy(harness, "execution-denied", executionDeniedPolicy());
       await seedIdentity(harness, {
         email: ADMIN_EMAIL,
         name: "EVA Administrator",
         password: ADMIN_PASSWORD,
-        policyId: "admin",
         role: "admin",
         userId: "admin-user",
       });
@@ -1172,15 +734,19 @@ describe("core auth foundation", () => {
         email: USER_A_EMAIL,
         name: "User A",
         password: USER_A_PASSWORD,
-        policyId: "restricted",
         userId: "user-a",
       });
       await seedIdentity(harness, {
         email: USER_B_EMAIL,
         name: "User B",
         password: USER_B_PASSWORD,
-        policyId: "user",
         userId: "user-b",
+      });
+      insertAgentGrant(harness, {
+        agentId: "creative",
+        fixedExecution: true,
+        id: "user-a-creative",
+        userId: "user-a",
       });
       const { threadA } = await seedOwnedThreads(harness, {
         a: "user-a",
@@ -1204,11 +770,10 @@ describe("core auth foundation", () => {
       ).toBe(200);
 
       const downgrade = await harness.app.request(
-        "/api/v1/access/users/user-a",
+        "/api/v1/access/grants/user-a-creative",
         {
-          method: "PATCH",
-          headers: { cookie: adminCookie, "content-type": "application/json" },
-          body: JSON.stringify({ policyId: "execution-denied" }),
+          method: "DELETE",
+          headers: { cookie: adminCookie },
         },
       );
       expect(downgrade.status).toBe(200);
@@ -1226,7 +791,7 @@ describe("core auth foundation", () => {
             headers: userHeaders,
           })
         ).status,
-      ).toBe(200);
+      ).toBe(403);
 
       const revoke = await harness.app.request("/api/v1/access/users/user-a", {
         method: "PATCH",

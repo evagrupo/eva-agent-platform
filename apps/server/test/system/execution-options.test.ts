@@ -1396,6 +1396,47 @@ describe("resolveSystemExecutionOptions", () => {
     });
   });
 
+  it("steers the implicit provider fallback away from a provider the caller marks non-preferred", async () => {
+    await withTestHarness({}, async (harness) => {
+      const { host, session } = seedHostSession(harness.deps, {
+        id: "host-execution-options-preferred-provider",
+      });
+      const catalogModel = availableModelFixture({ model: "some-model" });
+      registerProviderHostRpcResponder(harness, {
+        hostId: host.id,
+        sessionId: session.id,
+        modelErrorsByProviderId: {
+          codex: { errorCode: "command_failed", errorMessage: "codex down" },
+          "claude-code": {
+            errorCode: "command_failed",
+            errorMessage: "claude-code down",
+          },
+          pi: { errorCode: "command_failed", errorMessage: "pi down" },
+        },
+        modelsByProviderId: {
+          "acp-cursor": { models: [catalogModel], selectedOnlyModels: [] },
+        },
+      });
+
+      const withoutPreference = await resolveSystemExecutionOptions(
+        harness.deps,
+        { hostId: host.id, providerId: undefined },
+      );
+      expect(withoutPreference.modelLoadError).not.toBeNull();
+      expect(withoutPreference.modelLoadError?.providerId).not.toBe(
+        "acp-cursor",
+      );
+
+      const withPreference = await resolveSystemExecutionOptions(
+        harness.deps,
+        { hostId: host.id, providerId: undefined },
+        { isPreferredProvider: (providerId) => providerId === "acp-cursor" },
+      );
+      expect(withPreference.modelLoadError).toBeNull();
+      expect(withPreference.models).toEqual([catalogModel]);
+    });
+  });
+
   it.each([
     ["missing executable", "missing_executable", "missing_executable"],
     ["auth required", "auth_required", "auth_required"],

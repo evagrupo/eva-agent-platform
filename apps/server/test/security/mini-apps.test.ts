@@ -35,7 +35,6 @@ async function seedIdentity(
     email: string;
     name: string;
     password: string;
-    policyId: string;
     role: "admin" | "user";
     userId: string;
   },
@@ -77,7 +76,7 @@ async function seedIdentity(
       userId: args.userId,
       role: args.role,
       status: "active",
-      policyId: args.policyId,
+      policyId: args.role === "admin" ? "admin" : "user",
       revision: 1,
       updatedAt: Date.now(),
     })
@@ -225,7 +224,6 @@ describe("EVA mini-app gateway", () => {
           email: ADMIN_EMAIL,
           name: "Mini-app administrator",
           password: ADMIN_PASSWORD,
-          policyId: "admin",
           role: "admin",
           userId: "mini-app-admin",
         });
@@ -233,7 +231,6 @@ describe("EVA mini-app gateway", () => {
           email: USER_A_EMAIL,
           name: "Mini-app user A",
           password: USER_A_PASSWORD,
-          policyId: "user",
           role: "user",
           userId: "mini-app-user-a",
         });
@@ -339,7 +336,6 @@ describe("EVA mini-app gateway", () => {
         email: ADMIN_EMAIL,
         name: "Mini-app administrator",
         password: ADMIN_PASSWORD,
-        policyId: "admin",
         role: "admin",
         userId: "mini-app-admin",
       });
@@ -347,7 +343,6 @@ describe("EVA mini-app gateway", () => {
         email: USER_A_EMAIL,
         name: "Mini-app user A",
         password: USER_A_PASSWORD,
-        policyId: "user",
         role: "user",
         userId: "mini-app-user-a",
       });
@@ -401,7 +396,6 @@ describe("EVA mini-app gateway", () => {
           email: ADMIN_EMAIL,
           name: "Mini-app administrator",
           password: ADMIN_PASSWORD,
-          policyId: "admin",
           role: "admin",
           userId: "mini-app-admin",
         });
@@ -409,7 +403,6 @@ describe("EVA mini-app gateway", () => {
           email: USER_A_EMAIL,
           name: "Mini-app user A",
           password: USER_A_PASSWORD,
-          policyId: "user",
           role: "user",
           userId: "mini-app-user-a",
         });
@@ -417,7 +410,6 @@ describe("EVA mini-app gateway", () => {
           email: USER_B_EMAIL,
           name: "Mini-app user B",
           password: USER_B_PASSWORD,
-          policyId: "user",
           role: "user",
           userId: "mini-app-user-b",
         });

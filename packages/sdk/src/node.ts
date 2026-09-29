@@ -121,4 +121,5 @@ export type {
 } from "./transport.js";
 export type { BbHttpErrorArgs } from "./response.js";
 export type * from "./public-types.js";
+export type * from "./areas/access.js";
 export type * from "./areas/eva-agents.js";

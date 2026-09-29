@@ -12,6 +12,7 @@ import { PluginContext } from "@/components/plugin/plugin-context";
 
 export function PluginNewThreadComposer({
   defaultProjectId,
+  defaultAgentId,
   defaultProviderId,
   defaultModel,
   defaultReasoningLevel,
@@ -38,6 +39,7 @@ export function PluginNewThreadComposer({
   }
 
   const seed: NewThreadComposerSeed = {
+    agentId: defaultAgentId,
     providerId: defaultProviderId,
     model: defaultModel,
     reasoningLevel: defaultReasoningLevel,
