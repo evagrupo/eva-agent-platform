@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Run the separate signed ElevenLabs post-call webhook listener."""
+
+from __future__ import annotations
+
+import argparse
+
+from src.post_call_webhook import PostCallError, PostCallProcessor, create_post_call_server
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run the private ElevenLabs post-call webhook listener.")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8788)
+    parser.add_argument("--allow-nonlocal-bind", action="store_true")
+    args = parser.parse_args()
+    try:
+        processor = PostCallProcessor.from_environment()
+        server = create_post_call_server(
+            processor,
+            host=args.host,
+            port=args.port,
+            allow_nonlocal_bind=args.allow_nonlocal_bind,
+        )
+    except PostCallError as exc:
+        parser.error(str(exc))
+        return 2
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -149,5 +149,17 @@
   "environment-modal-sandbox": {
     "category": "environments",
     "screenshots": []
+  },
+  "eva": {
+    "category": "agents-and-providers",
+    "screenshots": []
+  },
+  "spanish-localization": {
+    "category": "themes-and-appearance",
+    "screenshots": []
+  },
+  "system-tools": {
+    "category": "utilities",
+    "screenshots": []
   }
 }

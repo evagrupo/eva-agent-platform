@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+set -a
+. ./.env.crm-bootstrap
+set +a
+
+if [[ -z "${DATABASE_URL:-}" ]]; then
+  echo 'DATABASE_URL is required for the CRM SQL fallback backup.' >&2
+  exit 78
+fi
+
+timestamp="$(date -u +%Y%m%dT%H%M%S%NZ)"
+backup_name="crm-before-${timestamp}.dump"
+umask 077
+mkdir -p .crm-backups
+
+sudo docker run --rm --user 1000:1000 -e CRM_BACKUP_NAME="$backup_name" -v "$PWD":/work -w /work postgres:17 sh -c \
+  'set -a; . ./.env.crm-bootstrap; set +a; pg_dump "$DATABASE_URL" --format=custom --compress=zstd:9 --no-owner --no-privileges --table=public.leads --file ".crm-backups/$CRM_BACKUP_NAME"'
+sha256sum ".crm-backups/$backup_name" > ".crm-backups/$backup_name.sha256"

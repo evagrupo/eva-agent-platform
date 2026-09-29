@@ -46,6 +46,7 @@ import {
 import { useRouteState } from "@/hooks/useRouteState";
 import { SidebarNavigationRegion } from "./SidebarNavigationRegion";
 import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
+import { setPreferredTheme, usePreferredTheme } from "@/hooks/useTheme";
 
 const NEW_THREAD_PANE_CONTENT = { kind: "new-thread" } as const;
 
@@ -86,6 +87,7 @@ export function AppSidebar({
   );
   const isAppCommandModifierHeld = useIsAppCommandModifierHeld();
   const settingsShortcut = useAppCommandShortcut("settings.open");
+  const resolvedTheme = usePreferredTheme();
   const pluginSidebarFooter = usePluginSidebarFooterDisclosure();
   const sidebarFooterAllowed = canUseCoreCapability(coreAuth, "sidebarFooter");
   const signOutAvailable = coreAuth?.authenticated === true;
@@ -254,11 +256,11 @@ export function AppSidebar({
                 activeDisclosureKey={pluginSidebarFooter.activeKey}
                 onDisclosureCommand={pluginSidebarFooter.handleCommand}
                 onNavigate={closeOnMobile}
-                builtInActions={
-                  settingsAllowed
+                builtInActions={[
+                  ...(settingsAllowed
                     ? [
                         {
-                          id: "settings",
+                          id: "settings" as const,
                           href: settingsRoutePath,
                           ariaLabel: settingsShortcut
                             ? `Settings (${settingsShortcut.label})`
@@ -270,8 +272,20 @@ export function AppSidebar({
                           },
                         },
                       ]
-                    : []
-                }
+                    : []),
+                  {
+                    id: "theme" as const,
+                    ariaLabel:
+                      resolvedTheme === "dark"
+                        ? "Switch to light mode"
+                        : "Switch to dark mode",
+                    onActivate: () => {
+                      setPreferredTheme(
+                        resolvedTheme === "dark" ? "light" : "dark",
+                      );
+                    },
+                  },
+                ]}
               />
             ) : null}
             <li aria-hidden="true" className="min-w-0 flex-1" />

@@ -30,6 +30,10 @@ import {
   type EvaAgentSkill,
   type EvaAgentWorkspace,
 } from "./eva-agent-registry.js";
+import {
+  findEvaAgentSeedDir,
+  seedEvaAgentWorkspace,
+} from "./eva-agent-seed.js";
 
 const skillIdSchema = z
   .string()
@@ -164,6 +168,16 @@ async function scaffoldAgent(
       return false;
     }
   };
+  if (!(await exists(root))) {
+    const seedRoot = await findEvaAgentSeedDir();
+    if (seedRoot !== null) {
+      await seedEvaAgentWorkspace({
+        seedRoot,
+        agentId: agent.id,
+        destination: root,
+      });
+    }
+  }
   await mkdir(join(root, ".bb", "skills"), { recursive: true });
   await mkdir(join(root, "bin"), { recursive: true });
   const managedFilesToWrite: Array<[string, string]> = [

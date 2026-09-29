@@ -1,0 +1,7 @@
+{
+  "url": "https://example.invalid/product-knowledge-source",
+  "name": "Configured product website",
+  "enable_auto_sync": true,
+  "auto_remove": false,
+  "minimum_frequency_days": 7
+}

@@ -36,6 +36,7 @@ ENV NODE_ENV=production \
 
 WORKDIR /opt/eva-runtime
 COPY --from=build /opt/eva-runtime ./
+COPY --from=build /workspace/eva-agents-seed ./eva-agents-seed
 
 RUN mkdir -p /var/lib/eva
 

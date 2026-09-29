@@ -177,10 +177,27 @@ export const BUILTIN_PLUGINS = [
     pluginId: "workflows",
     defaultEnabled: false,
   },
-].map((plugin): BundledPluginDefinition => ({
-  ...plugin,
-  autoInstall: true,
-}));
+  {
+    name: "eva",
+    pluginId: "eva",
+    defaultEnabled: true,
+  },
+  {
+    name: "spanish-localization",
+    pluginId: "spanish-localization",
+    defaultEnabled: true,
+  },
+  {
+    name: "system-tools",
+    pluginId: "system-tools",
+    defaultEnabled: false,
+  },
+].map(
+  (plugin): BundledPluginDefinition => ({
+    ...plugin,
+    autoInstall: true,
+  }),
+);
 
 export const OFFICIAL_PLUGINS = [
   {
@@ -218,10 +235,12 @@ export const OFFICIAL_PLUGINS = [
     pluginId: "theme-preview",
     defaultEnabled: true,
   },
-].map((plugin): BundledPluginDefinition => ({
-  ...plugin,
-  autoInstall: false,
-}));
+].map(
+  (plugin): BundledPluginDefinition => ({
+    ...plugin,
+    autoInstall: false,
+  }),
+);
 
 export const BUNDLED_PLUGINS: readonly BundledPluginDefinition[] = [
   ...BUILTIN_PLUGINS,

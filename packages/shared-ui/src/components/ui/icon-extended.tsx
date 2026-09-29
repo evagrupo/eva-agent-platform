@@ -74,6 +74,7 @@ import MessageAdd02Icon from "@hugeicons/core-free-icons/MessageAdd02Icon";
 import MetaIcon from "@hugeicons/core-free-icons/MetaIcon";
 import Mic02Icon from "@hugeicons/core-free-icons/Mic02Icon";
 import MinusSignIcon from "@hugeicons/core-free-icons/MinusSignIcon";
+import Moon02Icon from "@hugeicons/core-free-icons/Moon02Icon";
 import MoveToIcon from "@hugeicons/core-free-icons/MoveToIcon";
 import NetworkIcon from "@hugeicons/core-free-icons/NetworkIcon";
 import News01Icon from "@hugeicons/core-free-icons/News01Icon";
@@ -99,6 +100,7 @@ import Sorting01Icon from "@hugeicons/core-free-icons/Sorting01Icon";
 import SquareIcon from "@hugeicons/core-free-icons/SquareIcon";
 import SquareUnlock02Icon from "@hugeicons/core-free-icons/SquareUnlock02Icon";
 import StarIcon from "@hugeicons/core-free-icons/StarIcon";
+import Sun03Icon from "@hugeicons/core-free-icons/Sun03Icon";
 import TestTube01Icon from "@hugeicons/core-free-icons/TestTube01Icon";
 import TextWrapIcon from "@hugeicons/core-free-icons/TextWrapIcon";
 import TiktokIcon from "@hugeicons/core-free-icons/TiktokIcon";
@@ -297,6 +299,7 @@ export const EXTENDED_ICON_MAP: ExtendedIconMap = {
   Minus: MinusSignIcon,
   Minimize2: CollapseIcon,
   MoveTo: MoveToIcon,
+  Moon02: Moon02Icon,
   Network: NetworkIcon,
   NewTab: DashedLine02Icon,
   News01: News01Icon,
@@ -326,6 +329,7 @@ export const EXTENDED_ICON_MAP: ExtendedIconMap = {
   Square: SquareIcon,
   SquareUnlock02: SquareUnlock02Icon,
   Star: StarIcon,
+  Sun03: Sun03Icon,
   TextWrap: TextWrapIcon,
   TikTok: TiktokIcon,
   TimeSchedule: TimeScheduleIcon,

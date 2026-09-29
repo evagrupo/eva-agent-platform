@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+agent_root="$(cd "$script_dir/.." && pwd)"
+cd "$agent_root"
+exec python3 -m src.agent_manager "$@"

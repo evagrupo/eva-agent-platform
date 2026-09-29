@@ -1,0 +1,9 @@
+{
+  "simulation_specification": {
+    "simulated_user_config": {
+      "first_message": "What does the product do, and what can it do for my business?",
+      "language": "en",
+      "disable_first_message_interruptions": false
+    }
+  }
+}

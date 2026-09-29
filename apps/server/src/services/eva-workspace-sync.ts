@@ -254,7 +254,7 @@ interface ScannedFile {
   executable: boolean;
 }
 
-interface WorkspaceScan {
+export interface WorkspaceScan {
   files: ScannedFile[];
   blockedFiles: string[];
   nonEmpty: boolean;
@@ -683,7 +683,7 @@ async function scanWorkspaceDirectory(
   }
 }
 
-async function scanWorkspace(root: string): Promise<WorkspaceScan> {
+export async function scanWorkspace(root: string): Promise<WorkspaceScan> {
   const result: WorkspaceScan = {
     files: [],
     blockedFiles: [],

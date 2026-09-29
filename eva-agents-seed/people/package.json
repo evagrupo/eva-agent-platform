@@ -1,0 +1,14 @@
+{
+  "name": "hr-agent-db-adapter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/hr-adapter.mjs && node --check src/hr-actions.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "postgres": "^3.4.9",
+    "yaml": "^2.9.0",
+    "zod": "^4.5.4"
+  }
+}

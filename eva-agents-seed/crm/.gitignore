@@ -1,0 +1,3 @@
+.env.crm-bootstrap
+.crm-backups/
+node_modules/

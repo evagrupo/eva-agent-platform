@@ -44,6 +44,7 @@ import {
   type BuiltinFooterId,
 } from "@/components/sidebar/sidebarFooterPreferences";
 import { SIDEBAR_FOOTER_ACTION_CLASS } from "@/components/sidebar/sidebarRowClasses";
+import { usePreferredTheme } from "@/hooks/useTheme";
 
 function footerItemKey(item: PluginSidebarFooterItemSlot): string {
   return `${item.pluginId}/${item.id}/${item.generation}`;
@@ -305,11 +306,13 @@ export function PluginSidebarFooterItems({
                         "bg-sidebar-accent text-sidebar-accent-foreground [&>[data-icon-root]]:opacity-100",
                     )}
                     data-testid={
-                      item.kind === "plugin"
-                        ? item.slot.source === "sidebarFooterAction"
-                          ? `plugin-sidebar-footer-action-${item.slot.pluginId}-${item.slot.id}`
-                          : `plugin-sidebar-footer-item-${item.slot.pluginId}-${item.slot.id}`
-                        : undefined
+                      item.kind === "builtin" && item.id === "theme"
+                        ? "sidebar-footer-theme"
+                        : item.kind === "plugin"
+                          ? item.slot.source === "sidebarFooterAction"
+                            ? `plugin-sidebar-footer-action-${item.slot.pluginId}-${item.slot.id}`
+                            : `plugin-sidebar-footer-item-${item.slot.pluginId}-${item.slot.id}`
+                          : undefined
                     }
                     {...(item.kind === "plugin" &&
                     item.slot.kind === "disclosure"
@@ -422,6 +425,16 @@ function FooterCommandObserver({
 }
 
 export function FooterItemIcon({ item }: { item: FooterItem }) {
+  const resolvedTheme = usePreferredTheme();
+  if (item.kind === "builtin" && item.id === "theme") {
+    return (
+      <Icon
+        name={resolvedTheme === "dark" ? "Sun03" : "Moon02"}
+        className="size-4 shrink-0"
+        aria-hidden="true"
+      />
+    );
+  }
   return item.kind === "plugin" &&
     item.slot.source === "sidebarFooterAction" ? (
     <PluginIcon pluginId={item.slot.pluginId} icon={item.icon} />

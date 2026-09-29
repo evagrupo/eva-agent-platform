@@ -38,6 +38,30 @@ application. `/health` is a liveness endpoint and `/readyz` returns readiness
 after the listener is initialized; the image healthcheck polls `/readyz` on
 port `38886`. A reverse proxy should preserve WebSocket upgrades to `/ws`.
 
+## Bundled agent workspaces
+
+The eleven EVA agent workspaces ship in the repository as `eva-agents-seed/`
+(`AGENTS.md`, `bin/`, `.bb/skills/`, and each agent's source). The Docker image
+copies the directory next to the launcher. When the server scaffolds an agent
+whose workspace folder does not exist under `BB_DATA_DIR/eva-agents/<agent-id>`,
+it copies `eva-agents-seed/<agent-id>` in first, so a fresh deployment starts
+with the tracked agents and needs no manual copy of an existing data directory.
+
+Existing workspaces are never re-seeded or overwritten. The server locates
+`eva-agents-seed/` by walking up from its working directory, which is the
+repository root for a checkout and `/opt/eva-runtime` in the image.
+
+The seed intentionally omits anything that must not travel with the source:
+`.env*` and `*.local*` files, database dumps, dependency folders, build output,
+and third-party skill packs (reinstall those from each workspace's
+`skills-lock.json`). Environment templates are named `env.example` because the
+workspace synchronization scanner blocks every `.env*` path. Every seeded
+workspace must pass that scanner, and a test enforces it.
+
+To refresh the seed from a live workspace, copy the agent folder into
+`eva-agents-seed/<agent-id>` without the excluded files and run the server
+tests.
+
 ## Reverse proxy contract
 
 For a domain such as `https://connect.evasalud.app`, set `BB_APP_URL` to the
