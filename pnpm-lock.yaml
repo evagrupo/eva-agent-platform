@@ -4419,6 +4419,9 @@ importers:
 
   plugins/spanish-localization:
     dependencies:
+      '@bb/shared-ui':
+        specifier: workspace:*
+        version: link:../../packages/shared-ui
       '@hugeicons/core-free-icons':
         specifier: ^4.3.4
         version: 4.3.4

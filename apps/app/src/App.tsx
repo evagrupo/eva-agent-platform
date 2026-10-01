@@ -13,6 +13,7 @@ import { QuickCreateProjectProvider } from "./hooks/useQuickCreateProject";
 import { RouteNavigationProvider } from "./components/ui/app-route-anchor";
 import { RouteNavigationIndicator } from "./components/ui/route-navigation-indicator";
 import { AppNavigationUrlHost } from "./lib/url-open-routing";
+import { CoreLanguageMount } from "./lib/CoreLanguageMount";
 import { NativeShellReporter } from "./lib/native-shell";
 import { UiPreferencesSync } from "@/lib/ui-preferences/UiPreferencesSync";
 import { AppFileExternalNavigationHost } from "./components/plugin/AppFileExternalNavigationHost";
@@ -607,6 +608,7 @@ function AppRoot() {
 export function App() {
   return (
     <CoreAuthProvider>
+      <CoreLanguageMount />
       <AppRoot />
     </CoreAuthProvider>
   );

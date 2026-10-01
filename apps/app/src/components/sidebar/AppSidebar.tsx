@@ -47,6 +47,7 @@ import { useRouteState } from "@/hooks/useRouteState";
 import { SidebarNavigationRegion } from "./SidebarNavigationRegion";
 import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
 import { setPreferredTheme, usePreferredTheme } from "@/hooks/useTheme";
+import { AppearanceFooterControls } from "./AppearanceFooterControls";
 
 const NEW_THREAD_PANE_CONTENT = { kind: "new-thread" } as const;
 
@@ -287,7 +288,9 @@ export function AppSidebar({
                   },
                 ]}
               />
-            ) : null}
+            ) : (
+              <AppearanceFooterControls />
+            )}
             <li aria-hidden="true" className="min-w-0 flex-1" />
             {sidebarFooterAllowed ? (
               <>

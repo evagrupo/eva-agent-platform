@@ -8,7 +8,6 @@ import {
   readStoredLanguage,
   type Language,
 } from "./localization.js";
-import { mountLocalization } from "./content-script.js";
 
 function LanguageSettings() {
   const [language, setLanguage] = useState<Language>(() =>
@@ -121,11 +120,6 @@ function toggleFromCommandPalette(): void {
 }
 
 export default definePluginApp((app) => {
-  app.contentScripts.register({
-    id: "translate-bb-shell",
-    mount: mountLocalization,
-  });
-
   app.slots.settingsSection({
     id: "language",
     title: "Language / Idioma",

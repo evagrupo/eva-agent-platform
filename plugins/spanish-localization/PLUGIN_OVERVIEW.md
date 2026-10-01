@@ -1,4 +1,4 @@
-Switch BB's interface between English and Spanish. The plugin translates interface text across the app, including labels, placeholders, and tooltips that appear after the page loads. Messages you write, assistant replies, code, editor drafts, and file contents stay exactly as they are.
+Switch BB's interface between English and Spanish. The BB app shell applies the selected language for every user, including users who cannot load plugins. The localization plugin provides its settings section and command-line controls. Interface labels, placeholders, and tooltips that appear after the page loads are translated. Messages you write, assistant replies, code, editor drafts, and file contents stay exactly as they are.
 
 ## What you get
 
@@ -8,7 +8,7 @@ Switch BB's interface between English and Spanish. The plugin translates interfa
 
 ## How it works
 
-The translation catalog lives in the plugin and covers exact interface phrases. Because the choice is stored in the browser's local storage, each browser profile can use its own language.
+The translation catalog is shared by the app shell and localization plugin and covers exact interface phrases. New browser profiles start in Spanish. Because the choice is stored in the browser's local storage, each browser profile can use its own language.
 
 Use the CLI to manage the language:
 

@@ -4,6 +4,10 @@ import { isLanguage, languageFromPayload, translateText } from "./localization";
 describe("localization catalog", () => {
   it("translates known shell phrases and preserves surrounding whitespace", () => {
     expect(translateText("  Settings\n", "es")).toBe("  Ajustes\n");
+    expect(translateText("No threads", "es")).toBe("No hay hilos");
+    expect(translateText("Configuration warning", "es")).toBe(
+      "Advertencia de configuración",
+    );
     expect(translateText("1 of 3 done", "es")).toBe("1 de 3 completados");
     expect(translateText("Open workspace in Project A", "es")).toBe(
       "Abrir espacio de trabajo en Project A",

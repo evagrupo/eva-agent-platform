@@ -13,16 +13,18 @@ describe("Spanish Localization app", () => {
     window.localStorage.clear();
   });
 
-  it("registers the content script and exposes a browser-local language toggle", async () => {
+  it("exposes a browser-local language setting", async () => {
     const app = await loadPluginApp(() => import("./app"));
-    expect(app.contentScripts.map((script) => script.id)).toEqual([
-      "translate-bb-shell",
-    ]);
+    expect(app.contentScripts).toHaveLength(0);
     expect(app.settingsSections).toHaveLength(1);
     expect(app.sidebarFooterActions).toHaveLength(1);
 
-    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
     const slot = renderSlot(app.settingsSections[0]!, {});
+
+    const spanish = await slot.findByRole("button", {
+      name: "Español / Spanish",
+    });
+    expect(spanish.getAttribute("aria-pressed")).toBe("true");
 
     const english = await slot.findByRole("button", {
       name: "English / Inglés",
@@ -34,9 +36,6 @@ describe("Spanish Localization app", () => {
     );
     expect(window.localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("en");
 
-    const spanish = await slot.findByRole("button", {
-      name: "Español / Spanish",
-    });
     fireEvent.click(spanish);
     await waitFor(() =>
       expect(spanish.getAttribute("aria-pressed")).toBe("true"),
