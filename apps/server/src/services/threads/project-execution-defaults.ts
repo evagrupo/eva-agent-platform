@@ -117,6 +117,10 @@ export function rememberProjectExecutionDefaultsForCreate(
   if (!shouldRememberProjectExecutionDefaults(args.request)) {
     return;
   }
+  const sources = args.request.executionInputSources;
+  if (sources !== undefined && !Object.values(sources).includes("explicit")) {
+    return;
+  }
 
   upsertProjectExecutionDefaults(deps.db, {
     projectId: args.request.projectId,

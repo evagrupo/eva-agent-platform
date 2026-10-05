@@ -380,6 +380,67 @@ afterEach(() => {
 });
 
 describe("useThreadCreationOptions", () => {
+  it("keeps limited-user permissions selectable for a prefixed allowed model", async () => {
+    const auth = fixedAgentAuthState();
+    if (auth.bootstrap === null) throw new Error("fixture has no bootstrap");
+    const execution = auth.bootstrap.capabilities.execution;
+    if (execution.agentTuples === undefined)
+      throw new Error("fixture has no agent tuples");
+    vi.mocked(useCoreAuth).mockReturnValue({
+      ...auth,
+      bootstrap: {
+        ...auth.bootstrap,
+        capabilities: {
+          ...auth.bootstrap.capabilities,
+          execution: {
+            ...execution,
+            agents: execution.agents.map((agent) => ({
+              ...agent,
+              fixedExecution: false,
+            })),
+            agentTuples: execution.agentTuples.map((tuple) => ({
+              ...tuple,
+              fixed: false,
+            })),
+          },
+        },
+      },
+    });
+    const base = executionOptionsResponse();
+    const baseModel = base.models[0];
+    if (baseModel === undefined) throw new Error("fixture has no model");
+    const prefixedModel = `${GLOBAL_PROVIDER_ID}/eva-model`;
+    vi.mocked(sdk.system.executionOptions).mockResolvedValue({
+      ...base,
+      models: [
+        {
+          ...baseModel,
+          id: prefixedModel,
+          model: prefixedModel,
+          supportedReasoningEfforts: [
+            { reasoningEffort: "max", description: "" },
+          ],
+          defaultReasoningEffort: "max",
+        },
+      ],
+    });
+    const { result } = renderHook(
+      () => useThreadCreationOptions({ scope: "new-thread" }),
+      { wrapper: createQueryClientTestHarness().wrapper },
+    );
+    await waitFor(() => {
+      expect(result.current.selectedModel).toBe(prefixedModel);
+      expect(result.current.modelLoadFailed).toBe(false);
+      expect(
+        result.current.permissionModeOptions.map((option) => option.value),
+      ).toEqual(["accept-edits"]);
+      expect(result.current.permissionMode).toBe("accept-edits");
+      expect(result.current.executionInputSources.permissionMode).toBe(
+        "client-preference",
+      );
+    });
+  });
+
   it("uses the assigned default agent and locks its complete execution tuple", async () => {
     vi.mocked(useCoreAuth).mockReturnValue(fixedAgentAuthState());
     const base = executionOptionsResponse();

@@ -21,6 +21,24 @@ read/write capabilities. Fixed execution policies require their configured
 execution tuple; provider, model, reasoning, and permission values are checked
 at the request boundary and again while building execution commands.
 
+Agent grants narrow the principal's provider, model, and reasoning rules by
+intersection; enabling a provider in the base policy does not override a
+conflicting grant. Check `GET /api/v1/access/bootstrap` for the effective
+agent tuples and `GET /api/v1/system/execution-options?agentId=<agent>&providerId=<provider>`
+for the user's composer catalog. A denied provider returns 403; a permitted
+provider whose models do not match the effective rules returns an empty catalog.
+Agent assignment initially creates grants from the agent's catalog defaults,
+so those grants may need editing after a base policy changes.
+
+Model rules accept an exact ID or a trailing `*` prefix pattern. Bare catalog
+IDs and provider-prefixed runtime IDs match each other, while two explicitly
+different namespaces remain distinct. Policy/group/grant intersections retain
+the narrower model rule and any explicit namespace. Fixed model selection uses
+the same matching rules. Cursor models that advertise only the ACP-managed
+`medium` placeholder retain policy-allowed reasoning choices when that
+placeholder does not intersect the policy; providers with native reasoning
+choices remain limited to their advertised choices.
+
 Threads created by an authenticated user store their owner ID. Existing thread
 routes, direct-ID lookups, project thread summaries, queued-message deletion,
 terminal access, and realtime subscriptions check current ownership or an

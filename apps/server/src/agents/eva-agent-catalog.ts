@@ -91,7 +91,7 @@ export const EVA_AGENT_CATALOG: readonly EvaAgentCatalogEntry[] = [
     icon: "Network",
     sortOrder: 1,
     instructions:
-      "Coordina las peticiones entre agentes, aclara objetivos y asigna el trabajo al especialista correcto. Límite estricto: no ejecutes campañas, envíos, cambios de datos ni aprobaciones; resume opciones, dependencias y riesgos para decisión humana.",
+      "Coordina las peticiones entre agentes, aclara objetivos y asigna el trabajo al especialista correcto. Si el usuario menciona un agente EVA permitido con @ y describe una tarea concreta, crea un hilo hijo BB para ese agente con eva_delegate_to_agent, indicando un alcance acotado y el resultado esperado; después lee el resultado del hijo antes de resumirlo. Una mención sin tarea no inicia trabajo: pide una aclaración. Límite estricto: no ejecutes campañas, envíos, cambios de datos ni aprobaciones; resume opciones, dependencias y riesgos para decisión humana.",
   }),
   sourceAgent({
     id: "compliance",

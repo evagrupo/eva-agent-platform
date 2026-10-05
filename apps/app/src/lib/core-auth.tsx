@@ -500,7 +500,7 @@ function AccessPendingView({
 
 function LoginView() {
   const auth = useCoreAuth();
-  const [locale, setLocale] = useState<"en" | "es">("en");
+  const [locale, setLocale] = useState<"en" | "es">("es");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);

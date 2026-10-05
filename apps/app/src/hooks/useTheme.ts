@@ -21,7 +21,7 @@ const themePreferenceStorage = createLocalStorageEnumStorage<ThemePreference>(
 );
 const themePreferenceAtom = atomWithStorage<ThemePreference>(
   THEME_STORAGE_KEY,
-  "system",
+  "light",
   themePreferenceStorage,
   { getOnInit: true },
 );
@@ -66,7 +66,7 @@ export function setPreferredTheme(themePreference: ThemePreference): void {
 }
 
 let currentTheme: Theme = "light";
-let currentThemePreference: ThemePreference = "system";
+let currentThemePreference: ThemePreference = "light";
 const themeSubscribers = new Set<ThemeListener>();
 const themePreferenceSubscribers = new Set<ThemeListener>();
 let initialized = false;
@@ -137,6 +137,6 @@ export function useThemePreference(): ThemePreference {
   return React.useSyncExternalStore(
     subscribeThemePreference,
     getThemePreference,
-    () => "system",
+    () => "light",
   );
 }

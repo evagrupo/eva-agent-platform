@@ -686,7 +686,11 @@ export function NewThreadComposer({
         threads: [],
       },
     ];
-  }, [seededReuseEnvironmentRow, threadDerivedReuseOptions, worktreeHostNameById]);
+  }, [
+    seededReuseEnvironmentRow,
+    threadDerivedReuseOptions,
+    worktreeHostNameById,
+  ]);
   const { value: storedMachineId, setValue: setStoredMachineId } =
     usePromptBoxMachinePreference(projectId);
   const [activeSeedSignature, setActiveSeedSignature] = useState(seedSignature);
@@ -1447,6 +1451,7 @@ export function NewThreadComposer({
       environmentId: reuseEnvironmentId,
       hostId: projectHostId,
       threadStorageThreadId: panelThreadId ?? undefined,
+      agentId: selectedAgentId,
     },
   );
   const defaultMentionLinkResolver = useCallback<PromptMentionLinkResolver>(
@@ -1953,47 +1958,43 @@ export function NewThreadComposer({
             machineProviderInputsSlot: machineProviderInputs.control,
             banner:
               options.banner ??
-              (isProjectless
-                ? null
-                : machineServerAccessReason !== null ? (
-                    <ProviderRequirementBanner
-                      title={MACHINE_SERVER_ACCESS_TITLE}
-                      description={machineServerAccessReason}
-                      action={
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-8 shrink-0 px-3"
-                          onClick={() =>
-                            navigate(getSettingsRoutePath("machines"))
-                          }
-                        >
-                          Set up machine access
-                        </Button>
+              (isProjectless ? null : machineServerAccessReason !== null ? (
+                <ProviderRequirementBanner
+                  title={MACHINE_SERVER_ACCESS_TITLE}
+                  description={machineServerAccessReason}
+                  action={
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 shrink-0 px-3"
+                      onClick={() => navigate(getSettingsRoutePath("machines"))}
+                    >
+                      Set up machine access
+                    </Button>
+                  }
+                />
+              ) : setupRequiredProvider === null ? null : (
+                <ProviderRequirementBanner
+                  title={`${setupRequiredProvider.displayName} needs configuration`}
+                  description={environmentSetupRequiredReason}
+                  action={
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 shrink-0 px-3"
+                      onClick={() =>
+                        navigate(
+                          getPluginConfigurationRoutePath({
+                            pluginId: setupRequiredProvider.pluginId,
+                          }),
+                        )
                       }
-                    />
-                  ) : setupRequiredProvider === null ? null : (
-                    <ProviderRequirementBanner
-                      title={`${setupRequiredProvider.displayName} needs configuration`}
-                      description={environmentSetupRequiredReason}
-                      action={
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-8 shrink-0 px-3"
-                          onClick={() =>
-                            navigate(
-                              getPluginConfigurationRoutePath({
-                                pluginId: setupRequiredProvider.pluginId,
-                              }),
-                            )
-                          }
-                        >
-                          Configure {setupRequiredProvider.displayName}
-                        </Button>
-                      }
-                    />
-                  )),
+                    >
+                      Configure {setupRequiredProvider.displayName}
+                    </Button>
+                  }
+                />
+              )),
             header: options.header,
           }}
           project={{

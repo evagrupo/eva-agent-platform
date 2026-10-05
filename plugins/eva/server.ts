@@ -21,14 +21,6 @@ const EVA_DEFAULT_REASONING_LEVEL = "max" as const;
 const AGENT_INSTRUCTIONS_FILE = "AGENTS.md";
 const BB_AGENT_INSTRUCTIONS_FILE = ".bb/AGENTS.md";
 const CLAUDE_INSTRUCTIONS_FILE = "CLAUDE.md";
-const COLLABORATION_TOOL_NAMES = [
-  "eva_list_agents",
-  "eva_delegate_to_agent",
-  "eva_list_agent_threads",
-  "eva_read_agent_thread",
-  "eva_message_agent_thread",
-] as const;
-
 const agentStatusSchema = z.enum(["draft", "shadow", "live"]);
 const agentSlugSchema = z
   .string()
@@ -149,18 +141,6 @@ export const rpcContract = defineRpcContract({
       })
       .strict(),
     output: z.object({ agent: agentListItemSchema }),
-  },
-  agents_startThread: {
-    input: z
-      .object({
-        slug: agentSlugSchema,
-        prompt: z.string().trim().max(4_000).optional(),
-        // This is the JSON-serializable payload from BB's native NewThreadComposer.
-        // It is validated again before it reaches bb.sdk.threads.spawn.
-        request: z.unknown().optional(),
-      })
-      .strict(),
-    output: z.object({ threadId: z.string() }),
   },
 });
 
@@ -348,12 +328,6 @@ const ENGLISH_AGENT_TAGLINES: Readonly<Record<string, string>> = {
 
 function englishAgentName(agent: Pick<AgentRow, "slug" | "name">): string {
   return ENGLISH_AGENT_NAMES[agent.slug] ?? agent.name;
-}
-
-function englishAgentTagline(
-  agent: Pick<AgentRow, "slug" | "tagline">,
-): string {
-  return ENGLISH_AGENT_TAGLINES[agent.slug] ?? agent.tagline;
 }
 
 function modeLine(status: AgentStatus): string {
@@ -1207,240 +1181,6 @@ export default async function plugin(bb: BbPluginApi) {
     publish("project-setting-changed");
   });
 
-  function rowForAgentThread(threadId: string): AgentRow {
-    const slug = threadAgentById.get(threadId);
-    const agent = slug ? agentRows.get(slug) : undefined;
-    if (!agent) {
-      throw new Error(
-        "That thread is not linked to an EVA agent. Use eva_list_agent_threads first.",
-      );
-    }
-    return agent;
-  }
-
-  bb.ui.registerMentionProvider({
-    id: "agent",
-    label: "EVA Agents",
-    triggers: ["@"],
-    search({ query }) {
-      const needle = query.trim().toLocaleLowerCase();
-      return Array.from(agentRows.values())
-        .filter((agent) => {
-          if (!needle) return true;
-          return [agent.slug, agent.name, agent.tagline].some((value) =>
-            value.toLocaleLowerCase().includes(needle),
-          );
-        })
-        .slice(0, 20)
-        .map((agent) => ({
-          id: agent.slug,
-          title: englishAgentName(agent),
-          subtitle: `@${agent.slug}`,
-          icon: "Bot",
-        }));
-    },
-    resolve(itemId) {
-      const agent = agentRows.get(itemId);
-      if (!agent) throw new Error("Unknown EVA agent: " + itemId);
-      const workspace = agentWorkspacePath(agent.slug);
-      return {
-        context: [
-          `The user referenced EVA agent @${agent.slug} (${englishAgentName(agent)}).`,
-          `Mandate: ${englishAgentTagline(agent)}`,
-          `Operating status: ${agent.status}.`,
-          workspace
-            ? `EVA workspace: ${workspace}.`
-            : "EVA workspace is not configured.",
-          "Treat this mention as a reference to the registered agent, not as a request to impersonate it.",
-          "When the user wants that agent to perform work, use eva_delegate_to_agent so BB creates a real inspectable child thread in its workspace.",
-        ].join("\n"),
-      };
-    },
-  });
-
-  bb.agents.registerTool({
-    name: "eva_list_agents",
-    description:
-      "List the EVA agent library, including each agent's id, mandate, status, workspace, and recent thread count. Use this before delegating when the correct specialist is unclear.",
-    parameters: z.object({}).strict(),
-    presentation: {
-      label: { pending: "Listing EVA agents", completed: "Listed EVA agents" },
-      icon: { glyph: "Users" },
-      suppress: true,
-    },
-    execute() {
-      return JSON.stringify(
-        listAgents().agents.map((agent) => ({
-          id: agent.slug,
-          name: englishAgentName(agent),
-          mandate: englishAgentTagline(agent),
-          status: agent.status,
-          workspace: agentWorkspacePath(agent.slug),
-          threadCount: agent.threadCount,
-        })),
-        null,
-        2,
-      );
-    },
-  });
-
-  bb.agents.registerTool({
-    name: "eva_delegate_to_agent",
-    description:
-      "Delegate a bounded task to an EVA agent. Creates and starts a real BB child thread in that agent's EVA workspace, linked to the calling thread.",
-    instructions:
-      "Delegate concrete, self-contained work. Prefer visible workers so the user can inspect them; use hidden only for low-level background work. Continue useful work while the child runs and read its result with eva_read_agent_thread when needed.",
-    parameters: z
-      .object({
-        agent: agentSlugSchema.describe(
-          "Target EVA agent id from eva_list_agents.",
-        ),
-        task: z
-          .string()
-          .trim()
-          .min(1)
-          .max(8_000)
-          .describe("Concrete task and expected result."),
-        visibility: z.enum(["visible", "hidden"]).default("visible"),
-      })
-      .strict(),
-    presentation: {
-      label: {
-        pending: "Delegating to EVA agent",
-        completed: "Delegated to EVA agent",
-      },
-      icon: { glyph: "Workflow" },
-    },
-    async execute({ agent, task, visibility }, context) {
-      const target = agentRows.get(agent);
-      if (!target) throw new Error("Unknown EVA agent: " + agent);
-      const threadId = await startThread(agent, task, undefined, {
-        parentThreadId: context.threadId,
-        visibility,
-      });
-      return JSON.stringify({
-        threadId,
-        agent: target.slug,
-        name: englishAgentName(target),
-        workspace: agentWorkspacePath(target.slug),
-        visibility,
-        status: "started",
-      });
-    },
-  });
-
-  bb.agents.registerTool({
-    name: "eva_list_agent_threads",
-    description:
-      "List inspectable BB threads belonging to one EVA agent, or all EVA agents. Returns thread ids needed by the read and message tools.",
-    parameters: z
-      .object({
-        agent: agentSlugSchema.optional().describe("Optional EVA agent id."),
-      })
-      .strict(),
-    presentation: {
-      label: {
-        pending: "Finding agent threads",
-        completed: "Found agent threads",
-      },
-      icon: { glyph: "MessageSquare" },
-      suppress: true,
-    },
-    execute({ agent }) {
-      if (agent && !agentRows.has(agent)) {
-        throw new Error("Unknown EVA agent: " + agent);
-      }
-      const selected = agent
-        ? [{ slug: agent, threads: recentThreads(agent) }]
-        : Array.from(agentRows.keys(), (slug) => ({
-            slug,
-            threads: recentThreads(slug),
-          }));
-      return JSON.stringify(
-        selected.flatMap(({ slug, threads }) =>
-          threads.map((thread) => ({ agent: slug, ...thread })),
-        ),
-        null,
-        2,
-      );
-    },
-  });
-
-  bb.agents.registerTool({
-    name: "eva_read_agent_thread",
-    description:
-      "Read the current result from an EVA agent's BB thread. Only threads linked to the EVA library are accepted.",
-    parameters: z.object({ threadId: z.string().trim().min(1) }).strict(),
-    presentation: {
-      label: {
-        pending: "Reading agent result",
-        completed: "Read agent result",
-      },
-      icon: { glyph: "MessageSquare" },
-    },
-    async execute({ threadId }, context) {
-      const agent = rowForAgentThread(threadId);
-      const [thread, result] = await Promise.all([
-        bb.sdk.threads.get({ threadId, signal: context.signal }),
-        bb.sdk.threads.output({ threadId, signal: context.signal }),
-      ]);
-      return JSON.stringify(
-        {
-          threadId,
-          agent: agent.slug,
-          name: englishAgentName(agent),
-          title: thread.title ?? thread.titleFallback,
-          status: thread.status,
-          updatedAt: thread.updatedAt,
-          output: result.output,
-        },
-        null,
-        2,
-      );
-    },
-  });
-
-  bb.agents.registerTool({
-    name: "eva_message_agent_thread",
-    description:
-      "Send follow-up instructions to an existing EVA agent thread so agents can coordinate across BB conversations without losing that thread's context.",
-    parameters: z
-      .object({
-        threadId: z.string().trim().min(1),
-        message: z.string().trim().min(1).max(8_000),
-        mode: z
-          .enum(["auto", "queue-if-active", "steer-if-active"])
-          .default("auto"),
-      })
-      .strict(),
-    presentation: {
-      label: {
-        pending: "Messaging EVA agent",
-        completed: "Messaged EVA agent",
-      },
-      icon: { glyph: "MessageSquare" },
-    },
-    async execute({ threadId, message, mode }, context) {
-      if (threadId === context.threadId) {
-        throw new Error(
-          "Use the normal reply flow to continue the current thread.",
-        );
-      }
-      const agent = rowForAgentThread(threadId);
-      const result = await bb.sdk.threads.send({
-        threadId,
-        mode,
-        senderThreadId: context.threadId,
-        input: [{ type: "text", text: message, mentions: [] }],
-      });
-      return JSON.stringify({
-        threadId,
-        agent: agent.slug,
-        delivery: result.delivery,
-      });
-    },
-  });
-
   bb.agents.configure((context) => {
     const relatedThreadIds = [
       context.thread.id,
@@ -1467,7 +1207,7 @@ export default async function plugin(bb: BbPluginApi) {
     // contribution for unrelated threads. It is the native equivalent of
     // returning null and keeps the callback valid on every thread start.
     if (agent === undefined) {
-      return { tools: [...COLLABORATION_TOOL_NAMES], skills: [] };
+      return { tools: [], skills: [] };
     }
     const expectedWorkspace = agentWorkspacePath(agent.slug);
     const hasNativeWorkspaceInstructions =
@@ -1495,13 +1235,23 @@ export default async function plugin(bb: BbPluginApi) {
       ? dynamicInstructions
       : [compiledAgentInstructions(agent), dynamicInstructions].join("\n\n");
     return {
-      tools: [...COLLABORATION_TOOL_NAMES],
+      tools: [],
       skills: [],
       instructions,
     };
   });
 
   bb.events.on("thread.created", ({ thread }) => {
+    if (
+      thread.originPluginId === "eva" &&
+      typeof thread.agentId === "string" &&
+      agentRows.has(thread.agentId)
+    ) {
+      db.prepare(
+        "INSERT OR REPLACE INTO agent_threads (thread_id, agent_slug, created_at) VALUES (?, ?, ?)",
+      ).run(thread.id, thread.agentId, thread.createdAt);
+      threadAgentById.set(thread.id, thread.agentId);
+    }
     rememberThread(thread);
     publish("thread-created");
   });
@@ -1550,9 +1300,6 @@ export default async function plugin(bb: BbPluginApi) {
         provider,
         model,
       }),
-    }),
-    agents_startThread: async ({ slug, prompt, request }) => ({
-      threadId: await startThread(slug, prompt, request),
     }),
   });
 

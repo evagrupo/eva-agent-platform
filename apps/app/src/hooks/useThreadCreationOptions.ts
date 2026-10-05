@@ -43,6 +43,7 @@ import { useRootComposeReuseEnvironment } from "@/lib/root-compose-selection";
 import { getProviderIconInfo } from "@/lib/provider-icon";
 import { fastServiceTierLabel } from "@/lib/reasoning-labels";
 import {
+  modelPermits,
   permissionModeRank,
   providerModelCatalogDependsOnWorkspace,
 } from "@bb/domain";
@@ -249,12 +250,7 @@ function executionTupleAllowsModel(
   tuple: CoreAuthAgentExecutionTuple,
   model: string,
 ): boolean {
-  return tuple.models.some(
-    (rule) =>
-      rule === "*" ||
-      rule === model ||
-      (rule.endsWith("*") && model.startsWith(rule.slice(0, -1))),
-  );
+  return modelPermits(tuple.models, model);
 }
 
 export function sanitizeStoredEnvironmentValue(stored: string): string {

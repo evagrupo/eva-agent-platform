@@ -43,6 +43,8 @@ import {
   type InstalledPlugin,
 } from "@bb/server-contract";
 import {
+  isAgentAllowedByPolicy,
+  isToolAllowedByPolicyForAgent,
   allowedPluginIdsForContext,
   assertAllPluginsAllowed,
   assertPluginAllowed,
@@ -53,6 +55,13 @@ import {
   isPluginAllowed,
 } from "../access-policy.js";
 import type { CoreAuthService } from "../core-auth.js";
+import { isEvaAgentId } from "../agents/eva-agent-registry.js";
+import {
+  EVA_AGENT_MENTION_CONTRIBUTION,
+  listMentionableEvaAgents,
+  searchEvaAgentMentions,
+} from "../agents/eva-agent-mentions.js";
+import { listEvaAgentIds } from "../agents/eva-agent-registry.js";
 
 interface PluginRoutesDeps {
   config: Pick<ServerRuntimeConfig, "serverPort" | "appUrl" | "devAppPort">;
@@ -502,6 +511,88 @@ export function registerPluginRoutes(
     context.json({ plugins: filterInstalledPlugins(context, plugins.list()) }),
   );
 
+  app.get("/eva/agent-mentions/contributions", (context) => {
+    const problem = localAuthProblem(context, deps);
+    if (problem) {
+      return context.json({ ok: false, error: problem.error }, problem.status);
+    }
+    const authContext = getCoreAuthContext(context);
+    const mentionProviders =
+      listMentionableEvaAgents(deps.db, authContext?.policy).length > 0
+        ? [EVA_AGENT_MENTION_CONTRIBUTION]
+        : [];
+    return context.json({ ok: true, mentionProviders });
+  });
+
+  app.get("/eva/agent-mentions/search", (context) => {
+    const problem = localAuthProblem(context, deps);
+    if (problem) {
+      return context.json({ ok: false, error: problem.error }, problem.status);
+    }
+    const query = (context.req.query("q") ?? "").trim();
+    if (query.length === 0) return context.json({ ok: true, groups: [] });
+    const authContext = getCoreAuthContext(context);
+    const threadId = context.req.query("threadId") ?? null;
+    const thread =
+      authContext === null || threadId === null || threadId.length === 0
+        ? null
+        : requireAuthorizedThread(deps.db, context, threadId, "read");
+    const requestedAgentId = context.req.query("agentId");
+    if (requestedAgentId !== undefined && !isEvaAgentId(requestedAgentId)) {
+      throw new ApiError(
+        400,
+        "invalid_request",
+        "The selected EVA agent id is invalid",
+      );
+    }
+    const activeAgentId =
+      thread === null ? requestedAgentId : (thread.agentId ?? undefined);
+    const policy = authContext?.policy;
+    if (
+      policy?.agentExecutionTuples !== undefined &&
+      activeAgentId === undefined
+    ) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "An allowed EVA agent must be selected before agent mentions can be searched",
+      );
+    }
+    if (
+      activeAgentId !== undefined &&
+      policy !== undefined &&
+      !isAgentAllowedByPolicy(policy, activeAgentId, listEvaAgentIds(deps.db))
+    ) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "The selected EVA agent is not allowed by policy",
+      );
+    }
+    if (
+      activeAgentId !== undefined &&
+      policy !== undefined &&
+      !isToolAllowedByPolicyForAgent(
+        policy,
+        activeAgentId,
+        "eva_delegate_to_agent",
+        listEvaAgentIds(deps.db),
+      )
+    ) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "The selected EVA agent is not allowed to delegate by policy",
+      );
+    }
+    const group = searchEvaAgentMentions({
+      db: deps.db,
+      policy,
+      query,
+    });
+    return context.json({ ok: true, groups: group === null ? [] : [group] });
+  });
+
   app.get("/plugins/contributions", (context) =>
     context.json({
       cliCommands: filterPluginContributions(
@@ -543,13 +634,38 @@ export function registerPluginRoutes(
         assertResourceAccess(deps.db, context, "project", projectId, "read");
       }
     }
-    const policy = getCoreAuthContext(context)?.policy;
-    if (policy?.agentExecutionTuples !== undefined && thread === null) {
+    const requestedAgentId = context.req.query("agentId");
+    if (requestedAgentId !== undefined && !isEvaAgentId(requestedAgentId)) {
+      throw new ApiError(
+        400,
+        "invalid_request",
+        "The selected EVA agent id is invalid",
+      );
+    }
+    const policy = authContext?.policy;
+    const activeAgentId =
+      thread === null ? requestedAgentId : (thread.agentId ?? undefined);
+    if (
+      policy?.agentExecutionTuples !== undefined &&
+      activeAgentId === undefined
+    ) {
       throw new ApiError(
         403,
         "policy_denied",
-        "An agent must be selected before plugin mentions can be searched",
+        "An allowed EVA agent must be selected before mentions can be searched",
       );
+    }
+    if (activeAgentId !== undefined) {
+      if (
+        policy !== undefined &&
+        !isAgentAllowedByPolicy(policy, activeAgentId, listEvaAgentIds(deps.db))
+      ) {
+        throw new ApiError(
+          403,
+          "policy_denied",
+          "The selected EVA agent is not allowed by policy",
+        );
+      }
     }
     const trigger = parsePluginMentionTrigger(context.req.query("trigger"));
     if (trigger === null) {
@@ -568,7 +684,7 @@ export function registerPluginRoutes(
       threadId: threadId !== null && threadId.length > 0 ? threadId : null,
       allowedPluginIds: allowedPluginIdsForContext(
         context,
-        thread?.agentId ?? thread?.providerId,
+        thread?.agentId ?? thread?.providerId ?? activeAgentId,
       ),
     });
     return context.json({

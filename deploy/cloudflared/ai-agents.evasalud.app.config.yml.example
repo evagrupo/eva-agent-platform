@@ -1,0 +1,10 @@
+# Copy this file to the host's private cloudflared configuration directory and
+# replace both placeholders with the existing named tunnel and its credential
+# file. Do not commit a populated copy of this file.
+tunnel: REPLACE_WITH_EXISTING_TUNNEL_ID_OR_NAME
+credentials-file: /etc/cloudflared/REPLACE_WITH_TUNNEL_CREDENTIALS.json
+
+ingress:
+  - hostname: ai-agents.evasalud.app
+    service: http://127.0.0.1:39886
+  - service: http_status:404

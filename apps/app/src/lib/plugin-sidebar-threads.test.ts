@@ -39,6 +39,13 @@ describe("toPluginSidebarThread", () => {
     });
   });
 
+  it("carries the server-provided owner name and preserves its absence", () => {
+    expect(
+      toPluginSidebarThread(makeThread({ ownerName: "Ana García" })).ownerName,
+    ).toBe("Ana García");
+    expect(toPluginSidebarThread(makeThread()).ownerName).toBeUndefined();
+  });
+
   it("resolves the indicator with the host's precedence", () => {
     expect(
       toPluginSidebarThread(

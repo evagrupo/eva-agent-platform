@@ -82,8 +82,21 @@ describe("index.html pre-paint script", () => {
     ).toBe("#151515");
   });
 
-  it("follows the system scheme when no preference is stored", () => {
+  it("uses the light palette when no preference is stored", () => {
     stubPrefersDark(true);
+
+    runInlineScripts();
+
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(
+      document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+        ?.content,
+    ).toBe("#ffffff");
+  });
+
+  it("follows the system scheme when system is explicitly stored", () => {
+    stubPrefersDark(true);
+    localStorage.setItem(THEME_STORAGE_KEY, "system");
 
     runInlineScripts();
 

@@ -272,6 +272,7 @@ export function buildExecutionInputSources({
   const permissionModeSource = resolveCreateExecutionInputSource({
     hasStoredValue: usesStoredValues && storedValues.permissionMode !== "",
     hasValue: hasValue(effectiveValues.permissionMode),
+    initialSource: usesStoredValues ? "client-preference" : undefined,
     touched:
       forcesExplicitExecutionFields || touchedFields.has("permissionMode"),
   });

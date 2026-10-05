@@ -19,9 +19,12 @@ import {
   type DbQueryConnection,
 } from "@bb/db";
 import {
+  modelPermits,
   permissionModeValues,
+  reasoningEffortsForLevels,
   reasoningLevelSchema,
   reasoningLevelValues,
+  type AvailableModel,
   type PermissionMode,
   type ReasoningLevel,
   type RealtimeSubscriptionTarget,
@@ -473,12 +476,44 @@ function permits(rules: readonly string[], value: string): boolean {
   return rules.includes("*") || rules.includes(value);
 }
 
-function modelPermits(rules: readonly string[], model: string): boolean {
-  return rules.some((rule) => {
-    if (rule === "*") return true;
-    if (rule.endsWith("*")) return model.startsWith(rule.slice(0, -1));
-    return rule === model;
-  });
+export { modelPermits } from "@bb/domain";
+
+function intersectModelRules(
+  left: readonly string[],
+  right: readonly string[],
+): string[] {
+  if (left.includes("*")) return [...right];
+  if (right.includes("*")) return [...left];
+  const intersection = new Set<string>();
+  for (const leftRule of left) {
+    for (const rightRule of right) {
+      const leftSlash = leftRule.lastIndexOf("/");
+      const rightSlash = rightRule.lastIndexOf("/");
+      const leftNamespace = leftSlash < 0 ? null : leftRule.slice(0, leftSlash);
+      const rightNamespace =
+        rightSlash < 0 ? null : rightRule.slice(0, rightSlash);
+      if (
+        leftNamespace !== null &&
+        rightNamespace !== null &&
+        leftNamespace !== rightNamespace
+      ) {
+        continue;
+      }
+      const leftLeaf = leftRule.slice(leftSlash + 1);
+      const rightLeaf = rightRule.slice(rightSlash + 1);
+      const narrower = modelPermits([leftLeaf], rightLeaf)
+        ? rightLeaf
+        : modelPermits([rightLeaf], leftLeaf)
+          ? leftLeaf
+          : null;
+      if (narrower === null) continue;
+      const namespace = leftNamespace ?? rightNamespace;
+      intersection.add(
+        namespace === null ? narrower : `${namespace}/${narrower}`,
+      );
+    }
+  }
+  return [...intersection];
 }
 
 function intersectRules(
@@ -511,7 +546,7 @@ function mergePolicies(left: CorePolicy, right: CorePolicy): CorePolicy {
     left.allowedProviderIds,
     right.allowedProviderIds,
   );
-  const allowedModelPatterns = intersectRules(
+  const allowedModelPatterns = intersectModelRules(
     left.allowedModelPatterns,
     right.allowedModelPatterns,
   );
@@ -706,7 +741,7 @@ function buildAgentExecutionTuple(
     policy.allowedProviderIds,
     grant.providerIds,
   );
-  const allowedModelPatterns = intersectRules(
+  const allowedModelPatterns = intersectModelRules(
     policy.allowedModelPatterns,
     grant.modelPatterns,
   );
@@ -1443,6 +1478,55 @@ export function reasoningLevelsAllowedByPolicyForAgent(
   );
 }
 
+export function applyPolicyToAvailableModel(
+  model: AvailableModel,
+  policy: CorePolicy,
+  agentId: string,
+  providerId: string,
+  knownAgentIds?: ReadonlySet<string>,
+  agentProviderIds?: ReadonlyMap<string, readonly string[]>,
+): AvailableModel | null {
+  if (
+    !isModelAllowedByPolicyForAgent(
+      policy,
+      agentId,
+      providerId,
+      model.model,
+      knownAgentIds,
+      agentProviderIds,
+    )
+  ) {
+    return null;
+  }
+  const allowedLevels = reasoningLevelsAllowedByPolicyForAgent(
+    policy,
+    agentId,
+    providerId,
+    model.model,
+    knownAgentIds,
+    agentProviderIds,
+  );
+  const supported = model.supportedReasoningEfforts.filter((effort) =>
+    allowedLevels.includes(effort.reasoningEffort),
+  );
+  const cursorManagedReasoning =
+    providerId === "acp-cursor" &&
+    model.supportedReasoningEfforts.length === 1 &&
+    model.supportedReasoningEfforts[0]?.reasoningEffort === "medium";
+  const supportedReasoningEfforts =
+    supported.length === 0 && cursorManagedReasoning
+      ? reasoningEffortsForLevels(allowedLevels)
+      : supported;
+  const firstEffort = supportedReasoningEfforts[0];
+  if (firstEffort === undefined) return null;
+  const defaultReasoningEffort = supportedReasoningEfforts.some(
+    (effort) => effort.reasoningEffort === model.defaultReasoningEffort,
+  )
+    ? model.defaultReasoningEffort
+    : firstEffort.reasoningEffort;
+  return { ...model, supportedReasoningEfforts, defaultReasoningEffort };
+}
+
 export function permissionCeilingForPolicyForAgent(
   policy: CorePolicy,
   agentId: string,
@@ -1560,7 +1644,8 @@ function assertExecutionAllowedForPolicy(
     if (
       (input.providerId !== undefined &&
         input.providerId !== policy.defaultProviderId) ||
-      (input.model !== undefined && input.model !== policy.defaultModel) ||
+      (input.model !== undefined &&
+        !modelPermits([policy.defaultModel], input.model)) ||
       (input.reasoningLevel !== undefined &&
         input.reasoningLevel !== policy.defaultReasoningLevel) ||
       (input.permissionMode !== undefined &&
@@ -1691,7 +1776,9 @@ function tryResolveExecutionForAgentTuple(
     tuple.fixedExecution &&
     ((input.providerId !== undefined &&
       input.providerId !== tuple.defaultProviderId) ||
-      (input.model !== undefined && input.model !== tuple.defaultModel) ||
+      (input.model !== undefined &&
+        (tuple.defaultModel === null ||
+          !modelPermits([tuple.defaultModel], input.model))) ||
       (input.reasoningLevel !== undefined &&
         input.reasoningLevel !== tuple.defaultReasoningLevel) ||
       (input.permissionMode !== undefined &&
@@ -2221,7 +2308,11 @@ export function requireAuthorizedThreadForUser(
   return thread;
 }
 
-export function filterThreadsForContext<T extends ThreadAccessTarget>(db: DbConnection, context: CoreRequestContext, threads: readonly T[]): T[] {
+export function filterThreadsForContext<T extends ThreadAccessTarget>(
+  db: DbConnection,
+  context: CoreRequestContext,
+  threads: readonly T[],
+): T[] {
   const authContext = getCoreAuthContext(context);
   return threads.filter((thread) => canReadThread(db, authContext, thread));
 }

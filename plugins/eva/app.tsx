@@ -41,6 +41,8 @@ import {
   StatusGlyph,
 } from "./src/StatusGlyph";
 import { countStatuses } from "./src/status";
+import { createEvaAgentThread } from "./src/create-agent-thread";
+import { listAgentThreadBindings } from "./src/list-agent-thread-bindings";
 
 type AgentRoster = {
   agents: EvaAgent[];
@@ -295,6 +297,36 @@ function useAgentRoster() {
   });
 
   return { rpc, roster, error, refetch };
+}
+
+function useAgentThreadBindings(
+  enabled: boolean,
+  refreshKey: string,
+): ReadonlyMap<string, string> {
+  const [bindings, setBindings] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
+
+  useEffect(() => {
+    if (!enabled) {
+      setBindings(new Map());
+      return;
+    }
+
+    const controller = new AbortController();
+    setBindings(new Map());
+    void listAgentThreadBindings(controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) setBindings(next);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setBindings(new Map());
+      });
+
+    return () => controller.abort();
+  }, [enabled, refreshKey]);
+
+  return bindings;
 }
 
 function useAgentDetail(slug: string) {
@@ -1172,12 +1204,13 @@ function AgentThreadComposer({ slug }: { slug: string }) {
 
   const submit = async (request: NewThreadRequest) => {
     try {
-      const result = await rpc.call("agents_startThread", {
-        slug: agent.slug,
+      const threadId = await createEvaAgentThread({
+        agentId: agent.slug,
+        agentName: agentDisplayName(agent),
         request,
       });
       toast.success("Conversation started");
-      navigate.toThread(result.threadId);
+      navigate.toThread(threadId);
     } catch (cause) {
       toast.error(errorText(cause));
       throw cause;
@@ -1272,44 +1305,6 @@ function AgentNavigation() {
             className="size-4 text-muted-foreground"
           />
           <span className="min-w-0 flex-1 truncate text-sm">
-            {agentDisplayName(agent)}
-          </span>
-          <StatusBadge status={agent.status} />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function EVAHomepageSection() {
-  const { roster, error, refetch } = useAgentRoster();
-  const navigate = useBbNavigate();
-  if (error) {
-    return (
-      <div className="px-1 text-sm text-muted-foreground">
-        EVA could not be loaded.{" "}
-        <button className="underline" onClick={() => void refetch()}>
-          Retry
-        </button>
-      </div>
-    );
-  }
-  if (!roster) {
-    return <div className="h-16 animate-pulse rounded-lg bg-muted" />;
-  }
-  return (
-    <div className="flex gap-2 overflow-x-auto pb-1">
-      {roster.agents.map((agent) => (
-        <button
-          key={agent.slug}
-          type="button"
-          onClick={() =>
-            navigate.toPluginPanel("agents", { subPath: agent.slug })
-          }
-          className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-card px-2.5 py-2 text-left hover:bg-state-hover"
-        >
-          <AgentIcon icon={agent.icon} className="size-4" />
-          <span className="max-w-32 truncate text-xs font-medium">
             {agentDisplayName(agent)}
           </span>
           <StatusBadge status={agent.status} />
@@ -1490,11 +1485,14 @@ function SidebarThreadRow({
 }) {
   const { splitProps } = experimental_useSidebarThreadSplit(thread.id);
   const title = thread.title ?? thread.titleFallback ?? "Conversation";
+  const ownerName = thread.ownerName?.trim() || null;
+  const accessibleLabel = ownerName ? `${title} (${ownerName})` : title;
   const isActive = activeThreadId === thread.id;
   return (
     <li
       className={cn(
-        "group/row relative flex h-7 w-full items-center gap-2 rounded-md pr-1 text-sm transition-colors",
+        "group/row relative flex w-full items-center gap-2 rounded-md pr-1 text-sm transition-colors",
+        ownerName ? "min-h-9 py-0.5" : "h-7",
         isActive
           ? "bg-sidebar-accent text-sidebar-foreground"
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground dark:text-sidebar-foreground",
@@ -1509,7 +1507,7 @@ function SidebarThreadRow({
         href="#"
         data-sidebar-thread-shortcut-target=""
         data-sidebar-thread-id={thread.id}
-        aria-label={title}
+        aria-label={accessibleLabel}
         aria-current={isActive ? "page" : undefined}
         {...splitProps}
         onClick={(event) => {
@@ -1518,14 +1516,21 @@ function SidebarThreadRow({
         }}
         className="absolute inset-0 rounded-md outline-none ring-sidebar-ring focus-visible:ring-2"
       />
-      <span
-        className={cn(
-          "pointer-events-none relative min-w-0 flex-1 truncate",
-          thread.isUnread && "font-medium",
-        )}
-        title={title}
-      >
-        {title}
+      <span className="pointer-events-none relative min-w-0 flex-1">
+        <span
+          className={cn("block truncate", thread.isUnread && "font-medium")}
+          title={title}
+        >
+          {title}
+        </span>
+        {ownerName ? (
+          <span
+            className="block truncate text-2xs leading-3 text-subtle-foreground/80"
+            title={ownerName}
+          >
+            {ownerName}
+          </span>
+        ) : null}
       </span>
       <span className="relative flex size-5 shrink-0 items-center justify-center">
         <span className="flex items-center justify-center transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
@@ -1653,6 +1658,19 @@ function EVAThreadList({
   const navigate = useBbNavigate();
   const { roster, error } = useAgentRoster();
   const { collapsed, toggle } = useCollapsedGroups();
+  const rosterAgentKey =
+    roster?.agents
+      .map((agent) => agent.slug)
+      .sort()
+      .join("\u001f") ?? "";
+  const sidebarThreadRevision = threads
+    .map((thread) => `${thread.id}:${thread.isArchived ? 1 : 0}`)
+    .sort()
+    .join("\u001f");
+  const authorizedThreadBindings = useAgentThreadBindings(
+    roster !== null,
+    `${rosterAgentKey}\u001e${sidebarThreadRevision}`,
+  );
 
   useEffect(() => {
     const menu = document.querySelector<HTMLElement>(
@@ -1680,11 +1698,18 @@ function EVAThreadList({
   const query = searchQuery.trim().toLocaleLowerCase();
   const agentByThreadId = useMemo(() => {
     const map = new Map<string, EvaAgent>();
+    const agentBySlug = new Map(
+      (roster?.agents ?? []).map((agent) => [agent.slug, agent]),
+    );
     for (const agent of roster?.agents ?? []) {
       for (const threadId of agent.threadIds) map.set(threadId, agent);
     }
+    for (const [threadId, agentSlug] of authorizedThreadBindings) {
+      const agent = agentBySlug.get(agentSlug);
+      if (agent) map.set(threadId, agent);
+    }
     return map;
-  }, [roster]);
+  }, [authorizedThreadBindings, roster]);
 
   // Older EVA versions provisioned one BB project per agent. Those project
   // records are retained for history, but they are not part of EVA's current
@@ -1912,10 +1937,5 @@ export default definePluginApp((app) => {
     title: "EVA agent conversations",
     description: "Groups BB threads by their EVA agent record.",
     component: EVAThreadList,
-  });
-  app.slots.homepageSection({
-    id: "eva-agents",
-    title: "EVA Agents",
-    component: EVAHomepageSection,
   });
 });

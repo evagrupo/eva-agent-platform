@@ -39,10 +39,7 @@ import { listQueuedThreadMessageCountsByThreadIds } from "@bb/db";
 import { resolveEnvironmentWorkspaceDisplayKind } from "../environments/environment-response.js";
 import { canThreadSpawnChild } from "./thread-parent.js";
 import { toThreadEventWithMeta } from "./timeline.js";
-import {
-  getCoreAuthContext,
-  hasCoreCapability,
-} from "../../access-policy.js";
+import { getCoreAuthContext, hasCoreCapability } from "../../access-policy.js";
 
 type ThreadRuntimeDisplayHub = Pick<
   NotificationHub,
@@ -605,7 +602,8 @@ function ownerNamesForThreadList(
   const authContext = getCoreAuthContext({});
   if (
     authContext === null ||
-    !hasCoreCapability(authContext.policy, "threadAllRead")
+    (authContext.role !== "admin" &&
+      !hasCoreCapability(authContext.policy, "threadAllRead"))
   ) {
     return null;
   }

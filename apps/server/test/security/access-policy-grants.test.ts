@@ -11,11 +11,13 @@ import type { ReasoningLevel } from "@bb/domain";
 import { describe, expect, it } from "vitest";
 import {
   assertExecutionAllowedForUser,
+  applyPolicyToAvailableModel,
   canReadThread,
   canWriteThread,
   defaultUserPolicy,
   isPluginAllowedByPolicy,
   isPluginAllowedByPolicyForAgent,
+  modelPermits,
   policyBootstrapForContext,
   reasoningLevelsAllowedByPolicyForAgent,
   resolveCorePolicy,
@@ -23,6 +25,7 @@ import {
   type CorePolicy,
 } from "../../src/access-policy.js";
 import { createTestDb } from "../helpers/test-app.js";
+import { availableModelFixture } from "../helpers/available-models.js";
 
 function tuplePolicy(): CorePolicy {
   return {
@@ -134,6 +137,193 @@ function execution(
 }
 
 describe("agent-bound execution policy", () => {
+  it.each([
+    ["grok-4.7", "acp-cursor/grok-4.7", true],
+    ["acp-cursor/grok-4.7", "grok-4.7", true],
+    ["grok-*", "acp-cursor/grok-4.7", true],
+    ["acp-cursor/grok-*", "grok-4.7", true],
+    ["grok-4.7", "acp-cursor/grok-4.6", false],
+    ["acp-cursor/grok-4.7", "other/grok-4.7", false],
+    ["acp-cursor/grok-*", "other/grok-4.7", false],
+  ])(
+    "matches model rule %s against runtime ID %s: %s",
+    (rule, model, allowed) => {
+      expect(modelPermits([rule], model)).toBe(allowed);
+    },
+  );
+
+  it.each([
+    ["grok-4.7", "acp-cursor/grok-4.7", ["acp-cursor/grok-4.7"]],
+    ["acp-cursor/grok-*", "grok-4.7", ["acp-cursor/grok-4.7"]],
+    ["grok-*", "acp-cursor/grok-4.7", ["acp-cursor/grok-4.7"]],
+    ["acp-cursor/grok-4.7", "other/grok-4.7", []],
+  ])(
+    "intersects limited policy %s and agent grant %s",
+    (policyRule, grantRule, expected) => {
+      const db = createTestDb();
+      insertUser(db, "limited-user");
+      db.update(authPolicies)
+        .set({
+          policyJson: JSON.stringify({
+            ...defaultUserPolicy,
+            allowedProviderIds: ["acp-cursor"],
+            allowedModelPatterns: [policyRule],
+            allowedReasoningLevels: ["low"],
+          }),
+        })
+        .where(eq(authPolicies.id, "user"))
+        .run();
+      insertGrant(db, {
+        id: "limited-crm",
+        userId: "limited-user",
+        agentId: "crm",
+        providerIds: ["acp-cursor"],
+        modelPatterns: [grantRule],
+        reasoningLevels: ["low"],
+      });
+      const resolved = resolveCorePolicy(db, "limited-user");
+      expect(
+        resolved?.policy.agentExecutionTuples?.[0]?.allowedModelPatterns,
+      ).toEqual(expected);
+      if (expected.length > 0) {
+        const bootstrap = policyBootstrapForContext(
+          {
+            userId: "limited-user",
+            email: "limited-user@eva.test",
+            name: "Limited User",
+            sessionId: "test-session",
+            role: "user",
+            policy: resolved!.policy,
+            policyRevision: 1,
+            resourceAccess: [],
+          },
+          new Map([["acp-cursor", ["grok-4.7"]]]),
+        );
+        expect(bootstrap).toMatchObject({
+          capabilities: {
+            execution: {
+              agents: [
+                expect.objectContaining({
+                  id: "crm",
+                  providerIds: ["acp-cursor"],
+                }),
+              ],
+            },
+          },
+        });
+      }
+    },
+  );
+
+  it("keeps a policy-allowed model when ACP only advertises unmanaged reasoning", () => {
+    const policy: CorePolicy = {
+      ...defaultUserPolicy,
+      allowedAgentIds: ["crm"],
+      allowedProviderIds: ["acp-cursor"],
+      allowedModelPatterns: ["grok-4.7"],
+      allowedReasoningLevels: ["low"],
+    };
+    const model = availableModelFixture({
+      model: "acp-cursor/grok-4.7",
+      reasoningLevels: ["medium"],
+    });
+    expect(
+      applyPolicyToAvailableModel(model, policy, "crm", "acp-cursor"),
+    ).toMatchObject({
+      model: "acp-cursor/grok-4.7",
+      supportedReasoningEfforts: [{ reasoningEffort: "low" }],
+      defaultReasoningEffort: "low",
+    });
+    expect(
+      applyPolicyToAvailableModel(
+        { ...model, model: "acp-cursor/grok-4.6" },
+        policy,
+        "crm",
+        "acp-cursor",
+      ),
+    ).toBeNull();
+    expect(
+      applyPolicyToAvailableModel(
+        model,
+        { ...policy, allowedReasoningLevels: [] },
+        "crm",
+        "acp-cursor",
+      ),
+    ).toBeNull();
+    expect(
+      applyPolicyToAvailableModel(
+        availableModelFixture({
+          model: "acp-cursor/grok-4.7",
+          reasoningLevels: ["high"],
+        }),
+        policy,
+        "crm",
+        "acp-cursor",
+      ),
+    ).toBeNull();
+  });
+
+  it("does not invent unsupported reasoning levels for a native provider", () => {
+    const policy: CorePolicy = {
+      ...defaultUserPolicy,
+      allowedAgentIds: ["creative"],
+      allowedProviderIds: ["codex"],
+      allowedModelPatterns: ["gpt-5.6-luna"],
+      allowedReasoningLevels: ["low"],
+    };
+    expect(
+      applyPolicyToAvailableModel(
+        availableModelFixture({
+          model: "gpt-5.6-luna",
+          reasoningLevels: ["medium"],
+        }),
+        policy,
+        "creative",
+        "codex",
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts a prefixed runtime ID for an exact fixed agent grant", () => {
+    const db = createTestDb();
+    insertUser(db, "fixed-alias-user");
+    db.update(authPolicies)
+      .set({
+        policyJson: JSON.stringify({
+          ...defaultUserPolicy,
+          allowedProviderIds: ["acp-cursor"],
+          allowedModelPatterns: ["grok-4.7"],
+          allowedReasoningLevels: ["low"],
+        }),
+      })
+      .where(eq(authPolicies.id, "user"))
+      .run();
+    insertGrant(db, {
+      id: "fixed-alias-crm",
+      userId: "fixed-alias-user",
+      agentId: "crm",
+      providerIds: ["acp-cursor"],
+      modelPatterns: ["grok-4.7"],
+      reasoningLevels: ["low"],
+      fixedExecution: true,
+      permissionMode: "auto",
+    });
+    expect(
+      assertExecutionAllowedForUser(
+        db,
+        "fixed-alias-user",
+        execution("crm", "acp-cursor", "acp-cursor/grok-4.7", "low"),
+      ),
+    ).toMatchObject({ model: "acp-cursor/grok-4.7" });
+    expect(() =>
+      assertExecutionAllowedForUser(
+        db,
+        "fixed-alias-user",
+        execution("crm", "acp-cursor", "acp-cursor/grok-4.6", "low"),
+      ),
+    ).toThrow();
+  });
+
   it("does not combine provider and model grants across agents or infer an agent", () => {
     const db = createTestDb();
     insertUser(db, "tuple-user");

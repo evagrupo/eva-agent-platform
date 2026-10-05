@@ -8,9 +8,11 @@ export function listAuthUserNamesByIds(
 ): Map<string, string> {
   if (userIds.length === 0) return new Map();
   const rows = db
-    .select({ id: authUsers.id, name: authUsers.name })
+    .select({ id: authUsers.id, name: authUsers.name, email: authUsers.email })
     .from(authUsers)
     .where(inArray(authUsers.id, [...userIds]))
     .all();
-  return new Map(rows.map((row) => [row.id, row.name]));
+  return new Map(
+    rows.map((row) => [row.id, row.name.trim() || row.email.trim()]),
+  );
 }

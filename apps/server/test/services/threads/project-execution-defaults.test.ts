@@ -116,6 +116,61 @@ describe("project execution defaults persistence", () => {
     });
   });
 
+  it("does not persist client-preference values as project defaults", async () => {
+    await withTestHarness(async (harness) => {
+      const { host } = seedHostSession(harness.deps, {
+        id: "host-client-preference-defaults",
+      });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+      });
+
+      upsertProjectExecutionDefaults(harness.db, {
+        projectId: project.id,
+        providerId: "codex",
+        model: "gpt-5-mini",
+        reasoningLevel: "medium",
+        permissionMode: "auto",
+        serviceTier: "default",
+      });
+
+      await createThreadFromRequest(harness.deps, {
+        origin: "app",
+        startedOnBehalfOf: null,
+        projectId: project.id,
+        providerId: "codex",
+        model: "gpt-5.6-luna",
+        reasoningLevel: "high",
+        permissionMode: "accept-edits",
+        serviceTier: "default",
+        executionInputSources: {
+          providerId: "client-preference",
+          model: "client-preference",
+          reasoningLevel: "client-preference",
+          permissionMode: "client-preference",
+        },
+        input: textInput("Use the constrained preference"),
+        environment: {
+          type: "host",
+          hostId: host.id,
+          workspace: { type: "unmanaged", path: null },
+        },
+      });
+
+      expect(
+        getProjectExecutionDefaults(harness.db, {
+          projectId: project.id,
+        }),
+      ).toEqual({
+        providerId: "codex",
+        model: "gpt-5-mini",
+        reasoningLevel: "medium",
+        permissionMode: "auto",
+        serviceTier: "default",
+      });
+    });
+  });
+
   it("does not overwrite project defaults for a fork/side-chat child spawn", async () => {
     await withTestHarness(async (harness) => {
       installFakeGitWorktreeProvider();

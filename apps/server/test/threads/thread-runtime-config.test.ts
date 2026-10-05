@@ -25,6 +25,7 @@ import { setPluginAgentContributions } from "../../src/services/plugins/plugin-a
 import { readSkillTreeManifest } from "../../src/services/skills/injected-skills.js";
 import type { PluginAgentToolContribution } from "../../src/services/plugins/plugin-service.js";
 import { defaultUserPolicy } from "../../src/access-policy.js";
+import { EVA_AGENT_TOOL_NAMES } from "../../src/agents/eva-agent-tools.js";
 import {
   resolvePermissionEscalation,
   resolveThreadRuntimeCommandConfig,
@@ -1579,6 +1580,102 @@ describe("thread runtime config", () => {
     });
   });
 
+  it("exposes EVA child-delegation tools to an authorized Orchestrator", async () => {
+    await withTestHarness(async (harness) => {
+      const now = new Date();
+      harness.db
+        .insert(authUsers)
+        .values({
+          id: "orchestrator-runtime-owner",
+          name: "Orchestrator Runtime Owner",
+          email: "orchestrator-runtime-owner@eva.test",
+          emailVerified: true,
+          image: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      harness.db
+        .insert(authPrincipals)
+        .values({
+          userId: "orchestrator-runtime-owner",
+          role: "user",
+          status: "active",
+          policyId: "user",
+          revision: 1,
+          updatedAt: Date.now(),
+        })
+        .run();
+      harness.db
+        .insert(authAgentGrants)
+        .values({
+          id: "orchestrator-runtime-grant",
+          userId: "orchestrator-runtime-owner",
+          groupId: null,
+          agentId: "orchestrator",
+          providerIdsJson: JSON.stringify(["codex"]),
+          modelPatternsJson: JSON.stringify(["test-model"]),
+          reasoningLevelsJson: JSON.stringify(["high"]),
+          fixedExecution: false,
+          permissionMode: null,
+          terminalAccess: "none",
+          toolIdsJson: JSON.stringify(EVA_AGENT_TOOL_NAMES),
+          pluginIdsJson: JSON.stringify([]),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        })
+        .run();
+
+      const { host } = seedHostSession(harness.deps, {
+        id: "host-orchestrator-runtime-tools",
+      });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/orchestrator-runtime-tools",
+      });
+      const environment = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: project.id,
+        path: "/tmp/orchestrator-runtime-tools",
+      });
+      const thread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        environmentId: environment.id,
+        ownerUserId: "orchestrator-runtime-owner",
+        agentId: "orchestrator",
+        providerId: "codex",
+        status: "idle",
+        title: "Master Orchestrator runtime",
+        titleFallback: "Master Orchestrator runtime",
+        visibility: "visible",
+      });
+
+      const runtimeConfig = await resolveThreadRuntimeCommandConfig(
+        harness.deps,
+        {
+          thread,
+          model: "test-model",
+          environment: {
+            hostId: environment.hostId,
+            id: environment.id,
+            path: environment.path,
+            status: environment.status,
+          },
+        },
+      );
+
+      expect(runtimeConfig.dynamicTools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining([...EVA_AGENT_TOOL_NAMES]),
+      );
+      expect(runtimeConfig.instructions).toContain(
+        "Treat a resolved @EVA-agent mention as a delegation target",
+      );
+      expect(runtimeConfig.instructions).toContain(
+        "Do not claim delegated work is complete until you read the child's result.",
+      );
+    });
+  });
+
   it("filters owned-thread plugin runtime contributions by current policy", async () => {
     await withTestHarness(async (harness) => {
       const now = new Date();
@@ -1807,7 +1904,9 @@ describe("thread runtime config", () => {
           "allowed-tool",
         ]);
         expect(scoped.instructions).toContain("allowed dynamic instruction");
-        expect(scoped.instructions).not.toContain("blocked dynamic instruction");
+        expect(scoped.instructions).not.toContain(
+          "blocked dynamic instruction",
+        );
         expect(
           scoped.injectedSkillSources.map((source) => source.name),
         ).toContain("allowed-skill");

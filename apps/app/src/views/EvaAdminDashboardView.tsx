@@ -950,7 +950,7 @@ function formatDate(value: number | undefined): string {
 
 export function EvaAdminDashboardView() {
   const auth = useCoreAuth();
-  const [locale, setLocale] = useState<"en" | "es">("en");
+  const [locale, setLocale] = useState<"en" | "es">("es");
   const [openAdminSection, setOpenAdminSection] = useState<string>("accounts");
   const [data, setData] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(true);

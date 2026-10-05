@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Provider as JotaiProvider } from "jotai";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -23,6 +23,8 @@ import {
 } from "@/lib/plugin-slots";
 import { sidebarNavigationQueryKey } from "@/hooks/queries/query-keys";
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
+import * as coreAuth from "@/lib/core-auth";
+import type { CoreAuthState } from "@/lib/core-auth";
 
 const REPO_ROOT = resolve(import.meta.dirname, "../../../../..");
 
@@ -68,7 +70,83 @@ beforeAll(() => {
 afterEach(() => {
   removePluginSlotRegistrations(TEST_PLUGIN_ID);
   cleanup();
+  vi.restoreAllMocks();
 });
+
+function restrictedUserAuthState(): CoreAuthState {
+  return {
+    status: "ready",
+    authenticated: true,
+    required: true,
+    user: { id: "restricted-user", role: "user" },
+    bootstrap: {
+      policyRevision: 1,
+      capabilities: {
+        core: {
+          workspaceBootstrap: true,
+          sidebarFooter: false,
+          settings: false,
+          threadInfo: false,
+          secondaryPanelTabs: false,
+          terminalRead: false,
+          terminalControl: false,
+          terminalFull: false,
+          files: false,
+          environments: false,
+          hosts: false,
+          projects: true,
+          plugins: false,
+          pluginData: false,
+          threadOwnRead: true,
+          threadAllRead: false,
+          threadOwnWrite: true,
+          threadAllWrite: false,
+        },
+        execution: { agents: [] },
+      },
+      plugins: { allowedIds: [] },
+    },
+    accessPending: false,
+    error: null,
+    refresh: async () => {},
+    signIn: async () => null,
+    signOut: async () => {},
+  };
+}
+
+function fullAdminAuthState(): CoreAuthState {
+  return {
+    ...restrictedUserAuthState(),
+    user: { id: "test-admin", role: "admin" },
+    bootstrap: {
+      policyRevision: 1,
+      capabilities: {
+        core: {
+          workspaceBootstrap: true,
+          sidebarFooter: true,
+          settings: true,
+          threadInfo: true,
+          secondaryPanelTabs: true,
+          terminalRead: true,
+          terminalControl: true,
+          terminalFull: true,
+          files: true,
+          environments: true,
+          hosts: true,
+          projects: true,
+          plugins: true,
+          pluginData: true,
+          threadOwnRead: true,
+          threadAllRead: true,
+          threadOwnWrite: true,
+          threadAllWrite: true,
+        },
+        execution: { agents: [] },
+      },
+      plugins: { allowedIds: ["*"] },
+    },
+  };
+}
 
 function expectDocumentOrder(labeled: Array<[string, Element]>): void {
   for (let index = 0; index < labeled.length - 1; index += 1) {
@@ -108,7 +186,8 @@ function registerTestPlugin() {
   );
 }
 
-function renderAppSidebar() {
+function renderAppSidebar(authState: CoreAuthState = fullAdminAuthState()) {
+  vi.spyOn(coreAuth, "useCoreAuth").mockReturnValue(authState);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
@@ -216,6 +295,30 @@ describe("docs anatomy manifest", () => {
       return [key, element as Element];
     });
     expectDocumentOrder(items);
+  });
+
+  it("shows theme and language controls without plugin footer capability", () => {
+    registerTestPlugin();
+    renderAppSidebar(restrictedUserAuthState());
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Switch to dark mode / Cambiar a modo oscuro",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Switch to English / Cambiar a inglés",
+      }),
+    );
+
+    expect(window.localStorage.getItem("bb.theme")).toBe("dark");
+    expect(
+      window.localStorage.getItem("bb-spanish-localization.language"),
+    ).toBe("en");
+    expect(
+      screen.queryByRole("button", { name: "Anatomy footer action" }),
+    ).toBeNull();
   });
 
   it("matches the message action bar's order", () => {

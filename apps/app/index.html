@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="bb-app-shell-root">
+<html lang="es" class="bb-app-shell-root">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -73,7 +73,7 @@
         try {
           theme = localStorage.getItem("bb.theme");
         } catch {}
-        var darkTheme = theme === "dark" || (theme !== "light" && mq.matches);
+        var darkTheme = theme === "dark" || (theme === "system" && mq.matches);
         document.getElementById("theme-color").content = darkTheme
           ? "#151515"
           : "#ffffff";

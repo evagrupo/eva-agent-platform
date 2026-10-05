@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import {
   authAccounts,
   authAgentGrants,
+  authPolicies,
   authPrincipals,
   authSessions,
   authUsers,
@@ -12,7 +13,10 @@ import {
 } from "@bb/db";
 import { systemExecutionOptionsResponseSchema } from "@bb/server-contract";
 import { describe, expect, it } from "vitest";
-import { grantCoreResourceAccess } from "../../src/access-policy.js";
+import {
+  defaultUserPolicy,
+  grantCoreResourceAccess,
+} from "../../src/access-policy.js";
 import { isPluginAggregateRoutePath } from "../../src/routes/plugins.js";
 import {
   createTestDb,
@@ -21,11 +25,14 @@ import {
 } from "../helpers/test-app.js";
 import {
   seedHostSession,
+  seedPrimaryHost,
   seedProjectWithSource,
   seedQueuedMessage,
 } from "../helpers/seed.js";
 import { textInput } from "../helpers/prompt-input.js";
 import { createCoreAuthService } from "../../src/core-auth.js";
+import { availableModelFixture } from "../helpers/available-models.js";
+import { registerProviderHostRpcResponder } from "../helpers/host-rpc.js";
 
 const ADMIN_EMAIL = "admin@eva.test";
 const ADMIN_PASSWORD = "admin-password-123";
@@ -432,6 +439,13 @@ describe("core auth foundation", () => {
   it("enforces owner isolation through lists, direct IDs, and mutations", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
       await seedIdentity(harness, {
+        email: ADMIN_EMAIL,
+        name: "EVA Administrator",
+        password: ADMIN_PASSWORD,
+        role: "admin",
+        userId: "admin-user",
+      });
+      await seedIdentity(harness, {
         email: USER_A_EMAIL,
         name: "User A",
         password: USER_A_PASSWORD,
@@ -513,8 +527,32 @@ describe("core auth foundation", () => {
         { headers: headersA },
       );
       expect(list.status).toBe(200);
-      const listed: Array<{ id: string }> = await list.json();
+      const listed: Array<{ id: string; ownerName?: string | null }> =
+        await list.json();
       expect(listed.map((thread) => thread.id)).toEqual([threadA.id]);
+      expect(listed[0]?.ownerName).toBeUndefined();
+
+      const adminList = await harness.app.request(
+        `/api/v1/threads?projectId=${project.id}`,
+        {
+          headers: {
+            cookie: await signIn(harness, ADMIN_EMAIL, ADMIN_PASSWORD),
+          },
+        },
+      );
+      expect(adminList.status).toBe(200);
+      const adminListed: Array<{ id: string; ownerName?: string | null }> =
+        await adminList.json();
+      expect(adminListed.map((thread) => thread.id)).toEqual(
+        expect.arrayContaining([threadA.id, threadB.id]),
+      );
+      expect(
+        adminListed.find((thread) => thread.id === threadA.id)?.ownerName,
+      ).toBe("User A");
+      expect(
+        adminListed.find((thread) => thread.id === threadB.id)?.ownerName,
+      ).toBe("User B");
+      expect(JSON.stringify(adminListed)).not.toContain(ADMIN_PASSWORD);
 
       const projectsWithThreads = await harness.app.request(
         `/api/v1/projects?include=threads&includePersonal=true`,
@@ -681,6 +719,99 @@ describe("core auth foundation", () => {
         }),
       });
       expect(create.status).toBe(403);
+    });
+  });
+
+  it("loads limited-user composer models with catalog aliases and ACP-managed reasoning", async () => {
+    await withTestHarness({ authRequired: true }, async (harness) => {
+      await seedIdentity(harness, {
+        email: USER_A_EMAIL,
+        name: "User A",
+        password: USER_A_PASSWORD,
+        userId: "user-a",
+      });
+      harness.db
+        .update(authPolicies)
+        .set({
+          policyJson: JSON.stringify({
+            ...defaultUserPolicy,
+            allowedProviderIds: ["acp-cursor"],
+            allowedModelPatterns: ["grok-4.7"],
+            allowedReasoningLevels: ["low"],
+          }),
+        })
+        .where(eq(authPolicies.id, "user"))
+        .run();
+      harness.db
+        .insert(authAgentGrants)
+        .values({
+          id: "limited-user-crm",
+          userId: "user-a",
+          groupId: null,
+          agentId: "crm",
+          providerIdsJson: JSON.stringify(["acp-cursor"]),
+          modelPatternsJson: JSON.stringify(["acp-cursor/grok-4.7"]),
+          reasoningLevelsJson: JSON.stringify(["low"]),
+          fixedExecution: false,
+          permissionMode: "accept-edits",
+          terminalAccess: "none",
+          toolIdsJson: "[]",
+          pluginIdsJson: "[]",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        })
+        .run();
+      const { host, session } = seedHostSession(harness.deps);
+      seedPrimaryHost(harness.deps, host.id);
+      const responder = registerProviderHostRpcResponder(harness, {
+        hostId: host.id,
+        sessionId: session.id,
+        modelsByProviderId: {
+          "acp-cursor": {
+            models: [
+              availableModelFixture({
+                model: "acp-cursor/grok-4.7",
+                reasoningLevels: ["medium"],
+              }),
+              availableModelFixture({
+                model: "acp-cursor/grok-4.6",
+                reasoningLevels: ["medium"],
+              }),
+            ],
+            selectedOnlyModels: [],
+          },
+        },
+      });
+      try {
+        const headers = {
+          cookie: await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD),
+        };
+        const response = await harness.app.request(
+          "/api/v1/system/execution-options?agentId=crm&providerId=acp-cursor",
+          { headers },
+        );
+        expect(response.status, await response.clone().text()).toBe(200);
+        const body = systemExecutionOptionsResponseSchema.parse(
+          await response.json(),
+        );
+        expect(body.modelLoadError).toBeNull();
+        expect(body.models).toEqual([
+          expect.objectContaining({
+            model: "acp-cursor/grok-4.7",
+            supportedReasoningEfforts: [
+              { reasoningEffort: "low", description: expect.any(String) },
+            ],
+            defaultReasoningEffort: "low",
+          }),
+        ]);
+        const denied = await harness.app.request(
+          "/api/v1/system/execution-options?agentId=crm&providerId=codex",
+          { headers },
+        );
+        expect(denied.status).toBe(403);
+      } finally {
+        responder.unregister();
+      }
     });
   });
 

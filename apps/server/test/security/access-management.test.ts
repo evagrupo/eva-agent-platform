@@ -1232,11 +1232,16 @@ describe("access management", () => {
         { headers: userHeaders },
       );
       expect(listedBefore.status).toBe(200);
+      const userThreadsBefore = (await listedBefore.json()) as Array<{
+        id: string;
+        ownerName?: string | null;
+      }>;
+      expect(userThreadsBefore.map((thread) => thread.id)).toEqual(
+        expect.arrayContaining([creativeThread.id, emailThread.id]),
+      );
       expect(
-        ((await listedBefore.json()) as Array<{ id: string }>).map(
-          (thread) => thread.id,
-        ),
-      ).toEqual(expect.arrayContaining([creativeThread.id, emailThread.id]));
+        userThreadsBefore.every((thread) => thread.ownerName === undefined),
+      ).toBe(true);
 
       const revoke = await harness.app.request(
         "/api/v1/access/users/access-user/agents",
@@ -1311,6 +1316,7 @@ describe("access management", () => {
         adminThreads.find((thread) => thread.id === unknownAgentThread.id)
           ?.ownerName,
       ).toBe("Access User");
+      expect(JSON.stringify(adminThreads)).not.toContain(ADMIN_PASSWORD);
 
       const adminAgentThreads = await harness.app.request(
         "/api/v1/eva/agents/email/threads",
@@ -1347,6 +1353,25 @@ describe("access management", () => {
           (thread) => thread.id === emailThread.id,
         )?.ownerName,
       ).toBe("Access User");
+
+      harness.db
+        .update(authUsers)
+        .set({ name: "" })
+        .where(eq(authUsers.id, "access-user"))
+        .run();
+      const fallbackList = await harness.app.request(
+        `/api/v1/threads?projectId=${personalProject!.id}`,
+        { headers: { cookie: adminCookie } },
+      );
+      expect(fallbackList.status).toBe(200);
+      const fallbackThreads = (await fallbackList.json()) as Array<{
+        id: string;
+        ownerName?: string | null;
+      }>;
+      expect(
+        fallbackThreads.find((thread) => thread.id === emailThread.id)
+          ?.ownerName,
+      ).toBe(USER_EMAIL);
     });
   });
 

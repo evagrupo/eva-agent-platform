@@ -26,6 +26,7 @@ import { ApiError } from "./errors.js";
 import {
   checkDefaultAgentForPolicy,
   coreResourceTypeSchema,
+  modelPermits,
   parseCorePolicy,
   type CorePolicy,
   type CoreResourceType,
@@ -368,10 +369,7 @@ function ensurePolicy(policy: unknown): CorePolicy {
       parsed.defaultReasoningLevel === null ||
       parsed.defaultPermissionMode === null ||
       parsed.defaultProviderId !== parsed.allowedProviderIds[0] ||
-      !modelPatternPermits(
-        parsed.allowedModelPatterns[0]!,
-        parsed.defaultModel,
-      ) ||
+      !modelPermits(parsed.allowedModelPatterns, parsed.defaultModel) ||
       parsed.defaultReasoningLevel !== parsed.allowedReasoningLevels[0] ||
       parsed.defaultPermissionMode !== parsed.maxPermissionMode)
   ) {
@@ -380,13 +378,6 @@ function ensurePolicy(policy: unknown): CorePolicy {
     );
   }
   return parsed;
-}
-
-function modelPatternPermits(pattern: string, model: string): boolean {
-  return (
-    pattern === model ||
-    (pattern.endsWith("*") && model.startsWith(pattern.slice(0, -1)))
-  );
 }
 
 function validateFixedGrant(input: {

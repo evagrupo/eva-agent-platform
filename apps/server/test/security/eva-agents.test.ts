@@ -7,6 +7,7 @@ import {
   authUsers,
   createThread,
   getPersonalProject,
+  getThread,
   type DbConnection,
 } from "@bb/db";
 import { describe, expect, it } from "vitest";
@@ -14,7 +15,14 @@ import {
   EVA_AGENT_TOOL_NAMES,
   handleEvaAgentToolCall,
 } from "../../src/agents/eva-agent-tools.js";
+import { resolvePluginMentionContextInputs } from "../../src/services/plugins/plugin-mentions.js";
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
+import {
+  seedEnvironment,
+  seedHostSession,
+  seedPrimaryHost,
+} from "../helpers/seed.js";
+import { installFakePersonalWorkspaceProvider } from "../helpers/environment-provider.js";
 
 async function seedIdentity(
   db: DbConnection,
@@ -172,6 +180,9 @@ describe("EVA agent surface", () => {
           displayName: "Growth review",
           description: "Reviews growth proposals before human approval",
           icon: "SearchCheck",
+          providerId: "codex",
+          model: "gpt-5.6-luna",
+          reasoningLevel: "max",
           instructions: "Review proposals and return bounded recommendations.",
         }),
       });
@@ -236,7 +247,114 @@ describe("EVA agent surface", () => {
           pluginIds: [],
         }),
       });
-      expect(grant.status).toBe(201);
+      expect(grant.status, JSON.stringify(await grant.clone().json())).toBe(
+        201,
+      );
+
+      const mentionProviders = await harness.app.request(
+        "/api/v1/eva/agent-mentions/contributions",
+        { headers: userHeaders },
+      );
+      expect(mentionProviders.status).toBe(200);
+      expect((await mentionProviders.json()).mentionProviders).toContainEqual({
+        pluginId: "bb-eva",
+        id: "agent",
+        label: "EVA Agents",
+        triggers: ["@"],
+      });
+
+      const searchable = await harness.app.request(
+        "/api/v1/eva/agent-mentions/search?q=growth&agentId=growth-review",
+        { headers: userHeaders },
+      );
+      expect(searchable.status).toBe(200);
+      expect((await searchable.json()).groups).toEqual([
+        {
+          pluginId: "bb-eva",
+          providerId: "agent",
+          label: "EVA Agents",
+          items: [
+            {
+              itemId: "agent:growth-review",
+              title: "Growth review",
+              subtitle: "@growth-review",
+              icon: "SearchCheck",
+            },
+          ],
+        },
+      ]);
+
+      const missingActiveAgent = await harness.app.request(
+        "/api/v1/eva/agent-mentions/search?q=growth",
+        { headers: userHeaders },
+      );
+      expect(missingActiveAgent.status).toBe(403);
+
+      const deniedSearch = await harness.app.request(
+        "/api/v1/eva/agent-mentions/search?q=creative&agentId=growth-review",
+        { headers: userHeaders },
+      );
+      expect(deniedSearch.status).toBe(200);
+      expect((await deniedSearch.json()).groups).toEqual([]);
+
+      const allowedMention = await resolvePluginMentionContextInputs(
+        [
+          {
+            type: "text",
+            text: "Growth review",
+            mentions: [
+              {
+                start: 0,
+                end: 14,
+                resource: {
+                  kind: "plugin",
+                  pluginId: "bb-eva",
+                  itemId: "agent:growth-review",
+                  label: "Growth review",
+                },
+              },
+            ],
+          },
+        ],
+        {
+          db: harness.db,
+          ownerUserId: "eva-agent-user",
+          agentId: "growth-review",
+        },
+      );
+      expect(allowedMention[0]?.type).toBe("text");
+      if (allowedMention[0]?.type !== "text") {
+        throw new Error("Expected EVA agent mention context");
+      }
+      expect(allowedMention[0].text).toContain("eva_delegate_to_agent");
+      expect(allowedMention[0].text).not.toContain("eva-agents/");
+      await expect(
+        resolvePluginMentionContextInputs(
+          [
+            {
+              type: "text",
+              text: "Creatividad",
+              mentions: [
+                {
+                  start: 0,
+                  end: 11,
+                  resource: {
+                    kind: "plugin",
+                    pluginId: "bb-eva",
+                    itemId: "agent:creative",
+                    label: "Creatividad",
+                  },
+                },
+              ],
+            },
+          ],
+          {
+            db: harness.db,
+            ownerUserId: "eva-agent-user",
+            agentId: "growth-review",
+          },
+        ),
+      ).rejects.toMatchObject({ status: 404 });
 
       const grantedList = await harness.app.request("/api/v1/eva/agents", {
         headers: userHeaders,
@@ -317,6 +435,83 @@ describe("EVA agent surface", () => {
         threadId: thread.id,
         agent: "growth-review",
         output: null,
+      });
+
+      const orchestratorGrant = await harness.app.request(
+        "/api/v1/access/grants",
+        {
+          method: "POST",
+          headers: { ...adminHeaders, "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "orchestrator-user",
+            userId: "eva-agent-user",
+            agentId: "orchestrator",
+            providerIds: ["codex"],
+            modelPatterns: ["gpt-5.6-luna"],
+            reasoningLevels: ["max"],
+            fixedExecution: true,
+            permissionMode: "accept-edits",
+            terminalAccess: "none",
+            toolIds: [...EVA_AGENT_TOOL_NAMES],
+            pluginIds: [],
+          }),
+        },
+      );
+      expect(
+        orchestratorGrant.status,
+        JSON.stringify(await orchestratorGrant.clone().json()),
+      ).toBe(201);
+      installFakePersonalWorkspaceProvider();
+      const { host } = seedHostSession(harness.deps, {
+        id: "eva-child-delegation-host",
+      });
+      seedPrimaryHost(harness.deps, host.id);
+      const environment = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: personalProject!.id,
+        path: "/tmp/eva-child-delegation",
+        status: "ready",
+        environmentProviderId: "personal-workspace",
+        environmentProviderPluginId: "environment-personal-workspace",
+      });
+      const orchestratorThread = createThread(harness.db, harness.hub, {
+        projectId: personalProject!.id,
+        environmentId: environment.id,
+        ownerUserId: "eva-agent-user",
+        agentId: "orchestrator",
+        providerId: "codex",
+        status: "idle",
+        title: "Master Orchestrator thread",
+        titleFallback: "Master Orchestrator thread",
+        visibility: "visible",
+      });
+      const delegated = await handleEvaAgentToolCall(harness.deps, {
+        input: {
+          agent: "growth-review",
+          task: "Prepare a three-point lead triage summary; do not contact anyone.",
+        },
+        thread: orchestratorThread,
+        tool: "eva_delegate_to_agent",
+      });
+      expect(delegated.success).toBe(true);
+      const delegatedResult = JSON.parse(toolText(delegated)) as {
+        threadId: string;
+        agent: string;
+        status: string;
+      };
+      expect(delegatedResult).toMatchObject({
+        agent: "growth-review",
+        status: "started",
+      });
+      const child = getThread(harness.db, delegatedResult.threadId);
+      expect(child).toMatchObject({
+        projectId: personalProject!.id,
+        environmentId: environment.id,
+        providerId: "codex",
+        agentId: "growth-review",
+        ownerUserId: "eva-agent-user",
+        parentThreadId: orchestratorThread.id,
+        visibility: "visible",
       });
     });
   });

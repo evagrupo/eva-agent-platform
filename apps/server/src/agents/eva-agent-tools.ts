@@ -39,7 +39,7 @@ export const EVA_AGENT_TOOL_NAMES = [
 const evaAgentToolNameSet = new Set<string>(EVA_AGENT_TOOL_NAMES);
 
 export const EVA_AGENT_COLLABORATION_INSTRUCTIONS =
-  "Use EVA collaboration tools to discover approved specialists, delegate bounded work into inspectable child threads, read their latest results, and send follow-up messages. Keep every delegation specific and within the target agent's mandate. Do not expose server filesystem paths or credentials.";
+  "Use EVA collaboration tools to discover approved specialists, delegate bounded work into inspectable BB child threads, read their latest results, and send follow-up messages. Treat a resolved @EVA-agent mention as a delegation target only when the user also gives a concrete task; formulate a bounded task with a clear expected output and call eva_delegate_to_agent. A mention by itself is not authorization to start work: ask what the user wants that agent to do. Do not claim delegated work is complete until you read the child's result. Keep each delegation within the target agent's mandate, preserve human-approval boundaries, and never expose server filesystem paths or credentials.";
 
 const evaAgentIdInputSchema = z
   .string()

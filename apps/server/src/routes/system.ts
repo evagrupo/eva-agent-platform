@@ -90,11 +90,10 @@ import {
   assertResourceAccess,
   canAccessResource,
   isAgentAllowedByPolicy,
-  isModelAllowedByPolicyForAgent,
+  applyPolicyToAvailableModel,
   isProviderAllowedByPolicy,
   isProviderAllowedByPolicyForAgent,
   permissionCeilingForPolicyForAgent,
-  reasoningLevelsAllowedByPolicyForAgent,
   getCoreAuthContext,
   isPluginAllowedByPolicy,
   allowedPluginIdsForContext,
@@ -245,51 +244,6 @@ export function registerSystemRoutes(
     return agentId;
   }
 
-  function filterModelForAgent(
-    model: AvailableModel,
-    policy: NonNullable<ReturnType<typeof getCoreAuthContext>>["policy"],
-    agentId: string,
-    providerId: string,
-    knownAgentIds?: ReadonlySet<string>,
-    agentProviderIds?: ReadonlyMap<string, readonly string[]>,
-  ): AvailableModel | null {
-    if (
-      !isModelAllowedByPolicyForAgent(
-        policy,
-        agentId,
-        providerId,
-        model.model,
-        knownAgentIds,
-        agentProviderIds,
-      )
-    ) {
-      return null;
-    }
-    const allowedReasoningLevels = reasoningLevelsAllowedByPolicyForAgent(
-      policy,
-      agentId,
-      providerId,
-      model.model,
-      knownAgentIds,
-      agentProviderIds,
-    );
-    const allowedReasoning = new Set(allowedReasoningLevels);
-    const supportedReasoningEfforts = model.supportedReasoningEfforts.filter(
-      (effort) => allowedReasoning.has(effort.reasoningEffort),
-    );
-    if (supportedReasoningEfforts.length === 0) return null;
-    const defaultReasoningEffort = allowedReasoning.has(
-      model.defaultReasoningEffort,
-    )
-      ? model.defaultReasoningEffort
-      : supportedReasoningEfforts[0]!.reasoningEffort;
-    return {
-      ...model,
-      supportedReasoningEfforts,
-      defaultReasoningEffort,
-    };
-  }
-
   function filterExecutionOptionsResponse(
     context: object,
     query: { agentId?: string; providerId?: string },
@@ -332,7 +286,7 @@ export function registerSystemRoutes(
     }
     const models = result.models
       .map((model) =>
-        filterModelForAgent(
+        applyPolicyToAvailableModel(
           model,
           authContext.policy,
           resolvedAgentId,
@@ -346,7 +300,7 @@ export function registerSystemRoutes(
       .filter((model): model is AvailableModel => model !== null);
     const selectedOnlyModels = result.selectedOnlyModels
       .map((model) =>
-        filterModelForAgent(
+        applyPolicyToAvailableModel(
           model,
           authContext.policy,
           resolvedAgentId,

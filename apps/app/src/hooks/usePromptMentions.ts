@@ -9,6 +9,7 @@ import { buildPathMentionSuggestions } from "./pathMentionSuggestions";
 import { buildPluginMentionSuggestions } from "./pluginMentionSuggestions";
 import {
   usePluginContributions,
+  useEvaAgentMentionSearch,
   usePluginMentionSearch,
 } from "./queries/plugin-contribution-queries";
 import { useSidebarNavigation } from "./queries/sidebar-navigation-query";
@@ -34,6 +35,7 @@ interface UsePromptMentionsOptions {
   threadStorageThreadId?: string;
   environmentId: string | null;
   hostId?: string | null;
+  agentId?: string | null;
 }
 
 interface UsePromptMentionsResult {
@@ -144,9 +146,15 @@ export function usePromptMentions(
     enabled: includeBuiltInSources && hasQuery,
   });
   const pluginContributions = usePluginContributions();
-  const hasMentionProviders =
-    pluginContributions.data?.mentionProviders.some((provider) =>
-      provider.triggers.includes(trigger),
+  const hasPluginMentionProviders =
+    pluginContributions.data?.mentionProviders.some(
+      (provider) =>
+        provider.pluginId !== "bb-eva" && provider.triggers.includes(trigger),
+    ) ?? false;
+  const hasEvaAgentMentionProvider =
+    pluginContributions.data?.mentionProviders.some(
+      (provider) =>
+        provider.pluginId === "bb-eva" && provider.triggers.includes(trigger),
     ) ?? false;
   const mentionTriggers = useMemo(
     () =>
@@ -166,10 +174,25 @@ export function usePromptMentions(
       query: debouncedQuery,
       projectId: projectId ?? null,
       threadId: options.currentThreadId ?? null,
+      agentId: options.agentId ?? null,
     },
     {
       enabled:
-        hasMentionProviders &&
+        hasPluginMentionProviders &&
+        pluginSearchMatchesInput &&
+        debouncedQuery.length > 0,
+    },
+  );
+  const evaAgentSearch = useEvaAgentMentionSearch(
+    {
+      query: debouncedQuery,
+      threadId: options.currentThreadId ?? null,
+      agentId: options.agentId ?? null,
+    },
+    {
+      enabled:
+        hasEvaAgentMentionProvider &&
+        trigger === DEFAULT_PLUGIN_MENTION_TRIGGER &&
         pluginSearchMatchesInput &&
         debouncedQuery.length > 0,
     },
@@ -233,12 +256,24 @@ export function usePromptMentions(
       limit: PROMPT_MENTION_SOURCE_LIMIT,
     });
   }, [sectionCandidates, includeBuiltInSources, trimmedQuery]);
+  const pluginSuggestionGroups = useMemo(
+    () => [
+      ...(hasEvaAgentMentionProvider ? (evaAgentSearch.data ?? []) : []),
+      ...(hasPluginMentionProviders ? (pluginSearch.data ?? []) : []),
+    ],
+    [
+      evaAgentSearch.data,
+      hasEvaAgentMentionProvider,
+      hasPluginMentionProviders,
+      pluginSearch.data,
+    ],
+  );
   const pluginSuggestions = useMemo(
     () =>
-      hasMentionProviders && pluginSearchMatchesInput
-        ? buildPluginMentionSuggestions(pluginSearch.data ?? [])
+      pluginSearchMatchesInput
+        ? buildPluginMentionSuggestions(pluginSuggestionGroups)
         : [],
-    [hasMentionProviders, pluginSearch.data, pluginSearchMatchesInput],
+    [pluginSearchMatchesInput, pluginSuggestionGroups],
   );
   const results = useMemo(
     () =>
@@ -269,10 +304,14 @@ export function usePromptMentions(
         pathSearch.isLoading ||
         threadsQuery.isLoading ||
         threadsQuery.isFetching)) ||
-      (hasMentionProviders &&
+      (hasPluginMentionProviders &&
         (!pluginSearchMatchesInput ||
           pluginSearch.isLoading ||
-          pluginSearch.isFetching)));
+          pluginSearch.isFetching)) ||
+      (hasEvaAgentMentionProvider &&
+        (!pluginSearchMatchesInput ||
+          evaAgentSearch.isLoading ||
+          evaAgentSearch.isFetching)));
   const isThreadError =
     includeBuiltInSources &&
     hasQuery &&
@@ -280,7 +319,9 @@ export function usePromptMentions(
     !threadsQuery.isLoading &&
     !threadsQuery.isFetching;
   const isError =
-    (includeBuiltInSources && pathSearch.isError) || isThreadError;
+    (includeBuiltInSources && pathSearch.isError) ||
+    isThreadError ||
+    evaAgentSearch.isError;
 
   return {
     query,

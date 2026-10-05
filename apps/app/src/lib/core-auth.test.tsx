@@ -80,10 +80,14 @@ describe("core auth gate", () => {
     expect(screen.queryByText("protected workspace")).toBeNull();
     resolveStatus?.(jsonResponse({ authenticated: false, required: true }));
     expect(
-      await screen.findByRole("heading", { name: /secure workspace/i }),
+      await screen.findByRole("heading", { name: /espacio seguro/i }),
     ).toBeTruthy();
-    expect(screen.getByLabelText("Email")).toBeTruthy();
-    expect(screen.getByLabelText("Password")).toBeTruthy();
+    expect(screen.getByLabelText("Correo electrónico")).toBeTruthy();
+    expect(screen.getByLabelText("Contraseña")).toBeTruthy();
+    expect(
+      (screen.getByRole("combobox", { name: "Idioma" }) as HTMLSelectElement)
+        .value,
+    ).toBe("es");
     expect(screen.queryByText("protected workspace")).toBeNull();
   });
 
@@ -151,14 +155,14 @@ describe("core auth gate", () => {
       </CoreAuthProvider>,
     );
 
-    await screen.findByRole("heading", { name: /secure workspace/i });
-    fireEvent.change(screen.getByLabelText("Email"), {
+    await screen.findByRole("heading", { name: /espacio seguro/i });
+    fireEvent.change(screen.getByLabelText("Correo electrónico"), {
       target: { value: "admin@eva.test" },
     });
-    fireEvent.change(screen.getByLabelText("Password"), {
+    fireEvent.change(screen.getByLabelText("Contraseña"), {
       target: { value: "admin-password-123" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
 
     await waitFor(() =>
       expect(screen.getByText("protected workspace")).toBeTruthy(),

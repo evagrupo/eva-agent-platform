@@ -892,6 +892,7 @@ export interface PluginSidebarThread {
   /** Null while a thread is still unnamed; pair with `titleFallback`. */
   title: string | null;
   titleFallback: string | null;
+  ownerName?: string | null;
   /** The thread this one was forked from or spawned under; null at the root. */
   parentThreadId: string | null;
   sectionId: string | null;

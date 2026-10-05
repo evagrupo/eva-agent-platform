@@ -50,6 +50,9 @@ describe("usePromptMentions", () => {
           }),
         );
       }
+      if (url === "/api/v1/eva/agent-mentions/contributions") {
+        return Promise.resolve(responseJson({ mentionProviders: [] }));
+      }
       if (url.startsWith("/api/v1/plugins/mentions/search?")) {
         return Promise.resolve(
           responseJson({

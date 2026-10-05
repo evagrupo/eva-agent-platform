@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   usePathSuggestions: vi.fn(),
   usePluginContributions: vi.fn(),
   usePluginMentionSearch: vi.fn(),
+  useEvaAgentMentionSearch: vi.fn(),
   useSidebarNavigation: vi.fn(),
   useThreadMentionCandidates: vi.fn(),
 }));
@@ -21,6 +22,7 @@ vi.mock("./usePathSuggestions", () => ({
 vi.mock("./queries/plugin-contribution-queries", () => ({
   usePluginContributions: mocks.usePluginContributions,
   usePluginMentionSearch: mocks.usePluginMentionSearch,
+  useEvaAgentMentionSearch: mocks.useEvaAgentMentionSearch,
 }));
 
 vi.mock("./queries/sidebar-navigation-query", () => ({
@@ -44,6 +46,12 @@ beforeEach(() => {
   mocks.usePluginMentionSearch.mockReturnValue({
     data: undefined,
     isLoading: false,
+    isError: false,
+  });
+  mocks.useEvaAgentMentionSearch.mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
     isError: false,
   });
   mocks.useSidebarNavigation.mockReturnValue({ data: undefined });
@@ -91,6 +99,20 @@ describe("usePromptMentions thread contexts", () => {
         currentThreadId: "thr_existing",
         environmentId: "env_worktree",
       }),
+    );
+  });
+
+  it("passes the selected EVA agent to core mention search", () => {
+    renderHook(() =>
+      usePromptMentions("proj_1", {
+        environmentId: null,
+        agentId: "orchestrator",
+      }),
+    );
+
+    expect(mocks.useEvaAgentMentionSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "orchestrator" }),
+      expect.any(Object),
     );
   });
 });

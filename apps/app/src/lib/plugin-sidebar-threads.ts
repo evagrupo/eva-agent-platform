@@ -28,6 +28,7 @@ export function toPluginSidebarThread(
     projectId: entry.projectId,
     title: entry.title,
     titleFallback: entry.titleFallback,
+    ownerName: entry.ownerName,
     parentThreadId: entry.parentThreadId,
     sectionId: entry.sectionId,
     originKind: entry.originKind,

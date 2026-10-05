@@ -1,7 +1,14 @@
 import type { PromptInput } from "@bb/domain";
 import type { DbConnection } from "@bb/db";
 import { ApiError } from "../../errors.js";
-import { assertPluginAllowedForUser } from "../../access-policy.js";
+import {
+  assertPluginAllowedForUser,
+  resolveCorePolicy,
+} from "../../access-policy.js";
+import {
+  resolveEvaAgentMention,
+  EVA_AGENT_MENTION_PLUGIN_ID,
+} from "../../agents/eva-agent-mentions.js";
 import { resolvePluginMention } from "./plugin-agent-contributions.js";
 
 type PluginMentionResource = Extract<
@@ -43,6 +50,47 @@ export async function resolvePluginMentionContextInputs(
   if (resources.length === 0) return [];
   const contextInputs: PromptInput[] = [];
   for (const resource of resources) {
+    if (resource.pluginId === EVA_AGENT_MENTION_PLUGIN_ID) {
+      if (authorization?.db === undefined) {
+        throw new ApiError(
+          404,
+          "not_found",
+          "EVA agent mention is unavailable",
+        );
+      }
+      const resolvedPolicy =
+        authorization.ownerUserId == null
+          ? undefined
+          : resolveCorePolicy(authorization.db, authorization.ownerUserId)
+              ?.policy;
+      if (authorization.ownerUserId != null && resolvedPolicy === undefined) {
+        throw new ApiError(
+          404,
+          "not_found",
+          "EVA agent mention is unavailable",
+        );
+      }
+      const result = resolveEvaAgentMention(
+        authorization.db,
+        resource.itemId,
+        resolvedPolicy,
+        authorization.agentId,
+      );
+      if (result === null) {
+        throw new ApiError(
+          404,
+          "not_found",
+          "EVA agent mention is unavailable",
+        );
+      }
+      contextInputs.push({
+        type: "text",
+        text: `Context for @${result.label} (registered EVA agent):\n\n${result.context}`,
+        mentions: [],
+        visibility: "agent-only",
+      });
+      continue;
+    }
     if (authorization?.allowedPluginIds !== undefined) {
       const allowed =
         authorization.allowedPluginIds.has("*") ||
