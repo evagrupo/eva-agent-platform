@@ -5,6 +5,9 @@
 - Use `bb thread spawn --project <project-id> --prompt "..."` to create another
   thread. For a multi-line or Markdown prompt use `--prompt-file <path>` (`-`
   reads stdin) instead of quoting it inline; `bb thread fork` takes it too.
+  Add `--no-agent` to create a Personal thread without assigning an EVA agent;
+  provider, model, reasoning, and permission settings remain subject to the
+  signed-in user's allowed agent grants.
   Pass the intended project explicitly; the CLI does not infer it from
   context variables, and when `--project` is missing the error prints the
   current thread's project ID to add. Omitted execution flags use remembered project defaults;

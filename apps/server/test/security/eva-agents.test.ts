@@ -143,7 +143,8 @@ describe("EVA agent surface", () => {
       const builtInBody = (await builtIns.json()) as {
         agents: Array<{ id: string }>;
       };
-      expect(builtInBody.agents).toHaveLength(11);
+      expect(builtInBody.agents).toHaveLength(12);
+      expect(builtInBody.agents.map((agent) => agent.id)).toContain("admin");
 
       const creative = await harness.app.request(
         "/api/v1/eva/agents/creative",

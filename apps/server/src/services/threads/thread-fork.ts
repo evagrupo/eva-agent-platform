@@ -62,7 +62,7 @@ function requireSourceEnvironment(
 export async function createThreadForkFromRequest(
   deps: ThreadForkDeps,
   request: ForkThreadRequest,
-  options: { agentId?: string; ownerUserId?: string | null } = {},
+  options: { agentId?: string | null; ownerUserId?: string | null } = {},
 ) {
   const sourceThread = requireForkSourceThread(deps, request.sourceThreadId);
   requireForkCapableProvider(deps, sourceThread);
@@ -73,16 +73,18 @@ export async function createThreadForkFromRequest(
   const input: PromptInput[] = [...agentContextSeed, ...visibleInput];
   const isSeedOnlyIdleFork =
     visibleInput.length === 0 && agentContextSeed.length > 0;
+  const agentId =
+    options.agentId !== undefined
+      ? options.agentId
+      : request.agentId !== undefined
+        ? request.agentId
+        : sourceThread.agentId;
 
   return createThreadFromRequest(
     deps,
     {
       ownerUserId: options.ownerUserId ?? null,
-      agentId:
-        options.agentId ??
-        request.agentId ??
-        sourceThread.agentId ??
-        sourceThread.providerId,
+      agentId,
       environment: request.environment ?? {
         type: "reuse",
         environmentId: sourceEnvironment.id,

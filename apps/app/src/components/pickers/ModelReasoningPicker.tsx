@@ -183,6 +183,7 @@ export function buildModelNavRows({
 
 interface ModelReasoningPickerProps {
   agentId?: string;
+  unassigned?: boolean;
   providerRouting?: SystemProvidersQuery;
   providerOptions: readonly ProviderPickerOption[];
   selectedProviderId: string;
@@ -217,6 +218,7 @@ interface ModelReasoningPickerProps {
 
 export function ModelReasoningPicker({
   agentId,
+  unassigned = false,
   providerOptions,
   providerRouting,
   selectedProviderId,
@@ -328,10 +330,12 @@ export function ModelReasoningPicker({
       },
       providerIds: siblingIdsKey.split("\0"),
       ...(agentId === undefined ? {} : { agentId }),
+      ...(unassigned ? { unassigned: true } : {}),
     });
   }, [
     canSwitchProviders,
     agentId,
+    unassigned,
     open,
     prefetchRoutingEnvironmentId,
     prefetchRoutingHostId,
@@ -379,6 +383,8 @@ export function ModelReasoningPicker({
     enabled: isPreviewing,
     ...providerRouting,
     providerId: isPreviewing ? previewProviderId : undefined,
+    agentId,
+    unassigned,
   });
   const previewCatalogIsVerified =
     isPreviewing &&

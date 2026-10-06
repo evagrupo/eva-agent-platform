@@ -13,6 +13,7 @@ import {
   CoreAuthGate,
   CoreAuthProvider,
   CoreCapabilityGate,
+  InvitationRedeemView,
   useCoreAuth,
 } from "./core-auth";
 
@@ -84,6 +85,11 @@ describe("core auth gate", () => {
     ).toBeTruthy();
     expect(screen.getByLabelText("Correo electrónico")).toBeTruthy();
     expect(screen.getByLabelText("Contraseña")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: /tienes una invitación/i })
+        .getAttribute("href"),
+    ).toBe("/accept-invitation");
     expect(
       (screen.getByRole("combobox", { name: "Idioma" }) as HTMLSelectElement)
         .value,
@@ -333,5 +339,102 @@ describe("core auth gate", () => {
         }),
       }),
     );
+  });
+
+  it("redeems an invitation and confirms the account email", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ email: "invited-user@eva.test" }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<InvitationRedeemView />);
+
+    expect(
+      screen.getByRole("heading", { name: "Canjear invitación" }),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Token de invitación"), {
+      target: { value: "invitation-token-that-is-long-enough-123456" },
+    });
+    fireEvent.change(screen.getByLabelText("Crear contraseña"), {
+      target: { value: "invited-user-password" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirmar contraseña"), {
+      target: { value: "invited-user-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Crear cuenta" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Invitación aceptada" }),
+    ).toBeTruthy();
+    expect(screen.getByText("invited-user@eva.test")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Ir al inicio de sesión" })
+        .getAttribute("href"),
+    ).toBe("/");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/access/invitations/accept",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          token: "invitation-token-that-is-long-enough-123456",
+          password: "invited-user-password",
+        }),
+      }),
+    );
+  });
+
+  it("explains when an invitation token is invalid or expired", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            code: "invalid_request",
+            message: "Invitation is invalid or expired",
+          },
+          400,
+        ),
+      ),
+    );
+
+    render(<InvitationRedeemView />);
+    fireEvent.change(screen.getByLabelText("Token de invitación"), {
+      target: { value: "invitation-token-that-is-long-enough-123456" },
+    });
+    fireEvent.change(screen.getByLabelText("Crear contraseña"), {
+      target: { value: "invited-user-password" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirmar contraseña"), {
+      target: { value: "invited-user-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Crear cuenta" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "La invitación no es válida, ha caducado o ya se usó.",
+    );
+  });
+
+  it("does not submit an invitation when the password confirmation differs", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<InvitationRedeemView />);
+    fireEvent.change(screen.getByLabelText("Token de invitación"), {
+      target: { value: "invitation-token-that-is-long-enough-123456" },
+    });
+    fireEvent.change(screen.getByLabelText("Crear contraseña"), {
+      target: { value: "invited-user-password" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirmar contraseña"), {
+      target: { value: "a-different-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Crear cuenta" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Las contraseñas no coinciden.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

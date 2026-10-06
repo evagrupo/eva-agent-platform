@@ -171,7 +171,9 @@ export function ensureThreadIsNotAwaitingUserInteraction(
   deps: Pick<AppDeps, "pendingInteractions">,
   threadId: string,
 ): void {
-  if (!deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(threadId)) {
+  if (
+    !deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(threadId)
+  ) {
     return;
   }
 
@@ -517,17 +519,19 @@ async function sendThreadMessageWithoutContextClear(
           })
         : payload.input;
   const ownerUserId = getThread(deps.db, thread.id)?.ownerUserId ?? null;
-  ({ input, inputGroups } = await appendPluginMentionContext(
-    {
-      input,
-      ...(inputGroups !== undefined ? { inputGroups } : {}),
-    },
-    {
-      db: deps.db,
-      ownerUserId,
-      agentId: thread.agentId ?? thread.providerId,
-    },
-  ));
+  if (thread.agentId !== null) {
+    ({ input, inputGroups } = await appendPluginMentionContext(
+      {
+        input,
+        ...(inputGroups !== undefined ? { inputGroups } : {}),
+      },
+      {
+        db: deps.db,
+        ownerUserId,
+        agentId: thread.agentId,
+      },
+    ));
+  }
   const deferredFirstTurnContext = resolveDeferredFirstTurnContext(
     deps.db,
     thread.id,

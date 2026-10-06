@@ -269,18 +269,23 @@ export async function buildThreadStartCommand(
   deps: LoggedWorkSessionDeps,
   args: ThreadStartCommandArgs,
 ): Promise<Extract<HostDaemonCommand, { type: "thread.start" }>> {
-  const agentId =
+  const selectedAgentId =
     args.agentId ??
     args.thread.agentId ??
     (args.thread.ownerUserId === null || args.thread.ownerUserId === undefined
       ? args.providerId
       : undefined);
+  const unassignedUserThread =
+    args.thread.ownerUserId !== null &&
+    args.thread.ownerUserId !== undefined &&
+    args.thread.agentId === null;
+  const agentId = unassignedUserThread ? undefined : selectedAgentId;
   if (
     args.thread.ownerUserId !== undefined &&
     args.thread.ownerUserId !== null
   ) {
     assertExecutionAllowedForUser(deps.db, args.thread.ownerUserId, {
-      agentId,
+      agentId: unassignedUserThread ? null : selectedAgentId,
       providerId: args.providerId,
       model: args.execution.model,
       reasoningLevel: args.execution.reasoningLevel,
@@ -298,7 +303,7 @@ export async function buildThreadStartCommand(
     type: "thread.start",
     environmentId: args.environment.id,
     threadId: args.thread.id,
-    agentId,
+    ...(agentId === undefined ? {} : { agentId }),
     workspaceContext: workspaceContextFromPath({
       path: runtimeContext.workspacePath,
     }),
@@ -338,7 +343,9 @@ function buildPreparedTurnSubmitCommandPayload(
     type: "turn.submit",
     environmentId: args.environmentId,
     threadId: args.threadId,
-    agentId: args.runtimeContext.agentId,
+    ...(args.runtimeContext.agentId === undefined
+      ? {}
+      : { agentId: args.runtimeContext.agentId }),
     bridgeLaunch,
     input: args.input,
     ...(args.inputGroups !== undefined

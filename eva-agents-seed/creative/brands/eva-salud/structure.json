@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "campaign_prefix": "EVA",
+  "note": "Estructura de campañas de EVA Salud como datos. La leen eva_meta_ads.py y eva_google_ads.py (structure_path en sus configs) y la edita Eva Ads Studio. Marcadores en per_city: {city} y {city_lc}.",
+
+  "google": {
+    "common_headlines": ["EVA Salud", "Conoce las condiciones", "Consulta antes de contratar", "Información del seguro", "Valora tus opciones"],
+    "descriptions": [
+      "Consulta las condiciones del seguro de salud y valora si encaja contigo.",
+      "Conoce EVA Salud y revisa la información del seguro antes de contratar.",
+      "Infórmate sobre el cuadro médico y las condiciones aplicables a tu póliza."
+    ],
+    "path1": "seguro-salud",
+    "path2": "informacion",
+    "base_negatives": ["empleo", "empleos", "trabajo medico", "trabajo médico", "oposiciones", "curso", "cursos", "master", "máster", "mir examen", "seguridad social", "seguro coche", "seguro hogar", "seguro de vida", "decesos", "fibra", "xiaomi", "iphone",
+                       "iniciar sesion", "iniciar sesión", "area cliente", "área cliente", "mis citas", "anular cita", "telefono atencion cliente", "teléfono atención cliente", "reclamaciones"],
+    "brand_terms": ["eva salud", "evasalud", "eva seguros"]
+  },
+
+  "segments": [
+    {
+      "key": "brand", "name": "01 MARCA", "requires": [],
+      "google": {"is_brand": true},
+      "adsets": [
+        {"id": "b01", "name": "Marca",
+         "meta": {"primary": "Conoce EVA Salud y revisa la información de tu seguro de salud.", "headline": "Seguro de salud EVA", "description": "Conoce EVA Salud"},
+         "google": {"name": "Marca seguro", "keywords": ["eva salud seguro", "evasalud seguro", "eva seguro salud"], "headlines": ["Seguro de salud EVA", "Conoce EVA Salud"]}}
+      ]
+    },
+    {
+      "key": "generic", "name": "02 CONTRATACION", "requires": [],
+      "google": {"extra_negatives": ["familia", "familiar", "familias", "autonomo", "autónomo", "autonomos", "autónomos"], "negate_cities": true},
+      "adsets": [
+        {"id": "g01", "name": "Seguro privado",
+         "meta": {"primary": "Valora un seguro de salud privado y consulta sus condiciones antes de contratar.", "headline": "Seguro de salud privado", "description": "Consulta condiciones"},
+         "google": {"keywords": ["seguro de salud", "seguro medico privado", "contratar seguro de salud"], "headlines": ["Seguro de salud privado", "Valora tu seguro de salud"]}},
+        {"id": "g02", "name": "Comparacion",
+         "meta": {"primary": "Infórmate sobre el seguro de salud de EVA y compara con calma tus opciones.", "headline": "Compara tu seguro salud", "description": "Infórmate con EVA"},
+         "google": {"name": "Precio y comparacion", "keywords": ["seguro salud precio", "presupuesto seguro medico", "comparar seguros de salud"], "headlines": ["Consulta tu seguro de salud", "Infórmate con EVA Salud"]}},
+        {"id": "g03", "name": "Gestion digital", "platforms": ["google"],
+         "google": {"keywords": ["seguro salud online", "contratar seguro medico online"], "headlines": ["Conoce el seguro EVA Salud", "Consulta las opciones online"]}}
+      ]
+    },
+    {
+      "key": "families", "name": "03 FAMILIAS", "requires": [],
+      "google": {"negate_cities": true},
+      "adsets": [
+        {"id": "f01", "name": "Seguro familiar", "requires": ["family_product_confirmed"],
+         "meta": {"primary": "Un seguro de salud pensado para la familia. Revisa las condiciones aplicables.", "headline": "Seguro salud familiar", "description": "Opciones en familia"},
+         "google": {"keywords": ["seguro salud familiar", "seguro medico familia", "seguro salud para familias"], "headlines": ["Seguro de salud familiar", "Valora opciones en familia"]}}
+      ]
+    },
+    {
+      "key": "self_employed", "name": "04 AUTONOMOS", "requires": [],
+      "google": {"negate_cities": true},
+      "adsets": [
+        {"id": "a01", "name": "Seguro autonomos", "requires": ["self_employed_product_confirmed"],
+         "meta": {"primary": "Salud privada para autónomos. Consulta las condiciones de tu póliza.", "headline": "Salud para autónomos", "description": "Consulta condiciones"},
+         "google": {"keywords": ["seguro salud autonomos", "seguro medico para autonomos"], "headlines": ["Salud para autónomos", "Consulta tu seguro médico"]}}
+      ]
+    },
+    {
+      "key": "local", "name": "05 LOCAL", "requires": [],
+      "google": {"extra_negatives": ["familia", "familiar", "familias", "autonomo", "autónomo", "autonomos", "autónomos"]},
+      "per_city": {
+        "id_prefix": "l", "name": "Seguro {city}", "requires": ["network_contract_confirmed"],
+        "meta": {"primary": "Seguro de salud con cuadro médico en {city}. Consulta la información antes de contratar.", "headline": "Seguro salud {city}", "description": "Ver cuadro médico"},
+        "google": {"keywords": ["seguro salud {city_lc}", "seguro medico {city_lc}", "cuadro medico seguro salud {city_lc}"], "headlines": ["Seguro de salud en {city}", "Consulta el cuadro médico"]}
+      },
+      "adsets": []
+    },
+    {
+      "key": "specialties", "name": "06 ESPECIALIDADES", "requires": [],
+      "adsets": [
+        {"id": "s01", "name": "Medicina general", "requires": ["network_contract_confirmed", "specialty:Medicina General"],
+         "meta": {"primary": "Atención médica y seguro de salud. Revisa las especialidades y condiciones.", "headline": "Seguro y Medicina general", "description": "Ver especialidades"},
+         "google": {"keywords": ["seguro salud medicina general", "seguro medico medicina general"], "headlines": ["Seguro y atención médica", "Revisa las especialidades"]}},
+        {"id": "s02", "name": "Pediatría", "requires": ["network_contract_confirmed", "specialty:Pediatría"],
+         "meta": {"primary": "Atención médica y seguro de salud. Revisa las especialidades y condiciones.", "headline": "Seguro y Pediatría", "description": "Ver especialidades"},
+         "google": {"keywords": ["seguro salud pediatria", "seguro medico pediatra"], "headlines": ["Seguro y atención médica", "Revisa las especialidades"]}},
+        {"id": "s03", "name": "Rehabilitación", "requires": ["network_contract_confirmed", "specialty:Rehabilitación"],
+         "meta": {"primary": "Atención médica y seguro de salud. Revisa las especialidades y condiciones.", "headline": "Seguro y Rehabilitación", "description": "Ver especialidades"},
+         "google": {"keywords": ["seguro salud rehabilitacion", "seguro medico rehabilitacion"], "headlines": ["Seguro y atención médica", "Revisa las especialidades"]}},
+        {"id": "s04", "name": "Traumatología", "requires": ["network_contract_confirmed", "specialty:Traumatología y Cirugía Ortopédica"],
+         "meta": {"primary": "Atención médica y seguro de salud. Revisa las especialidades y condiciones.", "headline": "Seguro y Traumatología", "description": "Ver especialidades"},
+         "google": {"keywords": ["seguro salud traumatologia", "seguro medico traumatologo"], "headlines": ["Seguro y atención médica", "Revisa las especialidades"]}},
+        {"id": "s05", "name": "Dermatología", "requires": ["network_contract_confirmed", "specialty:Dermatología"],
+         "meta": {"primary": "Atención médica y seguro de salud. Revisa las especialidades y condiciones.", "headline": "Seguro y Dermatología", "description": "Ver especialidades"},
+         "google": {"keywords": ["seguro salud dermatologia", "seguro medico dermatologo"], "headlines": ["Seguro y atención médica", "Revisa las especialidades"]}},
+        {"id": "s06", "name": "Oftalmología", "requires": ["network_contract_confirmed", "specialty:Oftalmología"],
+         "meta": {"primary": "Atención médica y seguro de salud. Revisa las especialidades y condiciones.", "headline": "Seguro y Oftalmología", "description": "Ver especialidades"},
+         "google": {"keywords": ["seguro salud oftalmologia", "seguro medico oftalmologo"], "headlines": ["Seguro y atención médica", "Revisa las especialidades"]}},
+        {"id": "s07", "name": "Ginecología", "requires": ["network_contract_confirmed", "specialty:Obstetricia y Ginecología"],
+         "meta": {"primary": "Atención médica y seguro de salud. Revisa las especialidades y condiciones.", "headline": "Seguro y Ginecología", "description": "Ver especialidades"},
+         "google": {"keywords": ["seguro salud ginecologia", "seguro medico ginecologo"], "headlines": ["Seguro y atención médica", "Revisa las especialidades"]}},
+        {"id": "s08", "name": "Psicología", "requires": ["network_contract_confirmed", "specialty:Psicología"],
+         "meta": {"primary": "Atención médica y seguro de salud. Revisa las especialidades y condiciones.", "headline": "Seguro y Psicología", "description": "Ver especialidades"},
+         "google": {"keywords": ["seguro salud psicologia", "seguro medico psicologo"], "headlines": ["Seguro y atención médica", "Revisa las especialidades"]}},
+        {"id": "s09", "name": "Análisis clínicos", "requires": ["network_contract_confirmed", "specialty:Análisis Clínicos"],
+         "meta": {"primary": "Atención médica y seguro de salud. Revisa las especialidades y condiciones.", "headline": "Seguro y Análisis clínicos", "description": "Ver especialidades"},
+         "google": {"keywords": ["seguro salud analisis clinicos", "seguro medico analiticas"], "headlines": ["Seguro y atención médica", "Revisa las especialidades"]}},
+        {"id": "s10", "name": "Alergología", "requires": ["network_contract_confirmed", "specialty:Alergología"],
+         "meta": {"primary": "Atención médica y seguro de salud. Revisa las especialidades y condiciones.", "headline": "Seguro y Alergología", "description": "Ver especialidades"},
+         "google": {"keywords": ["seguro salud alergologia", "seguro medico alergologo"], "headlines": ["Seguro y atención médica", "Revisa las especialidades"]}}
+      ]
+    }
+  ]
+}

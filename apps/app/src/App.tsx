@@ -76,6 +76,7 @@ import {
   CoreAuthGate,
   CoreAuthProvider,
   CoreCapabilityGate,
+  InvitationRedeemView,
   canUseCorePlugin,
   useCoreAuth,
   type CoreCapability,
@@ -598,6 +599,12 @@ function AppRoot() {
     location.pathname === AUTH_CALLBACK_ROUTE_PATH ||
     location.pathname === `${AUTH_CALLBACK_ROUTE_PATH}/`;
   if (isAuthCallback) return <AuthCallbackView />;
+  if (
+    location.pathname === "/accept-invitation" ||
+    location.pathname === "/accept-invitation/"
+  ) {
+    return <InvitationRedeemView />;
+  }
   return (
     <CoreAuthGate>
       <AuthenticatedApp />

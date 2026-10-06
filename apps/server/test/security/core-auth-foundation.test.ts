@@ -8,10 +8,12 @@ import {
   authSessions,
   authUsers,
   createThread,
+  getThread,
   getPersonalProject,
   threads,
 } from "@bb/db";
 import { systemExecutionOptionsResponseSchema } from "@bb/server-contract";
+import { PERSONAL_PROJECT_ID, threadSchema } from "@bb/domain";
 import { describe, expect, it } from "vitest";
 import {
   defaultUserPolicy,
@@ -33,6 +35,7 @@ import { textInput } from "../helpers/prompt-input.js";
 import { createCoreAuthService } from "../../src/core-auth.js";
 import { availableModelFixture } from "../helpers/available-models.js";
 import { registerProviderHostRpcResponder } from "../helpers/host-rpc.js";
+import { installFakePersonalWorkspaceProvider } from "../helpers/environment-provider.js";
 
 const ADMIN_EMAIL = "admin@eva.test";
 const ADMIN_PASSWORD = "admin-password-123";
@@ -809,6 +812,86 @@ describe("core auth foundation", () => {
           { headers },
         );
         expect(denied.status).toBe(403);
+      } finally {
+        responder.unregister();
+      }
+    });
+  });
+
+  it("loads grant-limited models and creates an unassigned Personal thread", async () => {
+    await withTestHarness({ authRequired: true }, async (harness) => {
+      await seedIdentity(harness, {
+        email: USER_A_EMAIL,
+        name: "User A",
+        password: USER_A_PASSWORD,
+        userId: "user-a",
+      });
+      insertAgentGrant(harness, {
+        agentId: "creative",
+        id: "user-a-creative",
+        userId: "user-a",
+      });
+      installFakePersonalWorkspaceProvider();
+      const { host, session } = seedHostSession(harness.deps, {
+        id: "personal-thread-host",
+      });
+      seedPrimaryHost(harness.deps, host.id);
+      const responder = registerProviderHostRpcResponder(harness, {
+        hostId: host.id,
+        sessionId: session.id,
+        modelsByProviderId: {
+          codex: {
+            models: [
+              availableModelFixture({
+                model: "allowed-model",
+                reasoningLevels: ["low"],
+              }),
+            ],
+            selectedOnlyModels: [],
+          },
+        },
+      });
+      try {
+        const headers = {
+          cookie: await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD),
+        };
+        const options = await harness.app.request(
+          "/api/v1/system/execution-options?unassigned=true&providerId=codex",
+          { headers },
+        );
+        expect(options.status, await options.clone().text()).toBe(200);
+        const optionsBody = systemExecutionOptionsResponseSchema.parse(
+          await options.json(),
+        );
+        expect(optionsBody.models.map((model) => model.model)).toEqual([
+          "allowed-model",
+        ]);
+
+        const deniedProvider = await harness.app.request(
+          "/api/v1/system/execution-options?unassigned=true&providerId=claude-code",
+          { headers },
+        );
+        expect(deniedProvider.status).toBe(403);
+
+        const create = await harness.app.request("/api/v1/threads", {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId: PERSONAL_PROJECT_ID,
+            agentId: null,
+            providerId: "codex",
+            model: "allowed-model",
+            reasoningLevel: "low",
+            permissionMode: "auto",
+            origin: "app",
+            input: [{ type: "text", text: "hello", mentions: [] }],
+            environment: { type: "project-default" },
+          }),
+        });
+        expect(create.status, await create.clone().text()).toBe(201);
+        const created = threadSchema.parse(await create.json());
+        expect(created.agentId).toBeNull();
+        expect(getThread(harness.db, created.id)?.agentId).toBeNull();
       } finally {
         responder.unregister();
       }

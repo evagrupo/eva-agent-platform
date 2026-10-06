@@ -349,7 +349,7 @@ export async function resolveExistingThreadExecutionPlan(
     source: args.executionSource,
   };
   const policyInput = {
-    ...(thread.agentId === null ? {} : { agentId: thread.agentId }),
+    agentId: thread.agentId,
     providerId: thread.providerId,
     model,
     permissionMode,

@@ -88,7 +88,7 @@ export function registerInternalToolCallRoutes(app: Hono, deps: AppDeps): void {
             deps.db,
             thread.ownerUserId,
             payload.tool,
-            thread.agentId ?? thread.providerId,
+            thread.agentId,
           );
         }
         return context.json(
@@ -104,7 +104,7 @@ export function registerInternalToolCallRoutes(app: Hono, deps: AppDeps): void {
           deps.db,
           thread.ownerUserId,
           payload.tool,
-          thread.agentId ?? thread.providerId,
+          thread.agentId,
         );
       }
 
@@ -126,7 +126,7 @@ export function registerInternalToolCallRoutes(app: Hono, deps: AppDeps): void {
             deps.db,
             thread.ownerUserId,
             pluginTool.pluginId,
-            thread.agentId ?? thread.providerId,
+            thread.agentId,
           );
         }
         const roundTrip = new AbortController();

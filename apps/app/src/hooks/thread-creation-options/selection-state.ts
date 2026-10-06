@@ -30,6 +30,7 @@ export type ScopedExecutionInputSources =
 
 export interface UsePromptModelReasoningOptions {
   enabled?: boolean;
+  allowUnassignedAgent?: boolean;
   environmentId?: string;
   environmentHostId?: string;
   scope?: ThreadCreationOptionsScope;

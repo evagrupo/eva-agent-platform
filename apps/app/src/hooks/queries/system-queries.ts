@@ -67,6 +67,7 @@ interface UseSystemExecutionOptionsArgs {
   hostId?: string;
   providerId?: string;
   agentId?: string;
+  unassigned?: boolean;
 }
 
 interface SystemExecutionOptionsQueryArgs {
@@ -74,6 +75,7 @@ interface SystemExecutionOptionsQueryArgs {
   hostId: string | null;
   providerId: string | null;
   agentId: string | null;
+  unassigned: boolean;
   writeLastKnown: boolean;
 }
 
@@ -81,6 +83,7 @@ interface UseSystemProviderStatesOptions extends QueryOptions {
   environmentId?: string;
   hostId?: string;
   agentId?: string;
+  unassigned?: boolean;
   poll?: boolean;
 }
 
@@ -105,11 +108,20 @@ function isSameExecutionOptionsRoute(
   previousQueryKey: QueryKey | undefined,
   environmentId: string | null,
   hostId: string | null,
+  agentId: string | null,
+  unassigned: boolean,
 ): boolean {
-  return (
+  const sameBaseRoute =
     previousQueryKey?.[0] === SYSTEM_EXECUTION_OPTIONS_QUERY_KEY &&
     previousQueryKey[1] === environmentId &&
-    previousQueryKey[2] === hostId
+    previousQueryKey[2] === hostId;
+  if (!sameBaseRoute) return false;
+  if (unassigned) {
+    return previousQueryKey?.[4] === null && previousQueryKey?.[5] === true;
+  }
+  if (agentId === null) return previousQueryKey?.[4] === undefined;
+  return (
+    previousQueryKey?.[4] === agentId && previousQueryKey?.[5] === undefined
   );
 }
 
@@ -119,6 +131,8 @@ function resolveExecutionOptionsPlaceholder({
   environmentId,
   hostId,
   providerId,
+  agentId,
+  unassigned,
   catalogCacheKey,
   providersCacheKey,
 }: {
@@ -127,6 +141,8 @@ function resolveExecutionOptionsPlaceholder({
   environmentId: string | null;
   hostId: string | null;
   providerId: string | null;
+  agentId: string | null;
+  unassigned: boolean;
   catalogCacheKey: string;
   providersCacheKey: string;
 }): SystemExecutionOptionsResponse | undefined {
@@ -134,6 +150,8 @@ function resolveExecutionOptionsPlaceholder({
     previousQueryKey,
     environmentId,
     hostId,
+    agentId,
+    unassigned,
   )
     ? previousData?.providers
     : undefined;
@@ -290,6 +308,7 @@ function systemExecutionOptionsQueryOptions({
   hostId,
   providerId,
   agentId,
+  unassigned,
   writeLastKnown,
 }: SystemExecutionOptionsQueryArgs) {
   return queryOptions<SystemExecutionOptionsResponse>({
@@ -298,6 +317,7 @@ function systemExecutionOptionsQueryOptions({
       hostId,
       providerId,
       agentId,
+      unassigned,
     }),
     queryFn: async ({ signal }) => {
       const response = await sdk.system.executionOptions({
@@ -305,9 +325,10 @@ function systemExecutionOptionsQueryOptions({
         hostId: hostId ?? undefined,
         providerId: providerId ?? undefined,
         agentId: agentId ?? undefined,
+        unassigned: unassigned ? "true" : undefined,
         signal,
       });
-      if (writeLastKnown) {
+      if (writeLastKnown && !unassigned) {
         writeCachedProviderList(
           providerListCacheKey({ environmentId, hostId }),
           response.providers,
@@ -337,6 +358,7 @@ export function prefetchSystemExecutionOptions(
     routing: SystemProvidersQuery;
     providerIds: readonly string[];
     agentId?: string;
+    unassigned?: boolean;
   },
 ): void {
   for (const providerId of args.providerIds) {
@@ -346,6 +368,7 @@ export function prefetchSystemExecutionOptions(
         hostId: args.routing.hostId ?? null,
         providerId,
         agentId: args.agentId ?? null,
+        unassigned: args.unassigned ?? false,
         writeLastKnown: false,
       }),
     );
@@ -359,6 +382,7 @@ export function useSystemExecutionOptions(
   const hostId = args.hostId ?? null;
   const providerId = args.providerId ?? null;
   const agentId = args.agentId ?? null;
+  const unassigned = args.unassigned ?? false;
   const enabled = args.enabled ?? true;
   useSystemRealtimeSubscription({ enabled });
   useHostListRealtimeSubscription({ enabled });
@@ -374,19 +398,24 @@ export function useSystemExecutionOptions(
       hostId,
       providerId,
       agentId,
+      unassigned,
       writeLastKnown: true,
     }),
     enabled,
-    placeholderData: (previousData, previousQuery) =>
-      resolveExecutionOptionsPlaceholder({
-        previousData,
-        previousQueryKey: previousQuery?.queryKey,
-        environmentId,
-        hostId,
-        providerId,
-        catalogCacheKey,
-        providersCacheKey,
-      }),
+    placeholderData: unassigned
+      ? undefined
+      : (previousData, previousQuery) =>
+          resolveExecutionOptionsPlaceholder({
+            previousData,
+            previousQueryKey: previousQuery?.queryKey,
+            environmentId,
+            hostId,
+            providerId,
+            agentId,
+            unassigned,
+            catalogCacheKey,
+            providersCacheKey,
+          }),
   });
 }
 
@@ -483,13 +512,20 @@ export function useSystemProviderStates(
   const environmentId = options.environmentId ?? null;
   const hostId = options.hostId ?? null;
   const agentId = options.agentId ?? null;
+  const unassigned = options.unassigned ?? false;
   return useQuery<SystemProviderStatesResponse>({
-    queryKey: systemProviderStatesQueryKey({ environmentId, hostId, agentId }),
+    queryKey: systemProviderStatesQueryKey({
+      environmentId,
+      hostId,
+      agentId,
+      unassigned,
+    }),
     queryFn: ({ signal }) =>
       sdk.system.providerStates({
         environmentId: options.environmentId,
         hostId: options.hostId,
         agentId: options.agentId,
+        unassigned: unassigned ? "true" : undefined,
         signal,
       }),
     enabled: options.enabled ?? true,

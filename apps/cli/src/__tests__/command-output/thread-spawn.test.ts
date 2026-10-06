@@ -145,6 +145,35 @@ describe("bb thread spawn command output", () => {
     expect(resolveLocalHostIdMock).not.toHaveBeenCalled();
   });
 
+  it("bb thread spawn --no-agent explicitly creates an unassigned thread", async () => {
+    const post = vi.fn(async ({ json }: { json: unknown }) => {
+      createThreadRequestSchema.parse(json);
+      return fixtures.makeThread({
+        id: "personal-thread",
+        projectId: domain.PERSONAL_PROJECT_ID,
+        providerId: "codex",
+      });
+    });
+    stubServerApi({ "v1.threads.$post": post });
+
+    await runCommand(
+      [
+        "thread",
+        "spawn",
+        "--project",
+        domain.PERSONAL_PROJECT_ID,
+        "--prompt",
+        "hello",
+        "--no-agent",
+      ],
+      register,
+    );
+
+    expect(post).toHaveBeenCalledWith({
+      json: expect.objectContaining({ agentId: null }),
+    });
+  });
+
   it("bb thread spawn passes explicit lifecycle ownership independently of parent selection", async () => {
     vi.stubEnv("BB_PROJECT_ID", "proj-1");
     const thread: domain.Thread = fixtures.makeThread({

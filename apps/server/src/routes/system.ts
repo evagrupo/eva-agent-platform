@@ -91,9 +91,12 @@ import {
   canAccessResource,
   isAgentAllowedByPolicy,
   applyPolicyToAvailableModel,
+  applyPolicyToAvailableModelForUnassignedAgent,
   isProviderAllowedByPolicy,
   isProviderAllowedByPolicyForAgent,
+  isProviderAllowedByPolicyForUnassignedAgent,
   permissionCeilingForPolicyForAgent,
+  permissionCeilingForPolicyForUnassignedAgent,
   getCoreAuthContext,
   isPluginAllowedByPolicy,
   allowedPluginIdsForContext,
@@ -193,9 +196,20 @@ export function registerSystemRoutes(
     context: object,
     providerId: string,
     agentId?: string,
+    unassigned = false,
   ): boolean {
     const authContext = getCoreAuthContext(context);
     if (authContext === null) return true;
+    if (unassigned) {
+      return isProviderAllowedByPolicyForUnassignedAgent(
+        authContext.policy,
+        providerId,
+        authContext.evaAgents === undefined
+          ? undefined
+          : new Set(authContext.evaAgents.map((agent) => agent.id)),
+        authContext.evaAgentProviderIds,
+      );
+    }
     if (agentId !== undefined) {
       return isProviderAllowedByPolicyForAgent(
         authContext.policy,
@@ -216,8 +230,19 @@ export function registerSystemRoutes(
   function requireExecutionAgent(
     context: object,
     agentId: string | undefined,
-  ): string | undefined {
+    unassigned: boolean,
+  ): string | null | undefined {
     const authContext = getCoreAuthContext(context);
+    if (unassigned) {
+      if (agentId !== undefined) {
+        throw new ApiError(
+          400,
+          "invalid_request",
+          "Choose either an EVA agent or an unassigned personal thread",
+        );
+      }
+      return null;
+    }
     if (authContext === null) return agentId;
     if (agentId === undefined) {
       throw new ApiError(
@@ -246,15 +271,24 @@ export function registerSystemRoutes(
 
   function filterExecutionOptionsResponse(
     context: object,
-    query: { agentId?: string; providerId?: string },
+    query: {
+      agentId?: string;
+      providerId?: string;
+      unassigned?: "true";
+    },
     result: Awaited<ReturnType<typeof resolveSystemExecutionOptions>>,
-    agentId: string | undefined,
+    agentId: string | null | undefined,
   ) {
     const authContext = getCoreAuthContext(context);
     if (authContext === null) return result;
-    const resolvedAgentId = agentId!;
+    const unassigned = query.unassigned === "true";
     const providers = result.providers.filter((provider) =>
-      providerVisible(context, provider.id, resolvedAgentId),
+      providerVisible(
+        context,
+        provider.id,
+        typeof agentId === "string" ? agentId : undefined,
+        unassigned,
+      ),
     );
     if (query.providerId === undefined) {
       const modelLoadErrorProviderVisible =
@@ -275,7 +309,8 @@ export function registerSystemRoutes(
     const allowedProvider = providerVisible(
       context,
       query.providerId,
-      resolvedAgentId,
+      typeof agentId === "string" ? agentId : undefined,
+      unassigned,
     );
     if (!allowedProvider) {
       throw new ApiError(
@@ -284,43 +319,48 @@ export function registerSystemRoutes(
         "Provider is not available for the selected EVA agent",
       );
     }
-    const models = result.models
-      .map((model) =>
-        applyPolicyToAvailableModel(
-          model,
-          authContext.policy,
-          resolvedAgentId,
-          query.providerId!,
-          authContext.evaAgents === undefined
-            ? undefined
-            : new Set(authContext.evaAgents.map((agent) => agent.id)),
-          authContext.evaAgentProviderIds,
-        ),
-      )
-      .filter((model): model is AvailableModel => model !== null);
-    const selectedOnlyModels = result.selectedOnlyModels
-      .map((model) =>
-        applyPolicyToAvailableModel(
-          model,
-          authContext.policy,
-          resolvedAgentId,
-          query.providerId!,
-          authContext.evaAgents === undefined
-            ? undefined
-            : new Set(authContext.evaAgents.map((agent) => agent.id)),
-          authContext.evaAgentProviderIds,
-        ),
-      )
-      .filter((model): model is AvailableModel => model !== null);
-    const permissionCeiling = permissionCeilingForPolicyForAgent(
-      authContext.policy,
-      resolvedAgentId,
-      query.providerId,
+    const knownAgentIds =
       authContext.evaAgents === undefined
         ? undefined
-        : new Set(authContext.evaAgents.map((agent) => agent.id)),
-      authContext.evaAgentProviderIds,
-    );
+        : new Set(authContext.evaAgents.map((agent) => agent.id));
+    const filterModel = unassigned
+      ? (model: AvailableModel) =>
+          applyPolicyToAvailableModelForUnassignedAgent(
+            model,
+            authContext.policy,
+            query.providerId!,
+            knownAgentIds,
+            authContext.evaAgentProviderIds,
+          )
+      : (model: AvailableModel) =>
+          applyPolicyToAvailableModel(
+            model,
+            authContext.policy,
+            agentId!,
+            query.providerId!,
+            knownAgentIds,
+            authContext.evaAgentProviderIds,
+          );
+    const models = result.models
+      .map(filterModel)
+      .filter((model): model is AvailableModel => model !== null);
+    const selectedOnlyModels = result.selectedOnlyModels
+      .map(filterModel)
+      .filter((model): model is AvailableModel => model !== null);
+    const permissionCeiling = unassigned
+      ? permissionCeilingForPolicyForUnassignedAgent(
+          authContext.policy,
+          query.providerId,
+          knownAgentIds,
+          authContext.evaAgentProviderIds,
+        )
+      : permissionCeilingForPolicyForAgent(
+          authContext.policy,
+          agentId!,
+          query.providerId,
+          knownAgentIds,
+          authContext.evaAgentProviderIds,
+        );
     if (permissionCeiling === null) {
       throw new ApiError(
         403,
@@ -843,7 +883,12 @@ export function registerSystemRoutes(
   get(routes.providers, async (context, query) =>
     context.json(
       (await listSystemProviderInfos(deps, query)).filter((provider) =>
-        providerVisible(context, provider.id, query.agentId),
+        providerVisible(
+          context,
+          provider.id,
+          query.agentId,
+          query.unassigned === "true",
+        ),
       ),
     ),
   );
@@ -885,8 +930,16 @@ export function registerSystemRoutes(
     const result = await getProviderStates(
       deps,
       query,
-      (provider) => providerVisible(context, provider.id, query.agentId),
-      allowedPluginIdsForContext(context, query.agentId),
+      (provider) =>
+        providerVisible(
+          context,
+          provider.id,
+          query.agentId,
+          query.unassigned === "true",
+        ),
+      query.unassigned === "true"
+        ? new Set<string>()
+        : allowedPluginIdsForContext(context, query.agentId),
     );
     return context.json({
       providers: result.providers,
@@ -913,13 +966,22 @@ export function registerSystemRoutes(
   });
 
   get(routes.executionOptions, async (context, query) => {
-    const agentId = requireExecutionAgent(context, query.agentId);
+    const agentId = requireExecutionAgent(
+      context,
+      query.agentId,
+      query.unassigned === "true",
+    );
     const result = await resolveSystemExecutionOptions(deps, query, {
       isPreferredProvider:
-        agentId === undefined
+        agentId === undefined && query.unassigned !== "true"
           ? undefined
           : (providerId: string) =>
-              providerVisible(context, providerId, agentId),
+              providerVisible(
+                context,
+                providerId,
+                typeof agentId === "string" ? agentId : undefined,
+                query.unassigned === "true",
+              ),
     });
     return context.json(
       filterExecutionOptionsResponse(context, query, result, agentId),

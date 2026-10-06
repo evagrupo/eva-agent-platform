@@ -30,6 +30,7 @@ import { Icon } from "@bb/shared-ui/icon";
 import { Input } from "@bb/shared-ui/input";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@bb/shared-ui/popover";
+import { appToast } from "@/components/ui/app-toast";
 import { PageShell } from "@/components/ui/page-shell.js";
 import { searchPickerOptions } from "@/components/pickers/picker-search";
 import { useResetPickerScroll } from "@/components/pickers/useResetPickerScroll";
@@ -955,7 +956,6 @@ export function EvaAdminDashboardView() {
   const [data, setData] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({
     email: "",
     name: "",
@@ -1061,7 +1061,7 @@ export function EvaAdminDashboardView() {
           audit: "Audit trail",
         };
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<string | null> => {
     setLoading(true);
     setError(null);
     try {
@@ -1111,8 +1111,11 @@ export function EvaAdminDashboardView() {
           ? { ...emptyGrantDraft(catalog), ...current }
           : current,
       );
+      return null;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Request failed");
+      const message = cause instanceof Error ? cause.message : "Request failed";
+      setError(message);
+      return message;
     } finally {
       setLoading(false);
     }
@@ -1125,13 +1128,13 @@ export function EvaAdminDashboardView() {
 
   const run = async (operation: () => Promise<void>) => {
     setError(null);
-    setNotice(null);
     try {
       await operation();
-      setNotice(copy.success);
-      await load();
+      const refreshError = await load();
+      if (refreshError === null) appToast.success(copy.success);
+      else appToast.error(refreshError);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Request failed");
+      appToast.error(cause instanceof Error ? cause.message : "Request failed");
     }
   };
 
@@ -1670,22 +1673,6 @@ export function EvaAdminDashboardView() {
           </div>
         </header>
 
-        {error ? (
-          <p
-            className="rounded-md border border-destructive/40 bg-surface-destructive px-3 py-2 text-sm text-destructive-text"
-            role="alert"
-          >
-            {error}
-          </p>
-        ) : null}
-        {notice ? (
-          <p
-            className="rounded-md border border-success/40 bg-surface-recessed px-3 py-2 text-sm text-success"
-            role="status"
-          >
-            {notice}
-          </p>
-        ) : null}
         <datalist id="eva-model-catalog">
           {modelOptions.map((model) => (
             <option key={model} value={model} />

@@ -118,7 +118,7 @@ interface UseThreadCreationOptionsResult<TExecutionInputSources> {
   agentOptions: readonly CoreAuthAgent[];
   selectedAgentId: string | null;
   fixedExecution: boolean;
-  setSelectedAgentId: (value: string) => void;
+  setSelectedAgentId: (value: string | null) => void;
   selectedProviderId: string;
   setSelectedProviderId: StringSelectionSetter;
   setProviderModelReasoning: ProviderModelReasoningSelectionSetter;
@@ -275,6 +275,7 @@ export function useThreadCreationOptions(
 ): UseThreadCreationOptionsResult<ScopedExecutionInputSources> {
   const {
     enabled = true,
+    allowUnassignedAgent = false,
     environmentId,
     environmentHostId,
     initialEnvironmentSelectionValue,
@@ -311,16 +312,20 @@ export function useThreadCreationOptions(
   const [selectedAgentIdState, setSelectedAgentIdState] = useState<
     string | null
   >(initialAgentSelection);
+  const [unassignedAgentSelected, setUnassignedAgentSelected] = useState(false);
   const [agentResetKey, setAgentResetKey] = useState(resetKey);
   if (agentResetKey !== resetKey) {
     setAgentResetKey(resetKey);
     setSelectedAgentIdState(initialAgentSelection);
+    setUnassignedAgentSelected(false);
   }
-  const selectedAgentId = agentOptions.some(
-    (agent) => agent.id === selectedAgentIdState,
-  )
-    ? selectedAgentIdState
-    : initialAgentSelection;
+  const selectedAgentId = unassignedAgentSelected
+    ? null
+    : agentOptions.some((agent) => agent.id === selectedAgentIdState)
+      ? selectedAgentIdState
+      : initialAgentSelection;
+  const isUnassignedExecution =
+    allowUnassignedAgent && selectedAgentId === null;
   const executionAgentTuples =
     coreAuth?.bootstrap?.capabilities.execution.agentTuples ??
     EMPTY_AGENT_TUPLES;
@@ -358,12 +363,18 @@ export function useThreadCreationOptions(
       null)
     : null;
   const setSelectedAgentId = useCallback(
-    (value: string) => {
+    (value: string | null) => {
+      if (value === null && allowUnassignedAgent) {
+        setUnassignedAgentSelected(true);
+        return;
+      }
+      if (value === null) return;
       if (agentOptions.some((agent) => agent.id === value)) {
+        setUnassignedAgentSelected(false);
         setSelectedAgentIdState(value);
       }
     },
-    [agentOptions],
+    [agentOptions, allowUnassignedAgent],
   );
   const { setValue: setStoredProviderId, value: storedProviderId } =
     usePromptBoxProviderPreference();
@@ -476,6 +487,10 @@ export function useThreadCreationOptions(
         scope,
       });
   const selectedAgentProviderIds = selectedAgent?.providerIds;
+  const unassignedProviderIds = useMemo(
+    () => new Set(agentOptions.flatMap((agent) => agent.providerIds)),
+    [agentOptions],
+  );
   const canResolveReadyProvider =
     executionOptionsQueryEnabled &&
     scope === "new-thread" &&
@@ -484,16 +499,18 @@ export function useThreadCreationOptions(
   const shouldResolveReadyProvider =
     canResolveReadyProvider && initialReadyProvider.status === "unresolved";
   const providerStatesQuery = useSystemProviderStates({
-    enabled: shouldResolveReadyProvider,
+    enabled: shouldResolveReadyProvider && !isUnassignedExecution,
     ...executionOptionsRouting,
     agentId: selectedAgentId ?? undefined,
+    unassigned: isUnassignedExecution,
     poll: false,
   });
-  const queriedReadyProviderId = shouldResolveReadyProvider
-    ? providerStatesQuery.data?.providers.find(
-        (provider) => provider.status === "ready",
-      )?.providerId
-    : undefined;
+  const queriedReadyProviderId =
+    shouldResolveReadyProvider && !isUnassignedExecution
+      ? providerStatesQuery.data?.providers.find(
+          (provider) => provider.status === "ready",
+        )?.providerId
+      : undefined;
   const readyProviderId =
     initialReadyProvider.status === "resolved"
       ? (initialReadyProvider.providerId ?? undefined)
@@ -524,18 +541,35 @@ export function useThreadCreationOptions(
           selectedAgentProviderIds.includes(selectedAgent.defaultProviderId)
         ? selectedAgent.defaultProviderId
         : selectedAgentProviderIds[0];
+  const unassignedFallbackProviderId = useMemo(() => {
+    for (const agent of agentOptions) {
+      if (
+        agent.defaultProviderId !== null &&
+        agent.defaultProviderId !== undefined &&
+        agent.providerIds.includes(agent.defaultProviderId)
+      ) {
+        return agent.defaultProviderId;
+      }
+    }
+    return agentOptions.flatMap((agent) => agent.providerIds)[0];
+  }, [agentOptions]);
+  const rawSelectedProviderIsPermitted = isUnassignedExecution
+    ? unassignedProviderIds.has(rawSelectedProviderId)
+    : selectedAgentProviderIds === undefined ||
+      selectedAgentProviderIds.includes(rawSelectedProviderId);
   const executionOptionsProviderId = executionOptionsQueryEnabled
-    ? rawSelectedProviderId.length > 0 &&
-      (selectedAgentProviderIds === undefined ||
-        selectedAgentProviderIds.includes(rawSelectedProviderId))
+    ? rawSelectedProviderId.length > 0 && rawSelectedProviderIsPermitted
       ? rawSelectedProviderId
-      : agentFallbackProviderId
+      : isUnassignedExecution
+        ? unassignedFallbackProviderId
+        : agentFallbackProviderId
     : undefined;
   const executionOptionsQuery = useSystemExecutionOptions({
     enabled: executionOptionsQueryEnabled,
     ...executionOptionsRouting,
     providerId: executionOptionsProviderId,
     agentId: selectedAgentId ?? undefined,
+    unassigned: isUnassignedExecution,
   });
   const hostsQuery = useHosts();
   const systemConfig = useSystemConfig();
@@ -882,6 +916,31 @@ export function useThreadCreationOptions(
       usesStoredCreateSelections,
     ],
   );
+
+  useEffect(() => {
+    const selectedProviderIsPermitted =
+      !isUnassignedExecution ||
+      unassignedProviderIds.has(selectedProviderIdBeforeReadyFallback);
+    if (
+      !isUnassignedExecution ||
+      (selectedProviderIdBeforeReadyFallback.length > 0 &&
+        selectedProviderIsPermitted) ||
+      effectiveProviderId.length === 0 ||
+      executionOptionsQuery.isPlaceholderData ||
+      executionOptionsQuery.isError
+    ) {
+      return;
+    }
+    setSelectedProviderId(effectiveProviderId);
+  }, [
+    effectiveProviderId,
+    executionOptionsQuery.isError,
+    executionOptionsQuery.isPlaceholderData,
+    isUnassignedExecution,
+    selectedProviderIdBeforeReadyFallback,
+    setSelectedProviderId,
+    unassignedProviderIds,
+  ]);
 
   const setProviderModelReasoning = useCallback(
     ({

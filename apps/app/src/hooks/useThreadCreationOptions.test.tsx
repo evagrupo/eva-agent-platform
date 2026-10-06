@@ -480,6 +480,37 @@ describe("useThreadCreationOptions", () => {
     });
   });
 
+  it("replaces a stored provider that is outside the grants for an unassigned thread", async () => {
+    window.localStorage.setItem("bb.promptbox.provider", "codex");
+    vi.mocked(useCoreAuth).mockReturnValue(fixedAgentAuthState());
+    const { result } = renderHook(
+      () =>
+        useThreadCreationOptions({
+          scope: "new-thread",
+          allowUnassignedAgent: true,
+        }),
+      { wrapper: createQueryClientTestHarness().wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.selectedAgentId).toBe("creative");
+    });
+    act(() => {
+      result.current.setSelectedAgentId(null);
+    });
+
+    await waitFor(() => {
+      expect(sdk.system.executionOptions).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerId: GLOBAL_PROVIDER_ID,
+          agentId: undefined,
+          unassigned: "true",
+        }),
+      );
+      expect(result.current.selectedProviderId).toBe(GLOBAL_PROVIDER_ID);
+    });
+  });
+
   it("keeps the selected remembered provider branded while models load", () => {
     window.localStorage.setItem("bb.promptbox.provider", "codex");
     writeCachedProviderList(

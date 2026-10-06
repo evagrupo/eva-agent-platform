@@ -23,7 +23,8 @@ interface ExecutionProviderConfig {
 export interface ExecutionAgentConfig {
   options: readonly { id: string; displayName: string }[];
   selectedId?: string | null;
-  onChange?: (value: string) => void;
+  allowUnassigned?: boolean;
+  onChange?: (value: string | null) => void;
 }
 
 interface ExecutionModelConfig {
@@ -104,6 +105,9 @@ export const ExecutionControls = memo(function ExecutionControls({
       {showModelPicker ? (
         <ModelReasoningPicker
           agentId={agent?.selectedId ?? undefined}
+          unassigned={
+            agent?.allowUnassigned === true && agent.selectedId === null
+          }
           providerOptions={provider.options ?? []}
           providerRouting={providerRouting}
           selectedProviderId={selectedProviderId}

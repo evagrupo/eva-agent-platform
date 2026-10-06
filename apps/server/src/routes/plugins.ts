@@ -537,6 +537,9 @@ export function registerPluginRoutes(
       authContext === null || threadId === null || threadId.length === 0
         ? null
         : requireAuthorizedThread(deps.db, context, threadId, "read");
+    if (thread?.agentId === null) {
+      return context.json({ ok: true, groups: [] });
+    }
     const requestedAgentId = context.req.query("agentId");
     if (requestedAgentId !== undefined && !isEvaAgentId(requestedAgentId)) {
       throw new ApiError(
@@ -633,6 +636,9 @@ export function registerPluginRoutes(
       if (thread === null && authContext !== null) {
         assertResourceAccess(deps.db, context, "project", projectId, "read");
       }
+    }
+    if (thread?.agentId === null) {
+      return context.json({ ok: true, groups: [] });
     }
     const requestedAgentId = context.req.query("agentId");
     if (requestedAgentId !== undefined && !isEvaAgentId(requestedAgentId)) {

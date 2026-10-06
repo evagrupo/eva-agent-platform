@@ -90,7 +90,7 @@ export type ExistingThreadExecutionInputSources = z.infer<
 export const createThreadRequestSchema = z
   .object({
     projectId: z.string().min(1),
-    agentId: z.string().min(1).optional(),
+    agentId: z.string().min(1).nullable().optional(),
     providerId: z.string().min(1).optional(),
     origin: threadCreateOriginSchema,
     originPluginId: z.string().min(1).optional(),
@@ -181,7 +181,7 @@ const agentOnlyPromptInputSchema = promptInputSchema.and(
 export const forkThreadRequestSchema = z
   .object({
     sourceThreadId: z.string().min(1),
-    agentId: z.string().min(1).optional(),
+    agentId: z.string().min(1).nullable().optional(),
     sourceSeqEnd: z.number().int().nonnegative().optional(),
     input: z.array(promptInputSchema).min(1).optional(),
     agentContextSeed: z.array(agentOnlyPromptInputSchema).min(1).optional(),

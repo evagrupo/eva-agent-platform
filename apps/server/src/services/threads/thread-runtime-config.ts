@@ -80,7 +80,7 @@ interface ResolvePermissionEscalationArgs {
 }
 
 export interface ResolvedThreadRuntimeCommandConfig {
-  agentId: string;
+  agentId?: string;
   contributedEnv: HostDaemonContributedEnvEntry[];
   dynamicTools: DynamicTool[];
   injectedSkillSources: HostDaemonInjectedSkillSource[];
@@ -162,11 +162,15 @@ export async function resolveThreadRuntimeCommandConfig(
   const ownerPluginPolicy = ownerPolicy?.policy ?? null;
   const knownAgentIds =
     ownerUserId === null ? undefined : listEvaAgentIds(deps.db);
+  const unassignedThread = ownerUserId !== null && args.thread.agentId === null;
   const agentId =
     args.thread.agentId ??
     (ownerUserId === null ? args.thread.providerId : undefined);
   if (ownerUserId !== null) {
-    if (agentId === undefined || getEvaAgentForDb(deps.db, agentId) === null) {
+    if (
+      !unassignedThread &&
+      (agentId === undefined || getEvaAgentForDb(deps.db, agentId) === null)
+    ) {
       throw new ApiError(
         403,
         "policy_denied",
@@ -174,14 +178,16 @@ export async function resolveThreadRuntimeCommandConfig(
       );
     }
     assertExecutionAllowedForUser(deps.db, ownerUserId, {
-      agentId,
+      agentId: unassignedThread ? null : agentId,
       providerId: args.thread.providerId,
       model: args.model,
     });
   }
   const effectiveAgentId = agentId ?? args.thread.providerId;
-  const allowedPluginIds =
-    ownerUserId === null || ownerPluginPolicy === null
+  const instructionAgentId = unassignedThread ? null : effectiveAgentId;
+  const allowedPluginIds = unassignedThread
+    ? new Set<string>()
+    : ownerUserId === null || ownerPluginPolicy === null
       ? undefined
       : allowedPluginIdsForPolicy(
           ownerPluginPolicy,
@@ -189,16 +195,17 @@ export async function resolveThreadRuntimeCommandConfig(
           knownAgentIds,
         );
   const pluginAllowed = (pluginId: string): boolean =>
-    ownerUserId === null ||
-    (ownerPluginPolicy !== null &&
-      hasCoreCapability(ownerPluginPolicy, "plugins") &&
-      hasCoreCapability(ownerPluginPolicy, "pluginData") &&
-      isPluginAllowedByPolicyForAgent(
-        ownerPluginPolicy,
-        effectiveAgentId,
-        pluginId,
-        knownAgentIds,
-      ));
+    !unassignedThread &&
+    (ownerUserId === null ||
+      (ownerPluginPolicy !== null &&
+        hasCoreCapability(ownerPluginPolicy, "plugins") &&
+        hasCoreCapability(ownerPluginPolicy, "pluginData") &&
+        isPluginAllowedByPolicyForAgent(
+          ownerPluginPolicy,
+          effectiveAgentId,
+          pluginId,
+          knownAgentIds,
+        )));
   if (
     ownerUserId !== null &&
     args.thread.originPluginId !== null &&
@@ -333,10 +340,14 @@ export async function resolveThreadRuntimeCommandConfig(
     deps.logger,
     deps.config.dataDir,
   );
-  const dynamicToolContributions = resolveDynamicTools(
-    filteredConditionalConfiguration.tools,
-    ownerUserId !== null &&
-      getEvaAgentForDb(deps.db, effectiveAgentId) !== null,
+  const dynamicToolContributions = (
+    unassignedThread
+      ? []
+      : resolveDynamicTools(
+          filteredConditionalConfiguration.tools,
+          ownerUserId !== null &&
+            getEvaAgentForDb(deps.db, effectiveAgentId) !== null,
+        )
   ).filter((contribution) => {
     if (ownerUserId === null) return true;
     return (
@@ -362,8 +373,9 @@ export async function resolveThreadRuntimeCommandConfig(
   ) {
     instructionSections.push(EVA_AGENT_COLLABORATION_INSTRUCTIONS);
   }
-  const builtInAgentInstructions =
-    getEvaAgentWorkspaceInstructions(effectiveAgentId);
+  const builtInAgentInstructions = unassignedThread
+    ? null
+    : getEvaAgentWorkspaceInstructions(effectiveAgentId);
   if (builtInAgentInstructions !== null && ownerPolicy?.role !== "admin") {
     instructionSections.push(builtInAgentInstructions);
   }
@@ -372,7 +384,7 @@ export async function resolveThreadRuntimeCommandConfig(
       ...resolveCoreRuntimeInstructions({
         db: deps.db,
         userId: ownerUserId,
-        agentId: effectiveAgentId,
+        agentId: instructionAgentId,
       }),
     );
   }
@@ -440,7 +452,7 @@ export async function resolveThreadRuntimeCommandConfig(
     threadId: args.thread.id,
   });
   return {
-    agentId: effectiveAgentId,
+    agentId: unassignedThread ? undefined : effectiveAgentId,
     contributedEnv,
     dynamicTools,
     injectedSkillSources,

@@ -285,7 +285,7 @@ interface CoreAuthRequestState {
 const coreAuthRequestStorage = new AsyncLocalStorage<CoreAuthRequestState>();
 
 export interface CoreExecutionInput {
-  agentId?: string;
+  agentId?: string | null;
   providerId?: string;
   model?: string;
   reasoningLevel?: ReasoningLevel;
@@ -1389,6 +1389,21 @@ export function isAgentAllowedByPolicy(
   );
 }
 
+function executionAgentIdsForUnassignedPolicy(
+  policy: CorePolicy,
+  knownAgentIds?: ReadonlySet<string>,
+): string[] {
+  const candidates = policy.agentExecutionTuples?.map(
+    (tuple) => tuple.agentId,
+  ) ?? [
+    ...(knownAgentIds ??
+      new Set(listAllowedEvaAgents(policy).map((agent) => agent.id))),
+  ];
+  return [...new Set(candidates)].filter((agentId) =>
+    isAgentAllowedByPolicy(policy, agentId, knownAgentIds),
+  );
+}
+
 export function isProviderAllowedByPolicyForAgent(
   policy: CorePolicy,
   agentId: string,
@@ -1415,6 +1430,24 @@ export function isProviderAllowedByPolicy(
   return policy.agentExecutionTuples === undefined
     ? permits(policy.allowedProviderIds, providerId)
     : false;
+}
+
+export function isProviderAllowedByPolicyForUnassignedAgent(
+  policy: CorePolicy,
+  providerId: string,
+  knownAgentIds?: ReadonlySet<string>,
+  agentProviderIds?: ReadonlyMap<string, readonly string[]>,
+): boolean {
+  return executionAgentIdsForUnassignedPolicy(policy, knownAgentIds).some(
+    (agentId) =>
+      isProviderAllowedByPolicyForAgent(
+        policy,
+        agentId,
+        providerId,
+        knownAgentIds,
+        agentProviderIds,
+      ),
+  );
 }
 
 export function isModelAllowedByPolicyForAgent(
@@ -1527,6 +1560,43 @@ export function applyPolicyToAvailableModel(
   return { ...model, supportedReasoningEfforts, defaultReasoningEffort };
 }
 
+export function applyPolicyToAvailableModelForUnassignedAgent(
+  model: AvailableModel,
+  policy: CorePolicy,
+  providerId: string,
+  knownAgentIds?: ReadonlySet<string>,
+  agentProviderIds?: ReadonlyMap<string, readonly string[]>,
+): AvailableModel | null {
+  const permittedModels = executionAgentIdsForUnassignedPolicy(
+    policy,
+    knownAgentIds,
+  )
+    .map((agentId) =>
+      applyPolicyToAvailableModel(
+        model,
+        policy,
+        agentId,
+        providerId,
+        knownAgentIds,
+        agentProviderIds,
+      ),
+    )
+    .filter((value): value is AvailableModel => value !== null);
+  if (permittedModels.length === 0) return null;
+  const efforts = new Map(
+    permittedModels
+      .flatMap((permittedModel) => permittedModel.supportedReasoningEfforts)
+      .map((effort) => [effort.reasoningEffort, effort] as const),
+  );
+  const supportedReasoningEfforts = [...efforts.values()];
+  const firstEffort = supportedReasoningEfforts[0];
+  if (firstEffort === undefined) return null;
+  const defaultReasoningEffort = efforts.has(model.defaultReasoningEffort)
+    ? model.defaultReasoningEffort
+    : firstEffort.reasoningEffort;
+  return { ...model, supportedReasoningEfforts, defaultReasoningEffort };
+}
+
 export function permissionCeilingForPolicyForAgent(
   policy: CorePolicy,
   agentId: string,
@@ -1560,15 +1630,43 @@ export function permissionCeilingForPolicyForAgent(
   );
 }
 
+export function permissionCeilingForPolicyForUnassignedAgent(
+  policy: CorePolicy,
+  providerId: string,
+  knownAgentIds?: ReadonlySet<string>,
+  agentProviderIds?: ReadonlyMap<string, readonly string[]>,
+): PermissionMode | null {
+  const ceilings = executionAgentIdsForUnassignedPolicy(policy, knownAgentIds)
+    .map((agentId) =>
+      permissionCeilingForPolicyForAgent(
+        policy,
+        agentId,
+        providerId,
+        knownAgentIds,
+        agentProviderIds,
+      ),
+    )
+    .filter((value): value is PermissionMode => value !== null);
+  return ceilings.reduce<PermissionMode | null>(
+    (highest, current) =>
+      highest === null ||
+      permissionModeRank[current] > permissionModeRank[highest]
+        ? current
+        : highest,
+    null,
+  );
+}
+
 export function assertToolAllowedForUser(
   db: DbConnection,
   userId: string,
   toolId: string,
-  agentId?: string,
+  agentId?: string | null,
 ): void {
   const resolved = resolveCorePolicy(db, userId);
   if (
     resolved === null ||
+    agentId === null ||
     (agentId === undefined
       ? !isToolAllowedByPolicy(resolved.policy, toolId)
       : !isToolAllowedByPolicyForAgent(
@@ -1586,11 +1684,12 @@ export function assertPluginAllowedForUser(
   db: DbConnection,
   userId: string,
   pluginId: string,
-  agentId?: string,
+  agentId?: string | null,
 ): void {
   const resolved = resolveCorePolicy(db, userId);
   if (
     resolved === null ||
+    agentId === null ||
     (agentId === undefined
       ? !isPluginAllowedByPolicy(resolved.policy, pluginId)
       : !isPluginAllowedByPolicyForAgent(
@@ -1612,6 +1711,9 @@ function assertExecutionAllowedForPolicy(
     agentProviderIds?: ReadonlyMap<string, readonly string[]>;
   } = {},
 ): CoreExecutionInput {
+  if (input.agentId === null) {
+    return assertUnassignedExecutionAllowedForPolicy(policy, input, args);
+  }
   if (policy.agentExecutionTuples !== undefined) {
     return assertExecutionAllowedForAgentTuples(policy, input, args);
   }
@@ -1666,7 +1768,7 @@ function assertExecutionAllowedForPolicy(
     deny(`Provider "${providerId}" is not allowed by policy`);
   }
   const agentId = resolved.agentId;
-  if (agentId === undefined) {
+  if (agentId === undefined || agentId === null) {
     deny("An explicit EVA agent must be selected by policy");
   } else if (
     !(args.knownAgentIds?.has(agentId) ?? isKnownEvaAgentId(agentId))
@@ -1713,6 +1815,77 @@ function assertExecutionAllowedForPolicy(
     deny("The requested permission mode exceeds policy");
   }
   return resolved;
+}
+
+function assertUnassignedExecutionAllowedForPolicy(
+  policy: CorePolicy,
+  input: CoreExecutionInput,
+  args: {
+    knownAgentIds?: ReadonlySet<string>;
+    agentProviderIds?: ReadonlyMap<string, readonly string[]>;
+  },
+): CoreExecutionInput {
+  if (policy.agentExecutionTuples !== undefined) {
+    const resolved = policy.agentExecutionTuples
+      .map((tuple) =>
+        tryResolveExecutionForAgentTuple(
+          policy,
+          tuple,
+          { ...input, agentId: tuple.agentId },
+          args,
+        ),
+      )
+      .filter((value): value is CoreExecutionInput => value !== null);
+    if (resolved.length === 0) {
+      deny("No allowed agent grant permits this personal thread execution");
+    }
+    if (
+      input.requireComplete === true &&
+      resolved.length > 1 &&
+      [
+        input.providerId,
+        input.model,
+        input.reasoningLevel,
+        input.permissionMode,
+      ].some((value) => value === undefined)
+    ) {
+      deny("Personal thread execution is ambiguous under the current policy");
+    }
+    return { ...resolved[0]!, agentId: null };
+  }
+
+  const candidates = [
+    ...(args.knownAgentIds ??
+      new Set(listAllowedEvaAgents(policy).map((agent) => agent.id))),
+  ].filter(
+    (agentId) =>
+      isAgentAllowedByPolicy(policy, agentId, args.knownAgentIds) &&
+      (input.providerId === undefined ||
+        evaAgentProviderAllowed(
+          agentId,
+          input.providerId,
+          args.agentProviderIds,
+        )),
+  );
+  if (candidates.length === 0) {
+    deny("No allowed agent grant permits this personal thread execution");
+  }
+  let lastPolicyError: ApiError | null = null;
+  for (const agentId of candidates) {
+    try {
+      return {
+        ...assertExecutionAllowedForPolicy(policy, { ...input, agentId }, args),
+        agentId: null,
+      };
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 403) throw error;
+      lastPolicyError = error;
+    }
+  }
+  deny(
+    lastPolicyError?.message ??
+      "No allowed agent grant permits this personal thread execution",
+  );
 }
 
 function tryResolveExecutionForAgentTuple(
@@ -1929,20 +2102,25 @@ export function assertPluginAllowed(
 
 export function assertPluginAllowedForAgent(
   context: CoreRequestContext,
-  agentId: string,
+  agentId: string | null,
   pluginId: string,
 ): void {
   const authContext = getCoreAuthContext(context);
   if (
     authContext !== null &&
-    !isPluginAllowedByPolicyForAgent(
-      authContext.policy,
-      agentId,
-      pluginId,
-      knownAgentIdsForAuthContext(authContext),
-    )
+    (agentId === null ||
+      !isPluginAllowedByPolicyForAgent(
+        authContext.policy,
+        agentId,
+        pluginId,
+        knownAgentIdsForAuthContext(authContext),
+      ))
   ) {
-    deny(`Plugin "${pluginId}" is not allowed for agent "${agentId}"`);
+    deny(
+      agentId === null
+        ? `Plugin "${pluginId}" is not available to a personal thread`
+        : `Plugin "${pluginId}" is not allowed for agent "${agentId}"`,
+    );
   }
 }
 

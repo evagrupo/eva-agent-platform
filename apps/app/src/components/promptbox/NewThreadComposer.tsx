@@ -245,6 +245,7 @@ export function resolveSubmittedExecutionSources(
 }
 
 export interface NewThreadComposerSubmission extends NewThreadRequest {
+  unassignedAgent?: true;
   pluginSubmission?: CreateThreadRequest["pluginSubmission"];
   sendAt?: number;
 }
@@ -262,6 +263,7 @@ export interface NewThreadComposerProps {
   seed?: NewThreadComposerSeed;
   resetKey?: string | number | null;
   preferReadyProviderWhenUnset?: boolean;
+  allowUnassignedAgent?: boolean;
   onSubmit: (request: NewThreadComposerSubmission) => void | Promise<void>;
   focusRequest?: number;
   children: (state: NewThreadComposerState) => ReactNode;
@@ -462,6 +464,7 @@ export function NewThreadComposer({
   seed,
   resetKey,
   preferReadyProviderWhenUnset = false,
+  allowUnassignedAgent = false,
   onSubmit,
   focusRequest,
   children,
@@ -838,6 +841,7 @@ export function NewThreadComposer({
       seed?.permissionMode === undefined);
   const creationOptions = useThreadCreationOptions({
     scope: selectionScope,
+    allowUnassignedAgent,
     preferenceProjectId: projectId,
     resetKey: `${projectId}\0${seedSignature}`,
     resolveProviderRouting,
@@ -1627,7 +1631,11 @@ export function NewThreadComposer({
       };
       const request: NewThreadComposerSubmission = {
         projectId,
-        ...(selectedAgentId === null ? {} : { agentId: selectedAgentId }),
+        ...(selectedAgentId === null
+          ? allowUnassignedAgent
+            ? { unassignedAgent: true as const }
+            : {}
+          : { agentId: selectedAgentId }),
         providerId: selectedProviderId,
         model: selectedThreadModel,
         reasoningLevel,
@@ -1672,6 +1680,7 @@ export function NewThreadComposer({
       promptDraft,
       reasoningLevel,
       selectedAgentId,
+      allowUnassignedAgent,
       seededExecutionInputSources,
       submitDisabledReason,
       submissionEnvironment,
@@ -2017,6 +2026,7 @@ export function NewThreadComposer({
             agent: {
               options: agentOptions,
               selectedId: selectedAgentId,
+              allowUnassigned: allowUnassignedAgent,
               onChange: setSelectedAgentId,
             },
             provider: {
@@ -2104,6 +2114,7 @@ export function NewThreadComposer({
       reuseThreadOptions,
       selectedModel,
       selectedAgentId,
+      allowUnassignedAgent,
       setSelectedAgentId,
       selectedProviderId,
       serviceTier,

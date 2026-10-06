@@ -510,9 +510,10 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       );
     }
     const requestedAgentId =
-      payload.agentId ??
-      authContext?.defaultAgentId ??
-      (authContext === null ? payload.providerId : undefined);
+      payload.agentId !== undefined
+        ? payload.agentId
+        : (authContext?.defaultAgentId ??
+          (authContext === null ? payload.providerId : undefined));
     if (authContext !== null && requestedAgentId === undefined) {
       throw new ApiError(
         400,
@@ -521,7 +522,7 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       );
     }
     if (
-      requestedAgentId !== undefined &&
+      typeof requestedAgentId === "string" &&
       getEvaAgentForDb(deps.db, requestedAgentId) === null &&
       authContext !== null
     ) {
@@ -566,8 +567,12 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       "read",
     );
     const agentId =
-      payload.agentId ?? sourceThread.agentId ?? sourceThread.providerId;
-    if (getEvaAgentForDb(deps.db, agentId) === null && authContext !== null) {
+      payload.agentId !== undefined ? payload.agentId : sourceThread.agentId;
+    if (
+      typeof agentId === "string" &&
+      getEvaAgentForDb(deps.db, agentId) === null &&
+      authContext !== null
+    ) {
       throw new ApiError(400, "invalid_request", "Unknown EVA agent");
     }
     assertExecutionAllowed(context, {
@@ -652,7 +657,7 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
     );
     if ("model" in payload || "reasoningLevel" in payload) {
       assertExecutionAllowed(context, {
-        agentId: thread.agentId ?? thread.providerId,
+        agentId: thread.agentId,
         providerId: thread.providerId,
         ...(payload.model === undefined || payload.model === null
           ? {}

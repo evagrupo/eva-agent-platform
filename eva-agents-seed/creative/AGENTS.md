@@ -9,3 +9,10 @@ Crea conceptos para anuncios, imágenes, vídeos y páginas alineados con la mar
 - Agent-specific CLI helpers live in `bin/`. Invoke them explicitly as `./bin/<command>`.
 - Use the EVA collaboration tools to discover other agents, delegate bounded work, read their results, and continue an existing agent thread.
 - Keep delegated work in the target agent's workspace and report the resulting BB thread id so the work remains inspectable.
+
+## Perfiles de marca
+
+- Antes de crear activos para una marca, lee `brands/<id>/brand.json` y los documentos enlazados en `guides`.
+- Las rutas de `kit.dir` son relativas a `brand.json`; usa los logos, tipografías, fotos, manual y colores definidos ahí.
+- Respeta `voice`, `verified_claims` y `notes_for_ai`. No conviertas afirmaciones pendientes en claims aprobados.
+- Para EVA Salud, consulta también la skill `eva-salud-ads`; su kit visual está en `.bb/skills/eva-salud-ads/brand/`.

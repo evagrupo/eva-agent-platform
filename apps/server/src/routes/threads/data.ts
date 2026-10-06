@@ -357,11 +357,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
 
   get(routes.pluginMetadata.get, (context, query) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
-    assertPluginAllowedForAgent(
-      context,
-      thread.agentId ?? thread.providerId,
-      query.pluginId,
-    );
+    assertPluginAllowedForAgent(context, thread.agentId, query.pluginId);
     const { metadata, corrupt } = getThreadPluginMetadata(
       deps.db,
       thread.id,
@@ -377,11 +373,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
 
   patch(routes.pluginMetadata.update, (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
-    assertPluginAllowedForAgent(
-      context,
-      thread.agentId ?? thread.providerId,
-      payload.pluginId,
-    );
+    assertPluginAllowedForAgent(context, thread.agentId, payload.pluginId);
     const result = patchThreadPluginMetadata(deps.db, {
       threadId: thread.id,
       pluginId: payload.pluginId,

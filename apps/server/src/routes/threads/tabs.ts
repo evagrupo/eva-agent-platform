@@ -56,7 +56,7 @@ function readThreadTabs(
 
   const parsedJson: unknown = JSON.parse(stored.tabsJson);
   const authContext = getCoreAuthContext(context);
-  const agentId = thread.agentId ?? thread.providerId;
+  const agentId = thread.agentId;
   const knownAgentIds = knownEvaAgentIdsForContext(context);
   return {
     revision: stored.revision,
@@ -66,12 +66,13 @@ function readThreadTabs(
         (tab) =>
           tab.kind !== "plugin-panel" ||
           authContext === null ||
-          isPluginAllowedByPolicyForAgent(
-            authContext.policy,
-            agentId,
-            tab.pluginId,
-            knownAgentIds,
-          ),
+          (typeof agentId === "string" &&
+            isPluginAllowedByPolicyForAgent(
+              authContext.policy,
+              agentId,
+              tab.pluginId,
+              knownAgentIds,
+            )),
       ),
   };
 }
@@ -84,12 +85,13 @@ function assertThreadPluginAllowed(
   const authContext = getCoreAuthContext(context);
   if (
     authContext !== null &&
-    !isPluginAllowedByPolicyForAgent(
-      authContext.policy,
-      thread.agentId ?? thread.providerId,
-      pluginId,
-      knownEvaAgentIdsForContext(context),
-    )
+    (thread.agentId == null ||
+      !isPluginAllowedByPolicyForAgent(
+        authContext.policy,
+        thread.agentId,
+        pluginId,
+        knownEvaAgentIdsForContext(context),
+      ))
   ) {
     throw new ApiError(
       403,

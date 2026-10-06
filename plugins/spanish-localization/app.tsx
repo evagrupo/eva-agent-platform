@@ -114,7 +114,7 @@ function LanguageSettings() {
   );
 }
 
-function toggleFromCommandPalette(): void {
+function toggleLanguage(): void {
   const current = readStoredLanguage();
   announceLanguage(current === "es" ? "en" : "es");
 }
@@ -132,12 +132,12 @@ export default definePluginApp((app) => {
     id: "open-language-settings",
     title: "Language / Idioma",
     icon: "Languages",
-    run: ({ openSettings }) => openSettings(),
+    run: () => toggleLanguage(),
   });
 
   app.slots.commandPaletteAction({
     id: "toggle-language",
     title: "Spanish Localization: Toggle English / Spanish",
-    run: () => toggleFromCommandPalette(),
+    run: () => toggleLanguage(),
   });
 });

@@ -1676,6 +1676,96 @@ describe("thread runtime config", () => {
     });
   });
 
+  it("omits EVA agent instructions and identity from an unassigned thread", async () => {
+    await withTestHarness(async (harness) => {
+      const now = new Date();
+      harness.db
+        .insert(authUsers)
+        .values({
+          id: "unassigned-runtime-owner",
+          name: "Unassigned Runtime Owner",
+          email: "unassigned-runtime-owner@eva.test",
+          emailVerified: true,
+          image: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      harness.db
+        .insert(authPrincipals)
+        .values({
+          userId: "unassigned-runtime-owner",
+          role: "user",
+          status: "active",
+          policyId: "user",
+          revision: 1,
+          updatedAt: Date.now(),
+        })
+        .run();
+      harness.db
+        .insert(authAgentGrants)
+        .values({
+          id: "unassigned-runtime-grant",
+          userId: "unassigned-runtime-owner",
+          groupId: null,
+          agentId: "creative",
+          providerIdsJson: JSON.stringify(["codex"]),
+          modelPatternsJson: JSON.stringify(["test-model"]),
+          reasoningLevelsJson: JSON.stringify(["low"]),
+          fixedExecution: false,
+          permissionMode: "auto",
+          terminalAccess: "none",
+          toolIdsJson: "[]",
+          pluginIdsJson: "[]",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        })
+        .run();
+
+      const { host } = seedHostSession(harness.deps, {
+        id: "host-unassigned-runtime",
+      });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/unassigned-runtime",
+      });
+      const environment = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: project.id,
+        path: "/tmp/unassigned-runtime",
+      });
+      const thread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        environmentId: environment.id,
+        ownerUserId: "unassigned-runtime-owner",
+        agentId: null,
+        providerId: "codex",
+        status: "idle",
+        title: "Personal thread",
+        titleFallback: "Personal thread",
+        visibility: "visible",
+      });
+
+      const runtimeConfig = await resolveThreadRuntimeCommandConfig(
+        harness.deps,
+        {
+          thread,
+          model: "test-model",
+          environment: {
+            hostId: environment.hostId,
+            id: environment.id,
+            path: environment.path,
+            status: environment.status,
+          },
+        },
+      );
+
+      expect(runtimeConfig.agentId).toBeUndefined();
+      expect(runtimeConfig.dynamicTools).toEqual([]);
+      expect(runtimeConfig.instructions).not.toContain("Crea conceptos para");
+    });
+  });
+
   it("filters owned-thread plugin runtime contributions by current policy", async () => {
     await withTestHarness(async (harness) => {
       const now = new Date();

@@ -52,6 +52,10 @@ import { MachinePickerUI } from "@/components/pickers/MachinePicker";
 import { parseEnvironmentValue } from "@/components/pickers/environment-picker-value";
 import { PermissionModePicker } from "@/components/pickers/PermissionModePicker";
 import {
+  OptionPicker,
+  type PickerOption,
+} from "@/components/pickers/OptionPicker";
+import {
   type ProjectSelectorCreateProjectConfig,
   type ProjectSelectorOption,
 } from "@/components/pickers/ProjectSelector";
@@ -69,7 +73,41 @@ import { useSystemMachineProviders } from "@/hooks/queries/machine-provider-quer
 import { useHostDaemon } from "@/hooks/useHostDaemon";
 
 const NEW_THREAD_PROMPT_BOX_MIN_HEIGHT = 80;
+const UNASSIGNED_AGENT_VALUE = "__bb_unassigned_thread__";
 
+export function AgentAssignmentPicker({
+  agent,
+  disabled,
+}: {
+  agent?: ExecutionControlsProps["agent"];
+  disabled: boolean;
+}) {
+  if (agent?.allowUnassigned !== true) return null;
+  const options: PickerOption<string>[] = [
+    ...agent.options.map((option) => ({
+      value: option.id,
+      label: option.displayName,
+    })),
+    {
+      value: UNASSIGNED_AGENT_VALUE,
+      label: "No agent",
+      description:
+        "Create a Personal thread without agent-specific tools or instructions.",
+    },
+  ];
+  return (
+    <OptionPicker
+      label="Thread owner"
+      value={agent.selectedId ?? UNASSIGNED_AGENT_VALUE}
+      options={options}
+      onChange={(value) =>
+        agent.onChange?.(value === UNASSIGNED_AGENT_VALUE ? null : value)
+      }
+      disabled={disabled}
+      muted
+    />
+  );
+}
 export interface NewThreadEnvironmentConfig {
   value: string;
   sources: readonly ProjectSource[];
@@ -336,6 +374,10 @@ const DefaultNewThreadComposer = memo(function DefaultNewThreadComposer({
       />
       <div className="mt-1 flex select-none items-center justify-between gap-2 px-3.5">
         <div className="flex min-w-0 flex-1 items-center gap-1">
+          <AgentAssignmentPicker
+            agent={execution.agent}
+            disabled={disabled || isSubmitting}
+          />
           {isProjectlessPrompt ? null : (
             <EnvironmentSlot
               projectless={false}

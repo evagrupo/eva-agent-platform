@@ -9,7 +9,13 @@ import type {
   SystemEnvironmentProvider,
   SystemMachineProvider,
 } from "@bb/server-contract";
-import { EnvironmentSlot, ProjectlessMachineSlot } from "./NewThreadPromptBox";
+import { LANGUAGE_STORAGE_KEY } from "@bb/shared-ui/language";
+import { CoreLanguageMount } from "@/lib/CoreLanguageMount";
+import {
+  AgentAssignmentPicker,
+  EnvironmentSlot,
+  ProjectlessMachineSlot,
+} from "./NewThreadPromptBox";
 
 const host = makeHost({
   id: "host_test",
@@ -18,7 +24,57 @@ const host = makeHost({
 
 afterEach(() => {
   cleanup();
+  window.localStorage.removeItem(LANGUAGE_STORAGE_KEY);
   vi.clearAllMocks();
+});
+
+describe("AgentAssignmentPicker", () => {
+  it("offers an unassigned Personal thread choice", async () => {
+    const onChange = vi.fn();
+    render(
+      <AgentAssignmentPicker
+        agent={{
+          options: [{ id: "crm", displayName: "CRM & Call Center" }],
+          selectedId: "crm",
+          allowUnassigned: true,
+          onChange,
+        }}
+        disabled={false}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole("button"), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /No agent/ }));
+
+    expect(onChange).toHaveBeenCalledWith(null);
+  });
+
+  it("translates the unassigned-thread choice into Spanish", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
+    render(
+      <>
+        <CoreLanguageMount />
+        <AgentAssignmentPicker
+          agent={{
+            options: [{ id: "crm", displayName: "CRM & Call Center" }],
+            selectedId: "crm",
+            allowUnassigned: true,
+            onChange: vi.fn(),
+          }}
+          disabled={false}
+        />
+      </>,
+    );
+
+    fireEvent.keyDown(screen.getByRole("button"), { key: "Enter" });
+
+    expect(await screen.findByText("Sin agente")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Crear un hilo personal sin herramientas ni instrucciones específicas de un agente.",
+      ),
+    ).toBeTruthy();
+  });
 });
 
 describe("ProjectlessMachineSlot", () => {

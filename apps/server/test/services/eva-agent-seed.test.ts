@@ -176,6 +176,12 @@ describe("EVA agent scaffold seeding", () => {
       expect(await exists(join(workspaces, "crm", ".crm-backups"))).toBe(false);
       expect(await exists(join(workspaces, "crm", "node_modules"))).toBe(false);
       expect(await exists(join(workspaces, "crm", ".eva-managed"))).toBe(true);
+      expect(
+        await readFile(join(workspaces, "admin", "AGENTS.md"), "utf8"),
+      ).toContain("platform engineering and maintenance agent");
+      expect(
+        await readFile(join(workspaces, "admin", "REPOSITORY-MAP.md"), "utf8"),
+      ).toContain("apps/host-daemon/");
     });
   });
 });

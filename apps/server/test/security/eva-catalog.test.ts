@@ -13,7 +13,7 @@ import {
 } from "../../src/agents/eva-agent-scaffold.js";
 
 describe("EVA built-in agent catalog", () => {
-  it("contains the supplied eleven sanitized domain agents", () => {
+  it("contains the built-in sanitized domain agents", () => {
     expect(EVA_AGENT_CATALOG.map((agent) => agent.id)).toEqual([
       "orchestrator",
       "compliance",
@@ -26,6 +26,7 @@ describe("EVA built-in agent catalog", () => {
       "voice",
       "recobro",
       "people",
+      "admin",
     ]);
     expect(EVA_AGENT_CATALOG.map((agent) => agent.displayName)).toEqual([
       "Orquestador Maestro",
@@ -39,6 +40,7 @@ describe("EVA built-in agent catalog", () => {
       "Voz IA",
       "Recobro",
       "RR. HH.",
+      "Admin",
     ]);
     expect(EVA_DEFAULT_PROVIDER_ID).toBe("acp-cursor");
     expect(EVA_DEFAULT_MODEL).toBe("grok-4.7");
@@ -71,7 +73,7 @@ describe("EVA built-in agent catalog", () => {
       "pi",
       "acp-cursor",
     ]);
-    expect(EVA_AGENT_WORKSPACE_SCAFFOLDS).toHaveLength(11);
+    expect(EVA_AGENT_WORKSPACE_SCAFFOLDS).toHaveLength(12);
     for (const scaffold of EVA_AGENT_WORKSPACE_SCAFFOLDS) {
       expect(scaffold.files.map((file) => file.path)).toEqual([
         "AGENTS.md",
@@ -84,5 +86,22 @@ describe("EVA built-in agent catalog", () => {
         /\.env|credentials?|private key|\/home\/|\.git/iu,
       );
     }
+    const admin = EVA_AGENT_CATALOG.find((agent) => agent.id === "admin");
+    expect(admin).toMatchObject({
+      displayName: "Admin",
+      sourceProviderId: "codex",
+      providerIds: ["codex"],
+      defaultProviderId: "codex",
+      defaultModel: "gpt-5.6-luna",
+      defaultReasoningLevel: "max",
+    });
+    expect(admin?.instructions).toContain("REPOSITORY-MAP.md");
+    expect(admin?.instructions).toContain(
+      "Respond in the same language as the user",
+    );
+    expect(admin?.instructions).not.toContain("Responde siempre");
+    expect(admin?.instructions).toContain("docs/eva-systemd.md");
+    expect(admin?.instructions).toContain("pnpm run dev:restart");
+    expect(admin?.instructions).toContain("eva-agent-platform.service");
   });
 });

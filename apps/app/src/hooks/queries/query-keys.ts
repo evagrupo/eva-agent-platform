@@ -492,6 +492,13 @@ type SystemProviderStatesQueryKey =
       string | null,
       string | null,
       string,
+    ]
+  | readonly [
+      typeof SYSTEM_PROVIDER_STATES_QUERY_KEY,
+      string | null,
+      string | null,
+      null,
+      true,
     ];
 type SystemExecutionOptionsQueryKey =
   | readonly [
@@ -506,6 +513,14 @@ type SystemExecutionOptionsQueryKey =
       string | null,
       string | null,
       string,
+    ]
+  | readonly [
+      typeof SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
+      string | null,
+      string | null,
+      string | null,
+      null,
+      true,
     ];
 type AllSystemExecutionOptionsQueryKeyPrefix = readonly [
   typeof SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
@@ -1177,8 +1192,17 @@ export function systemProviderStatesQueryKey(
   args: Pick<
     SystemExecutionOptionsQueryKeyArgs,
     "environmentId" | "hostId" | "agentId"
-  >,
+  > & { unassigned?: boolean },
 ): SystemProviderStatesQueryKey {
+  if (args.unassigned) {
+    return [
+      SYSTEM_PROVIDER_STATES_QUERY_KEY,
+      args.environmentId,
+      args.hostId,
+      null,
+      true,
+    ];
+  }
   return args.agentId === undefined || args.agentId === null
     ? [SYSTEM_PROVIDER_STATES_QUERY_KEY, args.environmentId, args.hostId]
     : [
@@ -1194,6 +1218,7 @@ interface SystemExecutionOptionsQueryKeyArgs {
   hostId: string | null;
   providerId: string | null;
   agentId?: string | null;
+  unassigned?: boolean;
 }
 
 export function systemExecutionOptionsQueryKey({
@@ -1201,7 +1226,18 @@ export function systemExecutionOptionsQueryKey({
   hostId,
   providerId,
   agentId,
+  unassigned,
 }: SystemExecutionOptionsQueryKeyArgs): SystemExecutionOptionsQueryKey {
+  if (unassigned) {
+    return [
+      SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
+      environmentId,
+      hostId,
+      providerId,
+      null,
+      true,
+    ];
+  }
   return agentId === undefined || agentId === null
     ? [SYSTEM_EXECUTION_OPTIONS_QUERY_KEY, environmentId, hostId, providerId]
     : [

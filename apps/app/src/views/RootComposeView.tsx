@@ -577,11 +577,12 @@ export function RootComposeView() {
         isForkDraft: forkSeed !== null,
         navigateToThreadAfterCreate,
       });
-      const { sendAt, ...requestFields } = request;
+      const { sendAt, unassignedAgent, ...requestFields } = request;
       const createRequest =
         forkSeed === null
           ? {
               ...requestFields,
+              ...(unassignedAgent ? { agentId: null } : {}),
               ...(rootComposeSectionId
                 ? { sectionId: rootComposeSectionId }
                 : {}),
@@ -656,6 +657,7 @@ export function RootComposeView() {
       onProjectChange={handleProjectChange}
       draftStorage={{ kind: "new-thread" }}
       selectionScope="new-thread"
+      allowUnassignedAgent
       seed={composerSeed}
       resetKey={forkSeed?.sourceThreadId ?? null}
       preferReadyProviderWhenUnset={forkSeed === null}

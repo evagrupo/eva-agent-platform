@@ -20,6 +20,7 @@ Spawning:
                                    runs `backticks` and $(...) before bb sees them
     --title <title>                Thread title
     --project <id>                 Project (required; when omitted the error prints this thread's project ID to add)
+    --no-agent                     Create a Personal thread without assigning an EVA agent
     --parent-thread <id>           Parent thread (may be in another project)
     --parent-self                  Parent to the current thread (BB_THREAD_ID)
     --lifecycle-owner-thread <id>  Archive/delete with this owner

@@ -84,20 +84,40 @@ export const systemProvidersQuerySchema = z
   .object({
     ...systemProviderHostQueryFields,
     agentId: z.string().min(1),
+    unassigned: z.literal("true"),
     capability: z.enum(["usage"]),
   })
   .partial()
-  .superRefine(rejectMultipleWorkspaceSelectors);
+  .superRefine((query, context) => {
+    rejectMultipleWorkspaceSelectors(query, context);
+    if (query.unassigned === "true" && query.agentId !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["agentId"],
+        message: "agentId cannot be combined with unassigned",
+      });
+    }
+  });
 export type SystemProvidersQuery = z.infer<typeof systemProvidersQuerySchema>;
 
 export const systemExecutionOptionsQuerySchema = z
   .object({
     ...systemProviderHostQueryFields,
     agentId: z.string().min(1),
+    unassigned: z.literal("true"),
     providerId: z.string().min(1),
   })
   .partial()
-  .superRefine(rejectMultipleWorkspaceSelectors);
+  .superRefine((query, context) => {
+    rejectMultipleWorkspaceSelectors(query, context);
+    if (query.unassigned === "true" && query.agentId !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["agentId"],
+        message: "agentId cannot be combined with unassigned",
+      });
+    }
+  });
 export type SystemExecutionOptionsQuery = z.infer<
   typeof systemExecutionOptionsQuerySchema
 >;

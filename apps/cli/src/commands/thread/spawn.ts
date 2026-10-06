@@ -46,6 +46,7 @@ interface ThreadSpawnCommandOptions {
   promptFile?: string;
   json?: boolean;
   project?: string;
+  agent?: boolean;
   environment?: string;
   newEnvironment?: string;
   environmentProvider?: string;
@@ -327,6 +328,10 @@ export function registerSpawnCommand(
     .option("--json", "Print machine-readable JSON output")
     .requiredOption("--project <id>", "Project ID")
     .option(
+      "--no-agent",
+      "Create a Personal thread without assigning an EVA agent",
+    )
+    .option(
       "--environment <id-or-path>",
       "Existing environment ID or unmanaged workspace path",
     )
@@ -577,6 +582,7 @@ export function registerSpawnCommand(
           thread = await sdk.threads.spawn({
             origin: "cli",
             projectId,
+            ...(opts.agent === false ? { agentId: null } : {}),
             ...(providerId ? { providerId } : {}),
             ...(opts.model ? { model: opts.model } : {}),
             input,

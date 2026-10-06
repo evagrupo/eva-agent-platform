@@ -517,7 +517,8 @@ function LoginView() {
           submit: "Entrar",
           submitting: "Verificando…",
           language: "Idioma",
-          help: "El registro público está desactivado.",
+          help: "El registro público está desactivado. Usa una invitación de administrador para crear tu cuenta.",
+          redeemInvitation: "¿Tienes una invitación? Canjéala",
         }
       : {
           eyebrow: "EVA Internal Platform",
@@ -528,7 +529,8 @@ function LoginView() {
           submit: "Sign in",
           submitting: "Verifying…",
           language: "Language",
-          help: "Public self-registration is disabled.",
+          help: "Public registration is disabled. Use an administrator invitation to create your account.",
+          redeemInvitation: "Have an invitation? Redeem it",
         };
 
   if (auth === null) return null;
@@ -635,6 +637,286 @@ function LoginView() {
               {submitting ? copy.submitting : copy.submit}
             </Button>
           </form>
+          <Button className="mt-4 w-full" variant="outline" asChild>
+            <a href="/accept-invitation">{copy.redeemInvitation}</a>
+          </Button>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function InvitationRedeemView() {
+  const [locale, setLocale] = useState<"en" | "es">("es");
+  const [token, setToken] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [acceptedEmail, setAcceptedEmail] = useState<string | null>(null);
+  const copy =
+    locale === "es"
+      ? {
+          eyebrow: "Plataforma interna EVA",
+          title: "Canjear invitación",
+          description:
+            "Introduce el token de un solo uso que te proporcionó el administrador y crea tu contraseña.",
+          token: "Token de invitación",
+          password: "Crear contraseña",
+          confirmPassword: "Confirmar contraseña",
+          submit: "Crear cuenta",
+          submitting: "Creando cuenta…",
+          language: "Idioma",
+          backToSignIn: "Volver al inicio de sesión",
+          passwordMismatch: "Las contraseñas no coinciden.",
+          invalidInvitation:
+            "La invitación no es válida, ha caducado o ya se usó.",
+          existingAccount:
+            "Ya existe una cuenta con el correo de esta invitación.",
+          failed: "No se pudo canjear la invitación. Inténtalo de nuevo.",
+          networkError:
+            "El servicio de EVA no está disponible. Inténtalo de nuevo.",
+          passwordLength: "La contraseña debe tener entre 12 y 128 caracteres.",
+          successTitle: "Invitación aceptada",
+          successDescription:
+            "Tu cuenta ya está creada. Inicia sesión con la contraseña que acabas de elegir.",
+          successSubmit: "Ir al inicio de sesión",
+          showPassword: "Mostrar contraseña",
+          hidePassword: "Ocultar contraseña",
+        }
+      : {
+          eyebrow: "EVA Internal Platform",
+          title: "Redeem invitation",
+          description:
+            "Enter the one-time token provided by your administrator and create a password.",
+          token: "Invitation token",
+          password: "Create password",
+          confirmPassword: "Confirm password",
+          submit: "Create account",
+          submitting: "Creating account…",
+          language: "Language",
+          backToSignIn: "Back to sign in",
+          passwordMismatch: "The passwords do not match.",
+          invalidInvitation:
+            "This invitation is invalid, expired, or already used.",
+          existingAccount:
+            "An account with this invitation email already exists.",
+          failed: "The invitation could not be redeemed. Please try again.",
+          networkError: "The EVA security service is unavailable. Try again.",
+          passwordLength: "The password must contain 12 to 128 characters.",
+          successTitle: "Invitation accepted",
+          successDescription:
+            "Your account is ready. Sign in with the password you just created.",
+          successSubmit: "Continue to sign in",
+          showPassword: "Show password",
+          hidePassword: "Hide password",
+        };
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    if (password.length < 12 || password.length > 128) {
+      setError(copy.passwordLength);
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError(copy.passwordMismatch);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const response = await fetch("/api/v1/access/invitations/accept", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ token, password }),
+      });
+      const body = await readResponseBody(response);
+      if (!response.ok) {
+        const code = isRecord(body) ? body.code : null;
+        const message = isRecord(body) ? body.message : null;
+        if (code === "invalid_request") setError(copy.invalidInvitation);
+        else if (code === "conflict") setError(copy.existingAccount);
+        else if (typeof message === "string") setError(message);
+        else setError(copy.failed);
+        return;
+      }
+      setAcceptedEmail(
+        isRecord(body) && typeof body.email === "string" ? body.email : "",
+      );
+      setToken("");
+      setPassword("");
+      setConfirmPassword("");
+    } catch {
+      setError(copy.networkError);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
+      <div className="grid w-full max-w-4xl overflow-hidden rounded-2xl border border-border bg-card shadow-sm md:grid-cols-[0.9fr_1.1fr]">
+        <section className="flex flex-col justify-between border-b border-border bg-surface-recessed p-7 md:border-b-0 md:border-r md:p-10">
+          <div
+            aria-live={acceptedEmail === null ? undefined : "polite"}
+            aria-atomic={acceptedEmail === null ? undefined : true}
+          >
+            <EvaMark />
+            <p className="mt-8 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              {copy.eyebrow}
+            </p>
+            <h1 className="mt-3 max-w-xs text-3xl font-semibold tracking-tight">
+              {acceptedEmail === null ? copy.title : copy.successTitle}
+            </h1>
+            <p className="mt-4 max-w-sm text-sm leading-6 text-muted-foreground">
+              {acceptedEmail === null
+                ? copy.description
+                : copy.successDescription}
+            </p>
+            {acceptedEmail ? (
+              <p className="mt-4 break-all text-sm font-medium">
+                {acceptedEmail}
+              </p>
+            ) : null}
+          </div>
+        </section>
+        <section className="p-7 md:p-10">
+          <div className="flex justify-end">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{copy.language}</span>
+              <select
+                aria-label={copy.language}
+                value={locale}
+                onChange={(event) =>
+                  setLocale(event.target.value as "en" | "es")
+                }
+                className="h-8 rounded-md border border-input bg-transparent px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="en">English</option>
+                <option value="es">Español</option>
+              </select>
+            </label>
+          </div>
+          {acceptedEmail === null ? (
+            <form className="mt-8 space-y-5" onSubmit={submit}>
+              <div className="space-y-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor="eva-invitation-token"
+                >
+                  {copy.token}
+                </label>
+                <Input
+                  id="eva-invitation-token"
+                  type="text"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  minLength={32}
+                  maxLength={512}
+                  value={token}
+                  onChange={(event) => {
+                    setToken(event.target.value);
+                    setError(null);
+                  }}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor="eva-invitation-password"
+                >
+                  {copy.password}
+                </label>
+                <Input
+                  id="eva-invitation-password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={128}
+                  value={password}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setError(null);
+                  }}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor="eva-invitation-confirm-password"
+                >
+                  {copy.confirmPassword}
+                </label>
+                <div className="relative">
+                  <Input
+                    id="eva-invitation-confirm-password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    minLength={12}
+                    maxLength={128}
+                    value={confirmPassword}
+                    onChange={(event) => {
+                      setConfirmPassword(event.target.value);
+                      setError(null);
+                    }}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-1 min-h-full px-2 text-xs text-muted-foreground"
+                    aria-label={
+                      showPassword ? copy.hidePassword : copy.showPassword
+                    }
+                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword((current) => !current)}
+                  >
+                    {showPassword ? copy.hidePassword : copy.showPassword}
+                  </button>
+                </div>
+              </div>
+              {error ? (
+                <p
+                  className="rounded-md border border-destructive/40 bg-surface-destructive px-3 py-2 text-sm text-destructive-text"
+                  role="alert"
+                >
+                  {error}
+                </p>
+              ) : null}
+              <Button className="w-full" type="submit" disabled={submitting}>
+                {submitting ? copy.submitting : copy.submit}
+              </Button>
+            </form>
+          ) : (
+            <div className="mt-8">
+              <a
+                className="inline-flex min-h-10 w-full items-center justify-center rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                href="/"
+              >
+                {copy.successSubmit}
+              </a>
+            </div>
+          )}
+          {acceptedEmail === null ? (
+            <a
+              className="mt-6 inline-flex text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              href="/"
+            >
+              {copy.backToSignIn}
+            </a>
+          ) : null}
         </section>
       </div>
     </main>

@@ -195,7 +195,7 @@ type SeedAgent = Omit<
   model?: string | null;
 };
 
-const SEEDED_AGENTS: readonly SeedAgent[] = [
+export const SEEDED_AGENTS: readonly SeedAgent[] = [
   {
     slug: "orchestrator",
     name: "Orquestador Maestro",
@@ -296,9 +296,20 @@ const SEEDED_AGENTS: readonly SeedAgent[] = [
     instructions:
       "Observa productividad, carga y capacidad del equipo para detectar riesgos y proponer análisis. Límite estricto: opera solo en shadow, nunca propongas disciplina, despidos, compensación ni decisiones individuales sobre personas.",
   },
+  {
+    slug: "admin",
+    name: "Administrador",
+    tagline: "Implementa y mantiene la plataforma EVA",
+    icon: "Wrench",
+    provider: "codex",
+    model: "gpt-5.6-luna",
+    sort_order: 12,
+    instructions:
+      "Implements and maintains the EVA Agent Platform. Respond in the same language as the user; use English when the user writes in English. Before changing code, read AGENTS.md and any more-specific guidance; inspect Git status and preserve existing changes. Ground diagnosis in evidence, follow repository architecture and conventions, make the smallest complete change, add tests for affected behavior, and run relevant checks. Repository map: apps/app is the web UI; apps/server contains the API, authentication, and product policy; apps/host-daemon handles local provider execution and sessions; apps/cli contains the CLI; packages/db handles persistence; packages/domain contains shared types and rules; packages/server-contract contains API contracts; packages/agent-runtime handles agent configuration and execution; packages/plugin-sdk contains the plugin API; plugins/* contains plugins; eva-agents-seed/* contains initial agent instructions; docs contains architecture and operations guides. For production restarts, read docs/eva-systemd.md. The built frontend is served by bb-app, which supervises the HTTP/API server and host daemon together. After an explicitly requested build, run pnpm run build using the deployment's documented owner account, then restart only the active service: sudo systemctl restart eva-agent-platform.service for a system unit, or systemctl --user restart eva-agent-platform.service for a user unit. Check the service scope first, confirm the unit is active, and verify /health and /readyz on the configured web port (38886 is the documented dedicated-server default); never print the full environment file. In development, pnpm dev runs the frontend with hot reload plus the backend; stop it with Ctrl-C in its owning terminal and rerun pnpm dev to restart the whole stack. pnpm run dev:restart rebuilds and restarts only the server and host daemon, leaving the frontend dev server running. Do not deploy, restart services, change production data, publish, commit, or push unless the user explicitly requests it. Never expose secrets or personal data.",
+  },
 ];
 
-const ENGLISH_AGENT_NAMES: Readonly<Record<string, string>> = {
+export const ENGLISH_AGENT_NAMES: Readonly<Record<string, string>> = {
   orchestrator: "Master Orchestrator",
   compliance: "Compliance",
   creative: "Creativity",
@@ -310,9 +321,10 @@ const ENGLISH_AGENT_NAMES: Readonly<Record<string, string>> = {
   voice: "AI Voice",
   recobro: "Payments",
   people: "HR",
+  admin: "Admin",
 };
 
-const ENGLISH_AGENT_TAGLINES: Readonly<Record<string, string>> = {
+export const ENGLISH_AGENT_TAGLINES: Readonly<Record<string, string>> = {
   orchestrator: "Chooses which agent acts and keeps work within bounds",
   compliance: "Reviews and approves everything that goes public",
   creative: "Creates ads, images, videos, and pages",
@@ -324,6 +336,7 @@ const ENGLISH_AGENT_TAGLINES: Readonly<Record<string, string>> = {
   voice: "Calls and voice experiences for the app and web",
   recobro: "Failed payments and returns through collection",
   people: "Team productivity and capacity",
+  admin: "Implements and maintains the EVA platform",
 };
 
 function englishAgentName(agent: Pick<AgentRow, "slug" | "name">): string {

@@ -571,15 +571,18 @@ export async function createThreadFromRequest(
       );
     }
   }
-  const requestedAgentId =
-    rawRequestInput.agentId ?? rawRequestInput.providerId;
+  const unassignedThread = rawRequestInput.agentId === null;
+  const requestedAgentId = unassignedThread
+    ? undefined
+    : (rawRequestInput.agentId ?? rawRequestInput.providerId);
   if (
     rawRequestInput.ownerUserId !== null &&
     rawRequestInput.ownerUserId !== undefined
   ) {
     if (
-      requestedAgentId === undefined ||
-      getEvaAgentForDb(deps.db, requestedAgentId) === null
+      !unassignedThread &&
+      (requestedAgentId === undefined ||
+        getEvaAgentForDb(deps.db, requestedAgentId) === null)
     ) {
       throw new ApiError(
         400,
@@ -605,18 +608,20 @@ export async function createThreadFromRequest(
   }
   const pluginMetadata = resolveCreateThreadPluginMetadata(rawRequestInput);
   const requestInput = { ...rawRequestInput };
-  requestInput.input = (
-    await appendPluginMentionContext(
-      { input: requestInput.input },
-      {
-        db: deps.db,
-        ownerUserId: rawRequestInput.ownerUserId,
-        ...(requestedAgentId === undefined
-          ? {}
-          : { agentId: requestedAgentId }),
-      },
-    )
-  ).input;
+  if (!unassignedThread) {
+    requestInput.input = (
+      await appendPluginMentionContext(
+        { input: requestInput.input },
+        {
+          db: deps.db,
+          ownerUserId: rawRequestInput.ownerUserId,
+          ...(requestedAgentId === undefined
+            ? {}
+            : { agentId: requestedAgentId }),
+        },
+      )
+    ).input;
+  }
   assertProjectWorkspaceCompatibility(project, requestInput);
   const originKind = requestInput.originKind ?? null;
   const sourceThreadId =

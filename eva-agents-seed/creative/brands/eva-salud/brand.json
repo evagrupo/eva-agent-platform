@@ -1,0 +1,63 @@
+{
+  "id": "eva-salud",
+  "name": "EVA Salud",
+  "legal_name": "EVA Salud",
+  "website": "https://www.evasalud.app/",
+  "sector": "Salud digital y seguro de salud privado",
+  "market": "España",
+  "description": "App de salud con inteligencia artificial del Grupo EVA: entiende tus síntomas y gestiona tu cita médica automáticamente, con marketplace de servicios médicos, seguros (salud, vida, hogar, decesos, dispositivos, baja laboral), tecnología y móvil/fibra. Las campañas captan leads para el seguro de salud privado.",
+  "voice": "Castellano de España, tuteo. Corto, cálido y directo; una idea por anuncio. Valores: sencillez, sin letra pequeña ni ataduras, confianza, empoderamiento. Vocabulario de España: móvil, cita, consulta, peques.",
+  "verified_claims": [
+    "Consultas médicas incluidas en tu suscripción (sólo en copy de app, no en anuncios de seguro)",
+    "Pedir cita con IA: EVA entiende tus síntomas y gestiona la cita",
+    "Encontrar y reservar cita médica",
+    "Especialistas cerca de ti o en línea",
+    "Videoconsulta",
+    "Contratación 100% digital",
+    "Gestiona tus pólizas desde la app",
+    "Precios visibles antes de contratar",
+    "Más de 10 categorías médicas"
+  ],
+  "notes_for_ai": "No verificados (no usar sin confirmar): pediatría, fisioterapia, dermatología, salud mental online, medicina estética, tiempos concretos, precios. Nunca inventes precios, descuentos, tiempos de espera ni coberturas. Los anuncios de seguro no deben presentar una especialidad como cobertura incluida.",
+  "kit": {
+    "dir": "../../.bb/skills/eva-salud-ads/brand",
+    "skill": "eva-salud-ads",
+    "logos": {
+      "positive": "logos/logo.svg",
+      "white": "logos/logo-blanco.svg",
+      "negative": "logos/logo-negativo.svg",
+      "symbol": "logos/hoja-blanca.svg",
+      "symbol_positive": "logos/hoja.svg",
+      "other_brands": {
+        "eva_movil": "logos/otras-marcas-eva-movil.svg",
+        "eva_protect": "logos/otras-marcas-eva-protect.svg",
+        "eva_seguros": "logos/otras-marcas-eva-seguros.svg"
+      }
+    },
+    "fonts": {
+      "family": "Noto Sans",
+      "regular": "fonts/NotoSans-Regular.ttf",
+      "bold": "fonts/NotoSans-Bold.ttf",
+      "italic": "fonts/NotoSans-Italic.ttf",
+      "bold_italic": "fonts/NotoSans-BoldItalic.ttf"
+    },
+    "photos": "fotos",
+    "colors": {
+      "primary": "#00983a",
+      "primary_dark": "#006B29",
+      "secondary": "#232263",
+      "soft": "#e6f4eb",
+      "accent_on_dark": "#5fd08a",
+      "accent_on_color": "#9fe3b8",
+      "text": "#4a4a7d"
+    },
+    "manual": "manual"
+  },
+  "campaign_structure": "structure.json",
+  "guides": {
+    "brand": "../../.bb/skills/eva-salud-ads/references/brand.md",
+    "ad_design": "../../.bb/skills/eva-salud-ads/references/ad-design-best-practices.md",
+    "photo_brief": "../../.bb/skills/eva-salud-ads/references/photo-brief.md",
+    "qa": "../../.bb/skills/eva-salud-ads/references/qa-checklist.md"
+  }
+}

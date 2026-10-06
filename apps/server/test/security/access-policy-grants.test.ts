@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertExecutionAllowedForUser,
   applyPolicyToAvailableModel,
+  applyPolicyToAvailableModelForUnassignedAgent,
   canReadThread,
   canWriteThread,
   defaultUserPolicy,
@@ -274,7 +275,7 @@ describe("agent-bound execution policy", () => {
     expect(
       applyPolicyToAvailableModel(
         availableModelFixture({
-          model: "gpt-5.6-luna",
+          model: "m1",
           reasoningLevels: ["medium"],
         }),
         policy,
@@ -417,6 +418,80 @@ describe("agent-bound execution policy", () => {
         requireComplete: true,
       }),
     ).toThrow();
+  });
+
+  it("allows personal threads only within the union of the user's agent grants", () => {
+    const db = createTestDb();
+    insertUser(db, "personal-user");
+    insertGrant(db, {
+      id: "personal-crm",
+      userId: "personal-user",
+      agentId: "crm",
+      providerIds: ["p1"],
+      modelPatterns: ["m1"],
+      reasoningLevels: ["low"],
+      permissionMode: "auto",
+    });
+    insertGrant(db, {
+      id: "personal-people",
+      userId: "personal-user",
+      agentId: "people",
+      providerIds: ["p2"],
+      modelPatterns: ["m2"],
+      reasoningLevels: ["medium"],
+      permissionMode: "auto",
+    });
+    const allowed = assertExecutionAllowedForUser(db, "personal-user", {
+      agentId: null,
+      providerId: "p1",
+      model: "m1",
+      reasoningLevel: "low",
+      permissionMode: "auto",
+      requireComplete: true,
+    });
+    expect(allowed).toMatchObject({
+      agentId: null,
+      providerId: "p1",
+      model: "m1",
+    });
+    expect(() =>
+      assertExecutionAllowedForUser(db, "personal-user", {
+        agentId: null,
+        providerId: "p1",
+        model: "m2",
+        reasoningLevel: "medium",
+        permissionMode: "auto",
+        requireComplete: true,
+      }),
+    ).toThrow();
+
+    const policy = resolveCorePolicy(db, "personal-user")?.policy;
+    expect(policy).toBeDefined();
+    expect(
+      applyPolicyToAvailableModelForUnassignedAgent(
+        availableModelFixture({
+          model: "m1",
+          reasoningLevels: ["medium", "low"],
+        }),
+        policy!,
+        "p1",
+        new Set(["crm", "people"]),
+      ),
+    ).toMatchObject({
+      model: "m1",
+      supportedReasoningEfforts: [{ reasoningEffort: "low" }],
+    });
+    expect(
+      applyPolicyToAvailableModelForUnassignedAgent(
+        availableModelFixture({
+          model: "m2",
+          reasoningLevels: ["medium"],
+        }),
+        policy!,
+        "p1",
+        new Set(["crm", "people"]),
+      ),
+    ).toBeNull();
   });
 
   it("keeps plugin scopes bound to the selected agent tuple", () => {

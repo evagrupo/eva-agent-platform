@@ -14,6 +14,10 @@ const translations: Readonly<Record<string, string>> = {
   "New Thread": "Nuevo hilo",
   Threads: "Hilos",
   Thread: "Hilo",
+  "Thread owner": "Propietario del hilo",
+  "No agent": "Sin agente",
+  "Create a Personal thread without agent-specific tools or instructions.":
+    "Crear un hilo personal sin herramientas ni instrucciones específicas de un agente.",
   Projects: "Proyectos",
   Project: "Proyecto",
   Workspaces: "Espacios de trabajo",

@@ -1,0 +1,19 @@
+{
+  "format": "9:16",
+  "characters": {
+    "Marta": {
+      "look": "Spanish woman, 38, curly dark hair in a loose bun, olive skin, small gold hoop earrings, oversized white T-shirt",
+      "props": "smartphone held to her RIGHT ear, ceramic mug in her LEFT hand",
+      "looks_toward": "frame-right"
+    },
+    "Elena": {
+      "look": "Spanish woman, 32, straight dark-brown hair down past the shoulders, light make-up, grey blazer over a white top",
+      "props": "black headset with a boom mic, pen in her RIGHT hand",
+      "looks_toward": "frame-left"
+    }
+  },
+  "locations": {
+    "Cocina": "bright Spanish kitchen in the morning, white tiles, light-wood worktop, window on the LEFT of frame, plants, warm daylight",
+    "Oficina": "modern open-plan office, wood-panelled wall, a green plant, desk with a closed laptop and a notebook, soft even light"
+  }
+}
