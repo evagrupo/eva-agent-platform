@@ -42,6 +42,7 @@ interface AcpPermissionResponse {
 
 interface AcpPermissionToolCall extends AcpToolCallOperationInput {
   toolCallId: string;
+  name?: string | undefined;
   kind?: AcpToolKind | undefined;
   rawKind?: string | undefined;
   startedToolCall?: AcpToolCallUpdateEvent | undefined;
@@ -65,6 +66,7 @@ function permissionToolCallEvent(
   return {
     sessionUpdate: "tool_call",
     toolCallId: toolCall.toolCallId,
+    ...(toolCall.name !== undefined ? { name: toolCall.name } : {}),
     ...(toolCall.title !== undefined ? { title: toolCall.title } : {}),
     ...(toolCall.kind !== undefined ? { kind: toolCall.kind } : {}),
     ...(toolCall.rawKind !== undefined ? { rawKind: toolCall.rawKind } : {}),

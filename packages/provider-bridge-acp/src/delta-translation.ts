@@ -81,6 +81,7 @@ export interface AcpDeltaTranslatorOptions {
 export interface AcpPermissionToolCallInput {
   toolCallId: string;
   title?: string | undefined;
+  name?: AcpToolCallUpdateEvent["name"];
   kind?: AcpToolCallUpdateEvent["kind"];
   rawKind?: string | undefined;
   content?: AcpToolCallUpdateEvent["content"];
@@ -1051,6 +1052,7 @@ export function createAcpDeltaTranslator(
       sessionUpdate: "tool_call_update",
       toolCallId: open.event.toolCallId,
       ...(toolCall.title !== undefined ? { title: toolCall.title } : {}),
+      ...(toolCall.name !== undefined ? { name: toolCall.name } : {}),
       ...(kind !== undefined ? { kind } : {}),
       ...(kind === "other" && toolCall.rawKind !== undefined
         ? { rawKind: toolCall.rawKind }

@@ -67,6 +67,33 @@ function commandApprovalRequest(
   };
 }
 
+function toolUseApprovalRequest(id: number, tool: string): JsonRpcMessage {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "interaction/request",
+    params: {
+      providerThreadId: "prov-1",
+      threadId: "t1",
+      turnId: "turn-1",
+      payload: {
+        kind: "approval",
+        subject: {
+          kind: "tool_use",
+          itemId: `item-${id}`,
+          tool,
+          presentation: {
+            label: { pending: "Running tool", completed: "Ran tool" },
+            icon: { glyph: "Toolbox" },
+          },
+        },
+        reason: "Needs approval",
+        availableDecisions: ["allow_once", "allow_for_session", "deny"],
+      },
+    },
+  };
+}
+
 const deniedEscalationOptions = {
   ...fullRuntimeOptions,
   permissionMode: "auto",
@@ -194,6 +221,66 @@ describe("createAgentRuntime interactive requests", () => {
       },
     });
     await runtime.shutdown();
+  });
+
+  it("auto-approves EVA delegation tool uses without prompting", async () => {
+    const onInteractiveRequest = vi.fn(
+      async (): Promise<PendingInteractionResolution> => ({
+        decision: "deny",
+      }),
+    );
+    const answer = await answerDirectRequest({
+      rawRequest: toolUseApprovalRequest(80, "eva_delegate_to_agent"),
+      onInteractiveRequest,
+    });
+
+    expect(answer).toMatchObject({
+      jsonrpc: "2.0",
+      id: 80,
+      result: { decision: "allow_once" },
+    });
+    expect(onInteractiveRequest).not.toHaveBeenCalled();
+  });
+
+  it("keeps approvals for other EVA tools interactive", async () => {
+    const onInteractiveRequest = vi.fn(
+      async (): Promise<PendingInteractionResolution> => ({
+        decision: "allow_once",
+        grantedPermissions: null,
+      }),
+    );
+    const answer = await answerDirectRequest({
+      rawRequest: toolUseApprovalRequest(81, "eva_list_agents"),
+      onInteractiveRequest,
+    });
+
+    expect(answer).toMatchObject({
+      jsonrpc: "2.0",
+      id: 81,
+      result: { decision: "allow_once" },
+    });
+    expect(onInteractiveRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors explicit deny escalation for EVA delegation tool uses", async () => {
+    const onInteractiveRequest = vi.fn(
+      async (): Promise<PendingInteractionResolution> => ({
+        decision: "allow_once",
+        grantedPermissions: null,
+      }),
+    );
+    const answer = await answerDirectRequest({
+      rawRequest: toolUseApprovalRequest(82, "eva_delegate_to_agent"),
+      getThreadExecutionOptions: () => deniedEscalationOptions,
+      onInteractiveRequest,
+    });
+
+    expect(answer).toMatchObject({
+      jsonrpc: "2.0",
+      id: 82,
+      result: { decision: "deny" },
+    });
+    expect(onInteractiveRequest).not.toHaveBeenCalled();
   });
 
   it("drops unresolved interactive requests when no active turn is known", async () => {

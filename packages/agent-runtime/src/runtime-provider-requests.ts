@@ -20,6 +20,8 @@ import {
 } from "@bb/provider-bridge-protocol/bridge-kit";
 import { shouldAutoDenyInteractiveRequest } from "@bb/provider-bridge-protocol/bridge-kit";
 
+const AUTO_APPROVED_TOOL_USE_NAMES = new Set(["eva_delegate_to_agent"]);
+
 export class RuntimeToolCalls {
   private readonly pending = new Map<
     string,
@@ -145,6 +147,26 @@ function buildDeniedInteractiveResolution(
   return {
     decision: "deny",
   };
+}
+
+function buildAutoApprovedToolUseResolution(
+  payload: PendingInteractionPayload,
+): PendingInteractionResolution | null {
+  if (
+    !isApprovalPendingInteractionPayload(payload) ||
+    payload.subject.kind !== "tool_use" ||
+    !AUTO_APPROVED_TOOL_USE_NAMES.has(payload.subject.tool)
+  ) {
+    return null;
+  }
+
+  if (payload.availableDecisions.includes("allow_once")) {
+    return { decision: "allow_once", grantedPermissions: null };
+  }
+  if (payload.availableDecisions.includes("allow_for_session")) {
+    return { decision: "allow_for_session", grantedPermissions: null };
+  }
+  return null;
 }
 
 function resolveRuntimeProviderRequestTurnId(
@@ -299,6 +321,12 @@ function handleInteractiveProviderRequest(
       ? shouldAutoDenyInteractiveRequest(executionOptions)
       : false) ||
       !args.onInteractiveRequest);
+  const autoApprovedResolution =
+    isApprovalRequest &&
+    runtimeOwnsApprovalPolicy &&
+    !shouldAutoDenyApprovalRequest
+      ? buildAutoApprovedToolUseResolution(interactiveReq.payload)
+      : null;
   if (shouldAutoDenyApprovalRequest) {
     try {
       const resolution = buildDeniedInteractiveResolution(
@@ -307,6 +335,36 @@ function handleInteractiveProviderRequest(
       const result = buildInteractiveResponse({
         request: resolvedInteractiveReq,
         resolution,
+      });
+      sendJsonRpcResult({
+        child: args.providerProcess.child,
+        id: args.parsedId,
+        result,
+      });
+    } catch (error) {
+      if (
+        sendProviderResponseEncodeErrorIfKnown({
+          child: args.providerProcess.child,
+          error,
+          id: args.parsedId,
+        })
+      ) {
+        return true;
+      }
+      sendJsonRpcError({
+        child: args.providerProcess.child,
+        id: args.parsedId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return true;
+  }
+
+  if (autoApprovedResolution !== null) {
+    try {
+      const result = buildInteractiveResponse({
+        request: resolvedInteractiveReq,
+        resolution: autoApprovedResolution,
       });
       sendJsonRpcResult({
         child: args.providerProcess.child,

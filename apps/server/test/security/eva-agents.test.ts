@@ -462,6 +462,27 @@ describe("EVA agent surface", () => {
         orchestratorGrant.status,
         JSON.stringify(await orchestratorGrant.clone().json()),
       ).toBe(201);
+      const peopleGrant = await harness.app.request("/api/v1/access/grants", {
+        method: "POST",
+        headers: { ...adminHeaders, "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "people-user",
+          userId: "eva-agent-user",
+          agentId: "people",
+          providerIds: ["codex"],
+          modelPatterns: ["gpt-5.6-luna"],
+          reasoningLevels: ["max"],
+          fixedExecution: true,
+          permissionMode: "accept-edits",
+          terminalAccess: "none",
+          toolIds: [...EVA_AGENT_TOOL_NAMES],
+          pluginIds: [],
+        }),
+      });
+      expect(
+        peopleGrant.status,
+        JSON.stringify(await peopleGrant.clone().json()),
+      ).toBe(201);
       installFakePersonalWorkspaceProvider();
       const { host } = seedHostSession(harness.deps, {
         id: "eva-child-delegation-host",
@@ -514,6 +535,30 @@ describe("EVA agent surface", () => {
         parentThreadId: orchestratorThread.id,
         visibility: "visible",
       });
+
+      const peopleThread = createThread(harness.db, harness.hub, {
+        projectId: personalProject!.id,
+        environmentId: environment.id,
+        ownerUserId: "eva-agent-user",
+        agentId: "people",
+        providerId: "codex",
+        status: "idle",
+        title: "HR specialist thread",
+        titleFallback: "HR specialist thread",
+        visibility: "visible",
+      });
+      await expect(
+        handleEvaAgentToolCall(harness.deps, {
+          input: {
+            agent: "growth-review",
+            task: "Ask for a leave request count.",
+          },
+          thread: peopleThread,
+          tool: "eva_delegate_to_agent",
+        }),
+      ).rejects.toThrow(
+        "Only the EVA Master Orchestrator can delegate work to another agent",
+      );
     });
   });
 

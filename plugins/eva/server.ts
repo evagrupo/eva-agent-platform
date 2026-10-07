@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
+import { agentWorkspaceBehaviorInstructions } from "./src/agent-instructions";
 
 const AGENTS_CHANGED = "agents-changed";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -497,7 +498,7 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   function initialAgentInstructionsFile(
-    agent: Pick<AgentRow, "name" | "tagline" | "instructions">,
+    agent: Pick<AgentRow, "slug" | "name" | "tagline" | "instructions">,
     instructions = agent.instructions,
   ): string {
     return [
@@ -509,8 +510,7 @@ export default async function plugin(bb: BbPluginApi) {
       "",
       "- Agent-specific skills live in `.bb/skills/`. Read and follow the matching `SKILL.md` whenever a task fits one.",
       "- Agent-specific CLI helpers live in `bin/`. Invoke them explicitly as `./bin/<command>`.",
-      "- Use the EVA collaboration tools to discover other agents, delegate bounded work, read their results, and continue an existing agent thread.",
-      "- Keep delegated work in the target agent's workspace and report the resulting BB thread id so the work remains inspectable.",
+      ...agentWorkspaceBehaviorInstructions(agent.slug, agentsWorkspaceRoot),
       "",
     ].join("\n");
   }
@@ -1241,8 +1241,7 @@ export default async function plugin(bb: BbPluginApi) {
       modeLine(agent.status),
       ...workspaceInstructions,
       "That `AGENTS.md` file is this agent's authoritative instruction file.",
-      "You can use EVA collaboration tools to list specialists, create inspectable BB child threads, read their results, and send follow-ups to existing agent threads.",
-      "Delegate bounded work to the best specialist and keep the parent thread informed of thread ids, results, and blockers.",
+      ...agentWorkspaceBehaviorInstructions(agent.slug, agentsWorkspaceRoot),
     ].join("\n");
     const instructions = hasNativeWorkspaceInstructions
       ? dynamicInstructions

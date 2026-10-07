@@ -53,6 +53,7 @@ import {
 import { getEvaAgentWorkspaceInstructions } from "../../agents/eva-agent-scaffold.js";
 import {
   EVA_AGENT_COLLABORATION_INSTRUCTIONS,
+  EVA_AGENT_SPECIALIST_INSTRUCTIONS,
   EVA_AGENT_TOOLS,
 } from "../../agents/eva-agent-tools.js";
 import { resolveCoreRuntimeInstructions } from "../../access-management.js";
@@ -185,6 +186,12 @@ export async function resolveThreadRuntimeCommandConfig(
   }
   const effectiveAgentId = agentId ?? args.thread.providerId;
   const instructionAgentId = unassignedThread ? null : effectiveAgentId;
+  const evaAgentThread =
+    ownerUserId !== null &&
+    !unassignedThread &&
+    getEvaAgentForDb(deps.db, effectiveAgentId) !== null;
+  const evaOrchestratorThread =
+    evaAgentThread && effectiveAgentId === "orchestrator";
   const allowedPluginIds = unassignedThread
     ? new Set<string>()
     : ownerUserId === null || ownerPluginPolicy === null
@@ -345,8 +352,7 @@ export async function resolveThreadRuntimeCommandConfig(
       ? []
       : resolveDynamicTools(
           filteredConditionalConfiguration.tools,
-          ownerUserId !== null &&
-            getEvaAgentForDb(deps.db, effectiveAgentId) !== null,
+          evaOrchestratorThread,
         )
   ).filter((contribution) => {
     if (ownerUserId === null) return true;
@@ -366,13 +372,9 @@ export async function resolveThreadRuntimeCommandConfig(
     (contribution) => contribution.tool,
   );
   const instructionSections: string[] = [];
-  if (
-    dynamicToolContributions.some((contribution) =>
-      contribution.tool.name.startsWith("eva_"),
-    )
-  ) {
-    instructionSections.push(EVA_AGENT_COLLABORATION_INSTRUCTIONS);
-  }
+  const hasEvaAgentTools = dynamicToolContributions.some((contribution) =>
+    contribution.tool.name.startsWith("eva_"),
+  );
   const builtInAgentInstructions = unassignedThread
     ? null
     : getEvaAgentWorkspaceInstructions(effectiveAgentId);
@@ -387,6 +389,11 @@ export async function resolveThreadRuntimeCommandConfig(
         agentId: instructionAgentId,
       }),
     );
+  }
+  if (evaOrchestratorThread && hasEvaAgentTools) {
+    instructionSections.push(EVA_AGENT_COLLABORATION_INSTRUCTIONS);
+  } else if (evaAgentThread && !evaOrchestratorThread) {
+    instructionSections.push(EVA_AGENT_SPECIALIST_INSTRUCTIONS);
   }
   for (const contribution of dynamicToolContributions) {
     if (!contribution.instructions) continue;

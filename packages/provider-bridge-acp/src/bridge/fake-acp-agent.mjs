@@ -480,6 +480,39 @@ async function handlePrompt(message) {
       outcome = "error";
     }
     notifyUpdate(messageChunk(`permission:${outcome}`));
+  } else if (text.includes("request-eva-delegate-permission")) {
+    const title = "bb-bridge-eva_delegate_to_agent: eva_delegate_to_agent";
+    notifyUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "eva-tool-1",
+      title,
+      kind: "other",
+      status: "pending",
+      rawInput: { agent: "people", task: "Read-only check" },
+    });
+    let outcome = "cancelled";
+    try {
+      const result = await requestClient("session/request_permission", {
+        sessionId: activeSessionId,
+        toolCall: {
+          toolCallId: "eva-tool-1",
+          title,
+          kind: "other",
+          rawInput: { agent: "people", task: "Read-only check" },
+        },
+        options: [
+          { optionId: "yes", name: "Allow", kind: "allow_once" },
+          { optionId: "no", name: "Deny", kind: "reject_once" },
+        ],
+      });
+      outcome =
+        result?.outcome?.outcome === "selected"
+          ? result.outcome.optionId
+          : "cancelled";
+    } catch {
+      outcome = "error";
+    }
+    notifyUpdate(messageChunk(`permission:${outcome}`));
   } else if (text.includes("request-permission")) {
     notifyUpdate({
       sessionUpdate: "tool_call",

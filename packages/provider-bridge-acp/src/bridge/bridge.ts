@@ -74,6 +74,7 @@ import {
   buildAcpPermissionInteractionPayload,
   resolveAcpPermissionDecision,
 } from "../interactions.js";
+import type { AcpInjectedTool } from "../tool-classification.js";
 import {
   buildAcpModelListParams,
   buildAcpSessionParams,
@@ -1348,6 +1349,30 @@ function cancelPendingPermissions(session: AcpThreadSession): void {
   session.pendingPermissions.clear();
 }
 
+function resolvePermissionInjectedTool(
+  session: AcpThreadSession,
+  toolCall:
+    | { name?: string | undefined; title?: string | undefined }
+    | undefined,
+): AcpInjectedTool | undefined {
+  const dynamicTools = session.construction.dynamicTools ?? [];
+  const dynamicTool =
+    dynamicTools.find((tool) => tool.name === toolCall?.name) ??
+    dynamicTools.find(
+      (tool) =>
+        toolCall?.title ===
+        `${ACP_BRIDGE_MCP_SERVER_NAME}-${tool.name}: ${tool.name}`,
+    );
+  return dynamicTool === undefined
+    ? undefined
+    : {
+        name: dynamicTool.name,
+        ...(dynamicTool.presentation === undefined
+          ? {}
+          : { presentation: dynamicTool.presentation }),
+      };
+}
+
 function handlePermissionRequest(
   session: AcpThreadSession,
   params: unknown,
@@ -1373,6 +1398,7 @@ function handlePermissionRequest(
     toolCall?.toolCallId !== undefined
       ? session.translator.notePermissionToolCall(session.bbThreadId, {
           toolCallId: toolCall.toolCallId,
+          ...(toolCall.name !== undefined ? { name: toolCall.name } : {}),
           ...(toolCall.title !== undefined ? { title: toolCall.title } : {}),
           ...(toolCall.kind !== undefined ? { kind: toolCall.kind } : {}),
           ...(toolCall.rawKind !== undefined
@@ -1393,6 +1419,13 @@ function handlePermissionRequest(
     responder,
     options: parsed.data.options,
   };
+  const injectedTool =
+    (bound === undefined
+      ? undefined
+      : session.translator.getInjectedToolBinding(
+          session.bbThreadId,
+          bound.toolCallId,
+        )) ?? resolvePermissionInjectedTool(session, toolCall);
 
   if (session.policy.permissionMode === "full") {
     respondPermission(pending, "allow_once");
@@ -1402,9 +1435,10 @@ function handlePermissionRequest(
   session.pendingPermissions.add(pending);
 
   const normalizedToolCall =
-    toolCall?.toolCallId !== undefined && bound !== undefined
+    toolCall?.toolCallId !== undefined
       ? {
-          toolCallId: bound.toolCallId,
+          toolCallId: bound?.toolCallId ?? toolCall.toolCallId,
+          ...(toolCall.name !== undefined ? { name: toolCall.name } : {}),
           ...(toolCall.title !== undefined ? { title: toolCall.title } : {}),
           ...(toolCall.kind !== undefined ? { kind: toolCall.kind } : {}),
           ...(toolCall.rawKind !== undefined
@@ -1419,11 +1453,10 @@ function handlePermissionRequest(
           ...(toolCall.locations !== undefined
             ? { locations: toolCall.locations }
             : {}),
-          startedToolCall: bound.event,
-          injectedTool: session.translator.getInjectedToolBinding(
-            session.bbThreadId,
-            bound.toolCallId,
-          ),
+          ...(bound?.event === undefined
+            ? {}
+            : { startedToolCall: bound.event }),
+          ...(injectedTool === undefined ? {} : { injectedTool }),
         }
       : undefined;
 

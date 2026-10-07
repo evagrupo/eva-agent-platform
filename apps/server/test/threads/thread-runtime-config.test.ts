@@ -1625,6 +1625,25 @@ describe("thread runtime config", () => {
           updatedAt: Date.now(),
         })
         .run();
+      harness.db
+        .insert(authAgentGrants)
+        .values({
+          id: "people-runtime-grant",
+          userId: "orchestrator-runtime-owner",
+          groupId: null,
+          agentId: "people",
+          providerIdsJson: JSON.stringify(["codex"]),
+          modelPatternsJson: JSON.stringify(["test-model"]),
+          reasoningLevelsJson: JSON.stringify(["high"]),
+          fixedExecution: false,
+          permissionMode: null,
+          terminalAccess: "none",
+          toolIdsJson: JSON.stringify(EVA_AGENT_TOOL_NAMES),
+          pluginIdsJson: JSON.stringify([]),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        })
+        .run();
 
       const { host } = seedHostSession(harness.deps, {
         id: "host-orchestrator-runtime-tools",
@@ -1672,6 +1691,40 @@ describe("thread runtime config", () => {
       );
       expect(runtimeConfig.instructions).toContain(
         "Do not claim delegated work is complete until you read the child's result.",
+      );
+
+      const specialistThread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        environmentId: environment.id,
+        ownerUserId: "orchestrator-runtime-owner",
+        agentId: "people",
+        providerId: "codex",
+        status: "idle",
+        title: "HR specialist runtime",
+        titleFallback: "HR specialist runtime",
+        visibility: "visible",
+      });
+      const specialistConfig = await resolveThreadRuntimeCommandConfig(
+        harness.deps,
+        {
+          thread: specialistThread,
+          model: "test-model",
+          environment: {
+            hostId: environment.hostId,
+            id: environment.id,
+            path: environment.path,
+            status: environment.status,
+          },
+        },
+      );
+      const specialistToolNames = specialistConfig.dynamicTools.map(
+        (tool) => tool.name,
+      );
+      for (const toolName of EVA_AGENT_TOOL_NAMES) {
+        expect(specialistToolNames).not.toContain(toolName);
+      }
+      expect(specialistConfig.instructions).toContain(
+        "Only the EVA Master Orchestrator may create or delegate work to EVA child threads",
       );
     });
   });

@@ -34,3 +34,10 @@ sudo systemctl restart eva-agent-platform.service
 If this installation instead runs the service in the current user's systemd manager, use `systemctl --user restart eva-agent-platform.service`. Check which unit is active before acting; do not restart both scopes or guess a service name. Confirm the unit is active and check `/health` and `/readyz` on its configured web port. The documented dedicated-server default is `38886`. Consult the unit and runbook for other deployments, and never print or copy the full environment file.
 
 In development, `pnpm dev` runs the frontend with hot reload alongside the server and host daemon. To restart the entire development stack, stop it with Ctrl-C in its owning terminal and run `pnpm dev` again. `pnpm run dev:restart` rebuilds and restarts the server and host daemon but deliberately leaves the frontend dev server running. Do not kill arbitrary Node processes to restart the app.
+
+## Answering questions about EVA agents
+
+- Do not ask another agent, use EVA collaboration tools, create or message child threads, or wait for another agent when answering questions. Only delegate when the user explicitly asks you to.
+- Inspect the relevant agent's workspace under the configured agents root directly. Read its `AGENTS.md`, `README.md`, `.bb/skills/**/SKILL.md`, and relevant files under `bin/` or its project tree.
+- Base answers on the files you inspected, cite their paths, and say when those files do not establish an answer. Do not claim a documented capability is currently enabled unless the source files verify that.
+- Treat other agents' workspaces as read-only. Do not modify their files unless the user explicitly asks for that change.

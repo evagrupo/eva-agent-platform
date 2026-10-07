@@ -2202,6 +2202,73 @@ describe("acp bridge", () => {
     expect(agentMessageTexts()).toContain("permission:no");
   });
 
+  it("identifies the exact injected EVA delegation tool in permission requests", async () => {
+    const { bbThreadId, providerThreadId } = await startThread({
+      permissionMode: "accept-edits",
+      permissionEscalation: "ask",
+      dynamicTools: [
+        {
+          name: "eva_delegate_to_agent",
+          description: "Delegate a bounded task to an EVA agent.",
+          inputSchema: { type: "object", properties: {} },
+          presentation: {
+            label: {
+              pending: "Delegating to EVA agent",
+              completed: "Delegated to EVA agent",
+            },
+            icon: { glyph: "Workflow" },
+          },
+        },
+      ],
+    });
+    const turnId = sendTurnRequest("turn/start", providerThreadId, {
+      input: [
+        {
+          type: "text",
+          text: "request-eva-delegate-permission",
+          mentions: [],
+        },
+      ],
+    });
+    await waitForResponse(turnId);
+
+    const forwarded = await waitFor(
+      () =>
+        output.messages.find(
+          (message) =>
+            message.method === "interaction/request" &&
+            message.id !== undefined,
+        ),
+      "forwarded EVA delegation permission request",
+    );
+    expect(forwarded.params).toMatchObject({
+      threadId: bbThreadId,
+      payload: {
+        kind: "approval",
+        subject: {
+          kind: "tool_use",
+          tool: "eva_delegate_to_agent",
+          presentation: {
+            label: {
+              pending: "Delegating to EVA agent",
+              completed: "Delegated to EVA agent",
+            },
+          },
+        },
+      },
+    });
+
+    handleLine(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: forwarded.id,
+        result: { decision: "allow_once", grantedPermissions: null },
+      }),
+    );
+    await waitForTurnCompleted();
+    expect(agentMessageTexts()).toContain("permission:yes");
+  });
+
   it("presents an external-directory write permission as a file-change approval", async () => {
     const { providerThreadId } = await startThread({
       permissionMode: "accept-edits",
