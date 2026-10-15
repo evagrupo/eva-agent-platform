@@ -48,10 +48,10 @@ describe("usePromptBoxPermissionModePreference", () => {
     expect(result.current.value).toBe("");
   });
 
-  it("keeps a stored current preset", () => {
+  it("upgrades a stored auto preference to Full Access", () => {
     window.localStorage.setItem("bb.promptbox.permission-mode", "auto");
     const { result } = renderPermissionModePreference();
-    expect(result.current.value).toBe("auto");
+    expect(result.current.value).toBe("full");
   });
 });
 
@@ -111,7 +111,7 @@ const selections = [
   {
     field: "permission",
     key: "bb.promptbox.permission-mode",
-    initial: "auto",
+    initial: "full",
     remote: "accept-edits",
   },
   {

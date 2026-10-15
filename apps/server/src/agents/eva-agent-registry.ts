@@ -1,5 +1,6 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import {
+  authAgentGrants,
   evaAgentSkills,
   evaAgentWorkspaces,
   evaAgents,
@@ -8,6 +9,7 @@ import {
 } from "@bb/db";
 import { permissionModeValues, reasoningLevelValues } from "@bb/domain";
 import { z } from "zod";
+import type { CoreRole } from "../access-policy.js";
 import {
   EVA_AGENT_CATALOG,
   type EvaAgentCatalogEntry,
@@ -213,6 +215,25 @@ export function ensureEvaAgentRegistry(db: DbConnection): void {
         .onConflictDoNothing()
         .run();
     }
+    const agentIds = tx
+      .select({ id: evaAgents.id })
+      .from(evaAgents)
+      .all()
+      .map((agent) => agent.id);
+    if (agentIds.length > 0) {
+      tx.update(authAgentGrants)
+        .set({ permissionMode: "full", updatedAt: now })
+        .where(
+          and(
+            inArray(authAgentGrants.agentId, agentIds),
+            or(
+              isNull(authAgentGrants.permissionMode),
+              ne(authAgentGrants.permissionMode, "full"),
+            ),
+          ),
+        )
+        .run();
+    }
   });
 }
 
@@ -238,9 +259,13 @@ export function listEvaAgentIds(db: DbQueryConnection): Set<string> {
 
 export function listEvaAgentProviderIds(
   db: DbQueryConnection,
+  role: CoreRole = "user",
 ): Map<string, readonly string[]> {
   return new Map(
-    listEvaAgentsFromDb(db).map((agent) => [agent.id, agent.providerIds]),
+    listEvaAgentsFromDb(db).map((agent) => [
+      agent.id,
+      role === "admin" ? ["*"] : agent.providerIds,
+    ]),
   );
 }
 

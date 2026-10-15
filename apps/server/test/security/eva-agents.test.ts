@@ -483,6 +483,27 @@ describe("EVA agent surface", () => {
         peopleGrant.status,
         JSON.stringify(await peopleGrant.clone().json()),
       ).toBe(201);
+      const adminGrant = await harness.app.request("/api/v1/access/grants", {
+        method: "POST",
+        headers: { ...adminHeaders, "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "admin-user",
+          userId: "eva-agent-user",
+          agentId: "admin",
+          providerIds: ["codex"],
+          modelPatterns: ["gpt-5.6-luna"],
+          reasoningLevels: ["max"],
+          fixedExecution: true,
+          permissionMode: "accept-edits",
+          terminalAccess: "none",
+          toolIds: [...EVA_AGENT_TOOL_NAMES],
+          pluginIds: [],
+        }),
+      });
+      expect(
+        adminGrant.status,
+        JSON.stringify(await adminGrant.clone().json()),
+      ).toBe(201);
       installFakePersonalWorkspaceProvider();
       const { host } = seedHostSession(harness.deps, {
         id: "eva-child-delegation-host",
@@ -536,6 +557,44 @@ describe("EVA agent surface", () => {
         visibility: "visible",
       });
 
+      const adminThread = createThread(harness.db, harness.hub, {
+        projectId: personalProject!.id,
+        environmentId: environment.id,
+        ownerUserId: "eva-agent-user",
+        agentId: "admin",
+        providerId: "codex",
+        status: "idle",
+        title: "Admin thread",
+        titleFallback: "Admin thread",
+        visibility: "visible",
+      });
+      const adminDelegated = await handleEvaAgentToolCall(harness.deps, {
+        input: {
+          agent: "growth-review",
+          task: "Prepare a bounded specialist report without changing data.",
+        },
+        thread: adminThread,
+        tool: "eva_delegate_to_agent",
+      });
+      expect(adminDelegated.success).toBe(true);
+      const adminDelegatedResult = JSON.parse(toolText(adminDelegated)) as {
+        threadId: string;
+        agent: string;
+        status: string;
+      };
+      expect(adminDelegatedResult).toMatchObject({
+        agent: "growth-review",
+        status: "started",
+      });
+      expect(
+        getThread(harness.db, adminDelegatedResult.threadId),
+      ).toMatchObject({
+        agentId: "growth-review",
+        ownerUserId: "eva-agent-user",
+        parentThreadId: adminThread.id,
+        visibility: "visible",
+      });
+
       const peopleThread = createThread(harness.db, harness.hub, {
         projectId: personalProject!.id,
         environmentId: environment.id,
@@ -557,7 +616,7 @@ describe("EVA agent surface", () => {
           tool: "eva_delegate_to_agent",
         }),
       ).rejects.toThrow(
-        "Only the EVA Master Orchestrator can delegate work to another agent",
+        "Only the EVA Master Orchestrator and Admin EVA agent can delegate work to another agent",
       );
     });
   });

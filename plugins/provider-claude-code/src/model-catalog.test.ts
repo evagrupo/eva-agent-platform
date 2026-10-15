@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
-import {
-  CLAUDE_CODE_ACTIVE_CATALOG,
-  DEFAULT_CLAUDE_CODE_MODEL,
-} from "./model-catalog.js";
+import { CLAUDE_CODE_LEGACY_CATALOG } from "./model-catalog.js";
 
-describe("Claude Code curated catalog", () => {
+describe("Claude Code legacy selections", () => {
   it("names version-pinned models rather than moving aliases", () => {
-    for (const entry of CLAUDE_CODE_ACTIVE_CATALOG) {
+    for (const entry of CLAUDE_CODE_LEGACY_CATALOG) {
       expect(entry.model).toMatch(/^claude-/);
       expect(entry.id).toBe(entry.model);
     }
@@ -14,24 +11,21 @@ describe("Claude Code curated catalog", () => {
 
   it("omits entitlement-gated models", () => {
     expect(
-      CLAUDE_CODE_ACTIVE_CATALOG.some((entry) =>
+      CLAUDE_CODE_LEGACY_CATALOG.some((entry) =>
         entry.model.includes("mythos"),
       ),
     ).toBe(false);
   });
 
-  it("contains the product default model exactly once", () => {
-    const defaults = CLAUDE_CODE_ACTIVE_CATALOG.filter(
-      (entry) => entry.model === DEFAULT_CLAUDE_CODE_MODEL,
-    );
+  it("retains the previously offered version-pinned selections without duplicates", () => {
+    const models = CLAUDE_CODE_LEGACY_CATALOG.map((entry) => entry.model);
 
-    expect(defaults.map((entry) => entry.model)).toEqual([
-      DEFAULT_CLAUDE_CODE_MODEL,
-    ]);
+    expect(models).toContain("claude-opus-5[1m]");
+    expect(new Set(models).size).toBe(models.length);
   });
 
   it("advertises a default reasoning effort each model actually supports", () => {
-    for (const entry of CLAUDE_CODE_ACTIVE_CATALOG) {
+    for (const entry of CLAUDE_CODE_LEGACY_CATALOG) {
       expect(
         entry.supportedReasoningEfforts.map((effort) => effort.reasoningEffort),
       ).toContain(entry.defaultReasoningEffort);

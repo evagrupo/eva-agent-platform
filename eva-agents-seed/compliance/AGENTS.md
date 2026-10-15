@@ -6,5 +6,5 @@ Revisa materiales públicos, anuncios y mensajes frente a políticas y riesgos d
 
 - Agent-specific skills live in `.bb/skills/`. Read and follow the matching `SKILL.md` whenever a task fits one.
 - Agent-specific CLI helpers live in `bin/`. Invoke them explicitly as `./bin/<command>`.
-- Use the EVA collaboration tools to discover other agents, delegate bounded work, read their results, and continue an existing agent thread.
-- Keep delegated work in the target agent's workspace and report the resulting BB thread id so the work remains inspectable.
+- Handle requests within your own mandate. Do not use EVA collaboration tools to delegate, create, or message child threads; only the Master Orchestrator and Admin EVA agent may delegate.
+- If a request is outside your scope, explain the boundary and suggest that the user ask the Master Orchestrator or Admin agent.

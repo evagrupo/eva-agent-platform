@@ -32,6 +32,7 @@ import {
 import { z } from "zod";
 import { ApiError } from "./errors.js";
 import {
+  EVA_REGISTERED_PROVIDER_IDS,
   evaAgentAllowsProvider,
   isKnownEvaAgentId,
   isKnownEvaProviderId,
@@ -247,6 +248,11 @@ export interface CoreAuthContext {
   email: string;
   name: string;
   sessionId: string;
+  agentCliScope?: {
+    threadId: string;
+    projectId: string;
+    agentId: string;
+  };
   role: CoreRole;
   policy: CorePolicy;
   policyRevision: number;
@@ -270,7 +276,7 @@ function evaAgentProviderAllowed(
   agentProviderIds?: ReadonlyMap<string, readonly string[]>,
 ): boolean {
   if (agentProviderIds?.has(agentId)) {
-    return agentProviderIds.get(agentId)?.includes(providerId) === true;
+    return permits(agentProviderIds.get(agentId) ?? [], providerId);
   }
   return isKnownEvaProviderId(providerId)
     ? evaAgentAllowsProvider(agentId, providerId)
@@ -1036,7 +1042,30 @@ export function canAccessResource(
   resourceId: string,
   mode: "read" | "write" = "read",
 ): boolean {
-  if (authContext === null || authContext.role === "admin") return true;
+  if (authContext === null) return true;
+  const cliScope = authContext.agentCliScope;
+  if (cliScope !== undefined) {
+    if (mode !== "read") return false;
+    if (resourceType === "environment" && cliScope.agentId === "admin") {
+      const environment = db
+        .select({ id: environments.id })
+        .from(environments)
+        .where(
+          and(
+            eq(environments.id, resourceId),
+            eq(environments.projectId, cliScope.projectId),
+          ),
+        )
+        .get();
+      if (environment === undefined) return false;
+    } else if (
+      resourceType !== "project" ||
+      resourceId !== cliScope.projectId
+    ) {
+      return false;
+    }
+  }
+  if (authContext.role === "admin") return true;
   const resourceCapability: Record<CoreResourceType, CoreCapability> = {
     project: "projects",
     host: "hosts",
@@ -2073,7 +2102,7 @@ export function assertExecutionAllowedForUser(
       : input;
   return assertExecutionAllowedForPolicy(resolved.policy, resolvedInput, {
     knownAgentIds: listEvaAgentIds(db),
-    agentProviderIds: listEvaAgentProviderIds(db),
+    agentProviderIds: listEvaAgentProviderIds(db, resolved.role),
   });
 }
 
@@ -2129,6 +2158,14 @@ export function isPluginAllowed(
   pluginId: string,
 ): boolean {
   const authContext = getCoreAuthContext(context);
+  if (authContext?.agentCliScope !== undefined) {
+    return isPluginAllowedByPolicyForAgent(
+      authContext.policy,
+      authContext.agentCliScope.agentId,
+      pluginId,
+      knownAgentIdsForAuthContext(authContext),
+    );
+  }
   return (
     authContext === null ||
     isPluginAllowedByPolicy(authContext.policy, pluginId)
@@ -2204,7 +2241,7 @@ export function allowedPluginIdsForContext(
   if (authContext === null) return undefined;
   return allowedPluginIdsForPolicy(
     authContext.policy,
-    agentId,
+    authContext.agentCliScope?.agentId ?? agentId,
     knownAgentIdsForAuthContext(authContext),
   );
 }
@@ -2272,6 +2309,7 @@ type ThreadAccessTarget = {
   id: string;
   ownerUserId?: string | null;
   agentId: string | null;
+  projectId?: string;
 };
 
 function threadAgentAllowed(
@@ -2292,6 +2330,12 @@ export function canReadThread(
   thread: ThreadAccessTarget,
 ): boolean {
   if (authContext === null) return true;
+  if (
+    authContext.agentCliScope !== undefined &&
+    thread.projectId !== authContext.agentCliScope.projectId
+  ) {
+    return false;
+  }
   if (authContext.role === "admin") return true;
   const ownRead = hasCoreCapability(authContext.policy, "threadOwnRead");
   const allRead = hasCoreCapability(authContext.policy, "threadAllRead");
@@ -2308,6 +2352,7 @@ export function canWriteThread(
   thread: ThreadAccessTarget,
 ): boolean {
   if (authContext === null) return true;
+  if (authContext.agentCliScope !== undefined) return false;
   if (authContext.role === "admin") return true;
   const ownWrite = hasCoreCapability(authContext.policy, "threadOwnWrite");
   const allWrite = hasCoreCapability(authContext.policy, "threadAllWrite");
@@ -2557,18 +2602,29 @@ export function policyBootstrapForContext(
   const allowedPluginIds = allowedPluginIdsForPolicy(policy);
   const agentTuples = policy.agentExecutionTuples ?? [];
   const agentCatalog = authContext.evaAgents ?? listAllowedEvaAgents(policy);
+  const administratorProviderIds = [
+    ...new Set([
+      ...EVA_REGISTERED_PROVIDER_IDS,
+      ...agentCatalog.flatMap((agent) => agent.providerIds),
+      ...providerModelIds.keys(),
+    ]),
+  ];
   const agents = agentCatalog
     .filter((agent) => permits(policy.allowedAgentIds, agent.id))
     .flatMap((agent) => {
       const tuples = agentTuples.filter((tuple) => tuple.agentId === agent.id);
+      const agentProviderIds =
+        authContext.role === "admin"
+          ? administratorProviderIds
+          : agent.providerIds;
       const permittedProviderIds =
         tuples.length > 0
-          ? agent.providerIds.filter((providerId) =>
+          ? agentProviderIds.filter((providerId) =>
               tuples.some((tuple) =>
                 permits(tuple.allowedProviderIds, providerId),
               ),
             )
-          : agent.providerIds.filter((providerId) =>
+          : agentProviderIds.filter((providerId) =>
               permits(policy.allowedProviderIds, providerId),
             );
       const providerHasPermittedModels = (providerId: string): boolean => {

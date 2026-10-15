@@ -3,9 +3,8 @@ import type {
   ModelReasoningEffort,
 } from "@get-bb/plugin-sdk/provider-bridge";
 import {
-  CLAUDE_CODE_ACTIVE_CATALOG_DATA,
+  CLAUDE_CODE_LEGACY_CATALOG_DATA,
   CLAUDE_XHIGH_CAPABLE_REASONING_EFFORT_DATA,
-  DEFAULT_CLAUDE_CODE_MODEL,
 } from "./model-catalog-data.js";
 
 export function cloneReasoningEfforts(
@@ -26,10 +25,8 @@ export interface ClaudeCodeCatalogEntry {
 export const CLAUDE_XHIGH_CAPABLE_REASONING_EFFORTS: readonly ModelReasoningEffort[] =
   CLAUDE_XHIGH_CAPABLE_REASONING_EFFORT_DATA.map((effort) => ({ ...effort }));
 
-export { DEFAULT_CLAUDE_CODE_MODEL };
-
-export const CLAUDE_CODE_ACTIVE_CATALOG: readonly ClaudeCodeCatalogEntry[] =
-  CLAUDE_CODE_ACTIVE_CATALOG_DATA.map((entry) => ({
+export const CLAUDE_CODE_LEGACY_CATALOG: readonly ClaudeCodeCatalogEntry[] =
+  CLAUDE_CODE_LEGACY_CATALOG_DATA.map((entry) => ({
     id: entry.model,
     model: entry.model,
     displayName: entry.displayName,

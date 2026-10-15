@@ -37,12 +37,23 @@ export const EVA_AGENT_TOOL_NAMES = [
 ] as const;
 
 const evaAgentToolNameSet = new Set<string>(EVA_AGENT_TOOL_NAMES);
+const evaAgentDelegatorIds = new Set(["orchestrator", "admin"]);
+
+export function isEvaAgentDelegator(
+  agentId: string | null | undefined,
+): boolean {
+  return (
+    agentId !== null &&
+    agentId !== undefined &&
+    evaAgentDelegatorIds.has(agentId)
+  );
+}
 
 export const EVA_AGENT_COLLABORATION_INSTRUCTIONS =
-  "Only the EVA Master Orchestrator may create EVA child threads by calling eva_delegate_to_agent. In an Orchestrator thread, use EVA collaboration tools to discover approved specialists, delegate bounded work into inspectable BB child threads, read their latest results, and send follow-up messages. Treat a resolved @EVA-agent mention as a delegation target only when the user also gives a concrete task; formulate a bounded task with a clear expected output and call eva_delegate_to_agent. A mention by itself is not authorization to start work: ask what the user wants that agent to do. Do not claim delegated work is complete until you read the child's result. Keep each delegation within the target agent's mandate, preserve human-approval boundaries, and never expose server filesystem paths or credentials.";
+  "Only the EVA Master Orchestrator and the Admin EVA agent may create EVA child threads by calling eva_delegate_to_agent. In either authorized thread, use EVA collaboration tools only for agents and tools permitted by the current policy; delegate bounded tasks into inspectable BB child threads, read their results, and send follow-ups when needed. In an Orchestrator thread, route a resolved @EVA-agent mention only when the user gives a concrete task; a mention alone is not authorization to start work. In an Admin thread, delegate when the user explicitly requests delegation or clearly assigns a concrete task to another named agent. When answering questions about what an agent does or inspecting its source workspace, Admin must inspect the files directly instead of delegating. Do not claim delegated work is complete until you read the child's result. Keep each delegation within the target agent's mandate, preserve human-approval boundaries, and never expose server filesystem paths or credentials.";
 
 export const EVA_AGENT_SPECIALIST_INSTRUCTIONS =
-  "Only the EVA Master Orchestrator may create or delegate work to EVA child threads. Handle requests directly within your own mandate. Do not call EVA collaboration tools, create or message child threads, or ask another agent to do work. If a request is outside your scope, explain the boundary and suggest that the user ask the Master Orchestrator.";
+  "Only the EVA Master Orchestrator and the Admin EVA agent may create or delegate work to EVA child threads. Handle requests directly within your own mandate. Do not call EVA collaboration tools, create or message child threads, or ask another agent to do work. If a request is outside your scope, explain the boundary and suggest that the user ask the Master Orchestrator or Admin agent.";
 
 const evaAgentIdInputSchema = z
   .string()
@@ -378,11 +389,11 @@ export async function handleEvaAgentToolCall(
       return response(true, JSON.stringify(agents));
     }
     case "eva_delegate_to_agent": {
-      if (args.thread.agentId !== "orchestrator") {
+      if (!isEvaAgentDelegator(args.thread.agentId)) {
         throw new ApiError(
           403,
           "policy_denied",
-          "Only the EVA Master Orchestrator can delegate work to another agent",
+          "Only the EVA Master Orchestrator and Admin EVA agent can delegate work to another agent",
         );
       }
       const input = parseToolInput(delegateInputSchema, args.input);

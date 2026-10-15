@@ -43,11 +43,11 @@ export async function resolvePermissionMode(
     );
   }
   if (requested !== undefined) return requested;
-  if (provider.capabilities.permissionModes.includes("auto")) {
-    return "auto";
-  }
   if (provider.capabilities.permissionModes.includes("full")) {
     return "full";
+  }
+  if (provider.capabilities.permissionModes.includes("auto")) {
+    return "auto";
   }
   throw new Error(
     `Provider ${providerId} has no supported default permission mode.`,

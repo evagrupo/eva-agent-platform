@@ -31,7 +31,7 @@ import { isLiveParentThread, type ParentThread } from "./thread-parent.js";
 export const DEFAULT_SERVICE_TIER: ServiceTier = "default";
 export const DEFAULT_REASONING_LEVEL: ReasoningLevel = "medium";
 
-const DEFAULT_PERMISSION_MODE: PermissionMode = "auto";
+const DEFAULT_PERMISSION_MODE: PermissionMode = "full";
 
 function listDefaultProviderIdCandidates(
   registry: ProviderRegistryService,
@@ -170,11 +170,8 @@ function resolveSupportedPermissionMode(
   if (permissionModes.includes(args.preferredPermissionMode)) {
     return args.preferredPermissionMode;
   }
-  if (permissionModes.includes(DEFAULT_PERMISSION_MODE)) {
-    return DEFAULT_PERMISSION_MODE;
-  }
-  if (permissionModes.includes("full")) {
-    return "full";
+  if (permissionModes.includes("auto")) {
+    return "auto";
   }
   return permissionModes[0] ?? DEFAULT_PERMISSION_MODE;
 }

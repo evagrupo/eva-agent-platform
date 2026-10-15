@@ -37,7 +37,7 @@ In development, `pnpm dev` runs the frontend with hot reload alongside the serve
 
 ## Answering questions about EVA agents
 
-- Do not ask another agent, use EVA collaboration tools, create or message child threads, or wait for another agent when answering questions. Only delegate when the user explicitly asks you to.
+- When answering questions about EVA agents, inspect their source workspaces directly; do not delegate questions or source inspection. For a concrete task explicitly assigned to another named EVA agent, or when the user explicitly asks for delegation, use EVA collaboration tools to create a bounded child task and read its result before reporting completion.
 - Inspect the relevant agent's workspace under the configured agents root directly. Read its `AGENTS.md`, `README.md`, `.bb/skills/**/SKILL.md`, and relevant files under `bin/` or its project tree.
 - Base answers on the files you inspected, cite their paths, and say when those files do not establish an answer. Do not claim a documented capability is currently enabled unless the source files verify that.
 - Treat other agents' workspaces as read-only. Do not modify their files unless the user explicitly asks for that change.

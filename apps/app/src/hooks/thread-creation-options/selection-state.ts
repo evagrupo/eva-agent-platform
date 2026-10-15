@@ -138,7 +138,7 @@ export function getInitialThreadPromptSelections(
     selectedModel: options?.initialModel ?? "",
     serviceTier: options?.initialServiceTier,
     reasoningLevel: options?.initialReasoningLevel ?? "medium",
-    permissionMode: options?.initialPermissionMode ?? "auto",
+    permissionMode: options?.initialPermissionMode ?? "full",
     environmentSelectionValue: options?.initialEnvironmentSelectionValue ?? "",
   };
 }
@@ -303,11 +303,11 @@ export function resolvePermissionModeSelection({
   if (permissionModes.includes(rawPermissionMode)) {
     return rawPermissionMode;
   }
-  if (permissionModes.includes("auto")) {
-    return "auto";
-  }
   if (permissionModes.includes("full")) {
     return "full";
+  }
+  if (permissionModes.includes("auto")) {
+    return "auto";
   }
   return permissionModes[0] ?? "auto";
 }

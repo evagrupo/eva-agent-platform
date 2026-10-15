@@ -30,6 +30,14 @@ provider whose models do not match the effective rules returns an empty catalog.
 Agent assignment initially creates grants from the agent's catalog defaults,
 so those grants may need editing after a base policy changes.
 
+Administrator accounts may select any enabled, installed provider and its
+advertised models for every EVA agent, including agents with a pinned source
+provider. A source provider remains the agent's default; it does not limit an
+administrator's picker or execution. Bootstrap, execution-options, thread
+creation, and owner-policy rechecks apply the same administrator exception.
+Regular users remain subject to the agent's provider list and their effective
+policy and grants. Provider installation and authentication are still required.
+
 Model rules accept an exact ID or a trailing `*` prefix pattern. Bare catalog
 IDs and provider-prefixed runtime IDs match each other, while two explicitly
 different namespaces remain distinct. Policy/group/grant intersections retain
@@ -60,6 +68,27 @@ not replace the core session gate for the standalone app. In development,
 `BB_AUTH_REQUIRED` defaults to false to preserve local unauthenticated BB
 compatibility; a supplied but invalid or revoked core session cookie still
 returns unauthorized. Production cannot disable the core gate.
+
+## Agent CLI credentials
+
+The server injects `BB_AGENT_CLI_TOKEN` into authorized agent runtimes. The CLI
+uses it only for requests to that runtime's configured EVA API. It is a signed,
+one-hour, user/thread/project/agent-bound credential, not a BB account login or
+an unrestricted administrator session. Every request rechecks the owner, agent
+assignment, principal status, and current policy.
+
+An Admin agent can inspect permitted threads in its current project through
+`bb thread show`, `bb thread log` (text and JSON), and `bb thread output`. The
+equivalent SDK/API thread metadata, events, timeline, output, and environment
+metadata reads use the same policy. Admin receives this credential even when
+Automations is not permitted. It does not acquire access to another user's
+threads unless the user's effective policy already permits those reads.
+
+Specialists retain their existing Automations and basic discovery routes,
+without Admin's added log, timeline, output, or environment reads. Neither
+credential allows general thread mutations, account/settings administration,
+cross-project reads, arbitrary host/file APIs, or a forged agent identity.
+Automations commands still require that integration's current policy approval.
 
 ## Database changes
 

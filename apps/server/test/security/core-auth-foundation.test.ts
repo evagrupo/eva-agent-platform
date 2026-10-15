@@ -16,17 +16,21 @@ import { systemExecutionOptionsResponseSchema } from "@bb/server-contract";
 import { PERSONAL_PROJECT_ID, threadSchema } from "@bb/domain";
 import { describe, expect, it } from "vitest";
 import {
+  assertExecutionAllowedForUser,
+  defaultAdminPolicy,
   defaultUserPolicy,
   grantCoreResourceAccess,
 } from "../../src/access-policy.js";
 import { isPluginAggregateRoutePath } from "../../src/routes/plugins.js";
 import {
   createTestDb,
+  startTestServer,
   withTestHarness,
   type TestAppHarness,
 } from "../helpers/test-app.js";
 import {
   seedHostSession,
+  seedEnvironment,
   seedPrimaryHost,
   seedProjectWithSource,
   seedQueuedMessage,
@@ -199,6 +203,361 @@ function insertAgentGrant(
 }
 
 describe("core auth foundation", () => {
+  it("allows Admin CLI thread inspection without granting management or cross-project access", async () => {
+    const harness = await startTestServer({ authRequired: true });
+    try {
+      await seedIdentity(harness, {
+        email: ADMIN_EMAIL,
+        name: "Admin",
+        password: ADMIN_PASSWORD,
+        role: "admin",
+        userId: "admin-cli-reader",
+      });
+      const { project, threadA, threadB } = await seedOwnedThreads(harness, {
+        a: "admin-cli-reader",
+        b: "admin-cli-reader",
+      });
+      const environment = seedEnvironment(harness.deps, {
+        hostId: "auth-host",
+        projectId: project.id,
+      });
+      harness.db
+        .update(threads)
+        .set({ agentId: "admin" })
+        .where(eq(threads.id, threadA.id))
+        .run();
+      harness.db
+        .update(threads)
+        .set({ agentId: "compliance", environmentId: environment.id })
+        .where(eq(threads.id, threadB.id))
+        .run();
+      harness.db
+        .update(authPolicies)
+        .set({
+          policyJson: JSON.stringify({
+            ...defaultAdminPolicy,
+            allowedPluginIds: [],
+          }),
+        })
+        .where(eq(authPolicies.id, "admin"))
+        .run();
+      const token = harness.coreAuth.issueAgentCliToken({
+        userId: "admin-cli-reader",
+        threadId: threadA.id,
+        projectId: project.id,
+        agentId: "admin",
+      });
+      expect(token).not.toBeNull();
+      const headers = { "x-bb-agent-cli-token": token! };
+      for (const route of [
+        `/threads/${threadB.id}`,
+        `/threads/${threadB.id}/events?limit=1`,
+        `/threads/${threadB.id}/timeline?summaryOnly=true`,
+        `/threads/${threadB.id}/output`,
+        `/environments/${environment.id}`,
+      ]) {
+        const response = await harness.app.request(`/api/v1${route}`, {
+          headers,
+        });
+        expect(response.status, route).toBe(200);
+      }
+      const { project: outsideProject } = seedProjectWithSource(harness.deps, {
+        hostId: "auth-host",
+        path: "/tmp/admin-cli-outside-project",
+      });
+      const outsideEnvironment = seedEnvironment(harness.deps, {
+        hostId: "auth-host",
+        projectId: outsideProject.id,
+      });
+      const outsideThread = createThread(harness.db, harness.hub, {
+        projectId: outsideProject.id,
+        ownerUserId: "admin-cli-reader",
+        agentId: "compliance",
+        providerId: "codex",
+        status: "idle",
+        title: "Outside project",
+        titleFallback: "Outside project",
+        visibility: "visible",
+      });
+      for (const route of [
+        `/threads/${outsideThread.id}`,
+        `/threads/${outsideThread.id}/output`,
+        `/environments/${outsideEnvironment.id}`,
+        "/access/users",
+        "/settings",
+      ]) {
+        expect(
+          (await harness.app.request(`/api/v1${route}`, { headers })).status,
+          route,
+        ).toBe(403);
+      }
+      for (const method of ["PATCH", "DELETE", "POST"]) {
+        const response = await harness.app.request(
+          `/api/v1/threads/${threadB.id}`,
+          {
+            method,
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ title: "Not authorized" }),
+          },
+        );
+        expect(response.status, method).toBe(403);
+      }
+      harness.coreAuth.setUserAccess({
+        userId: "admin-cli-reader",
+        status: "revoked",
+      });
+      expect(
+        (
+          await harness.app.request(`/api/v1/threads/${threadB.id}/output`, {
+            headers,
+          })
+        ).status,
+      ).toBe(401);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("keeps Admin CLI reads within the user's current grants and ownership", async () => {
+    const harness = await startTestServer({ authRequired: true });
+    try {
+      await seedIdentity(harness, {
+        email: USER_A_EMAIL,
+        name: "Admin agent user",
+        password: USER_A_PASSWORD,
+        userId: "admin-cli-user",
+      });
+      await seedIdentity(harness, {
+        email: USER_B_EMAIL,
+        name: "Another user",
+        password: USER_B_PASSWORD,
+        userId: "admin-cli-other-user",
+      });
+      insertAgentGrant(harness, {
+        id: "admin-cli-user-grant",
+        userId: "admin-cli-user",
+        agentId: "admin",
+      });
+      const { project, threadA, threadB } = await seedOwnedThreads(harness, {
+        a: "admin-cli-user",
+        b: "admin-cli-other-user",
+      });
+      harness.db
+        .update(threads)
+        .set({ agentId: "admin" })
+        .where(eq(threads.id, threadA.id))
+        .run();
+      harness.db
+        .update(threads)
+        .set({ agentId: "admin" })
+        .where(eq(threads.id, threadB.id))
+        .run();
+      const token = harness.coreAuth.issueAgentCliToken({
+        userId: "admin-cli-user",
+        threadId: threadA.id,
+        projectId: project.id,
+        agentId: "admin",
+      });
+      expect(token).not.toBeNull();
+      const headers = { "x-bb-agent-cli-token": token! };
+      expect(
+        (
+          await harness.app.request(`/api/v1/threads/${threadA.id}/output`, {
+            headers,
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await harness.app.request(`/api/v1/threads/${threadB.id}/output`, {
+            headers,
+          })
+        ).status,
+      ).toBe(403);
+      harness.db
+        .delete(authAgentGrants)
+        .where(eq(authAgentGrants.id, "admin-cli-user-grant"))
+        .run();
+      expect(
+        (
+          await harness.app.request(`/api/v1/threads/${threadA.id}/output`, {
+            headers,
+          })
+        ).status,
+      ).toBe(401);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("does not grant Admin thread-log permissions to a specialist owned by an administrator", async () => {
+    const harness = await startTestServer({ authRequired: true });
+    try {
+      await seedIdentity(harness, {
+        email: ADMIN_EMAIL,
+        name: "Admin",
+        password: ADMIN_PASSWORD,
+        role: "admin",
+        userId: "specialist-cli-owner",
+      });
+      const { project, threadA } = await seedOwnedThreads(harness, {
+        a: "specialist-cli-owner",
+        b: "specialist-cli-owner",
+      });
+      const token = harness.coreAuth.issueAgentCliToken({
+        userId: "specialist-cli-owner",
+        threadId: threadA.id,
+        projectId: project.id,
+        agentId: "creative",
+      });
+      expect(token).not.toBeNull();
+      const headers = { "x-bb-agent-cli-token": token! };
+      for (const endpoint of ["events", "timeline", "output"]) {
+        expect(
+          (
+            await harness.app.request(
+              `/api/v1/threads/${threadA.id}/${endpoint}`,
+              { headers },
+            )
+          ).status,
+        ).toBe(403);
+      }
+      expect(
+        harness.coreAuth.issueAgentCliToken({
+          userId: "specialist-cli-owner",
+          threadId: threadA.id,
+          projectId: project.id,
+          agentId: "admin",
+        }),
+      ).toBeNull();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("limits agent CLI credentials to Automations and their current project", async () => {
+    const harness = await startTestServer({ authRequired: true });
+    try {
+      harness.pluginService.bindSdk({ baseUrl: harness.baseUrl });
+      await seedIdentity(harness, {
+        email: ADMIN_EMAIL,
+        name: "Admin",
+        password: ADMIN_PASSWORD,
+        role: "admin",
+        userId: "agent-cli-admin",
+      });
+      const { project, threadA } = await seedOwnedThreads(harness, {
+        a: "agent-cli-admin",
+        b: "agent-cli-admin",
+      });
+      const automationPlugin = await harness.pluginService.install(
+        "builtin:automations",
+        { kind: "root" },
+      );
+      expect(automationPlugin.status).toBe("running");
+      const token = harness.coreAuth.issueAgentCliToken({
+        userId: "agent-cli-admin",
+        threadId: threadA.id,
+        projectId: project.id,
+        agentId: "creative",
+      });
+      expect(token).not.toBeNull();
+      const headers = { "x-bb-agent-cli-token": token! };
+      const tamperedToken = `${token![0] === "a" ? "b" : "a"}${token!.slice(1)}`;
+      expect(
+        (
+          await harness.app.request("/api/v1/plugins/contributions", {
+            headers: { "x-bb-agent-cli-token": tamperedToken },
+          })
+        ).status,
+      ).toBe(401);
+
+      const contributionsResponse = await harness.app.request(
+        "/api/v1/plugins/contributions",
+        { headers },
+      );
+      expect(contributionsResponse.status).toBe(200);
+      expect(await contributionsResponse.json()).toMatchObject({
+        cliCommands: expect.arrayContaining([
+          expect.objectContaining({ pluginId: "automations" }),
+        ]),
+      });
+      const automationResponse = await harness.app.request(
+        "/api/v1/plugins/automations/cli",
+        {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({
+            argv: [
+              "create",
+              "--project",
+              project.id,
+              "--name",
+              "Scoped agent automation",
+              "--in",
+              "1d",
+              "--script",
+              "printf test",
+              "--disabled",
+              "--json",
+            ],
+            cwd: "/",
+            threadId: threadA.id,
+            projectId: project.id,
+          }),
+        },
+      );
+      expect(automationResponse.status).toBe(200);
+      expect(await automationResponse.json()).toMatchObject({
+        exitCode: 0,
+        stderr: "",
+      });
+      expect(
+        (await harness.app.request("/api/v1/access/users", { headers })).status,
+      ).toBe(403);
+      expect(
+        (
+          await harness.app.request(
+            `/api/v1/threads?projectId=${PERSONAL_PROJECT_ID}`,
+            { headers },
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await harness.app.request("/api/v1/plugins/automations/cli", {
+            method: "POST",
+            headers: {
+              ...headers,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              argv: ["list"],
+              threadId: "thr_outside_scope",
+              projectId: project.id,
+            }),
+          })
+        ).status,
+      ).toBe(403);
+
+      expect(
+        harness.coreAuth.setUserAccess({
+          userId: "agent-cli-admin",
+          status: "revoked",
+        }),
+      ).toBe(true);
+      expect(
+        (
+          await harness.app.request("/api/v1/plugins/contributions", {
+            headers,
+          })
+        ).status,
+      ).toBe(401);
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("repairs an existing same-email owner credential during first-principal bootstrap", async () => {
     const db = createTestDb();
     const now = new Date();
@@ -683,6 +1042,11 @@ describe("core auth foundation", () => {
         a: "user-a",
         b: "user-b",
       });
+      harness.db
+        .update(authAgentGrants)
+        .set({ permissionMode: "full" })
+        .where(eq(authAgentGrants.id, "user-a-creative"))
+        .run();
       const cookie = await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD);
       const headers = { cookie };
       const defaults = await harness.app.request(
@@ -693,7 +1057,7 @@ describe("core auth foundation", () => {
       expect(await defaults.json()).toMatchObject({
         model: "allowed-model",
         reasoningLevel: "low",
-        permissionMode: "auto",
+        permissionMode: "full",
       });
 
       const update = await harness.app.request(
@@ -722,6 +1086,140 @@ describe("core auth foundation", () => {
         }),
       });
       expect(create.status).toBe(403);
+    });
+  });
+
+  it("exposes every administrator provider and model for pinned agents without widening user access", async () => {
+    await withTestHarness({ authRequired: true }, async (harness) => {
+      await seedIdentity(harness, {
+        email: ADMIN_EMAIL,
+        name: "Administrator",
+        password: ADMIN_PASSWORD,
+        role: "admin",
+        userId: "admin-user",
+      });
+      await seedIdentity(harness, {
+        email: USER_A_EMAIL,
+        name: "User A",
+        password: USER_A_PASSWORD,
+        userId: "user-a",
+      });
+      insertAgentGrant(harness, {
+        agentId: "creative",
+        id: "user-a-creative",
+        userId: "user-a",
+      });
+      const { host, session } = seedHostSession(harness.deps);
+      seedPrimaryHost(harness.deps, host.id);
+      const providerIds = ["codex", "claude-code", "pi", "acp-cursor"];
+      const models = [
+        availableModelFixture({
+          model: "first-model",
+          reasoningLevels: ["low", "high"],
+        }),
+        availableModelFixture({
+          model: "second-model",
+          reasoningLevels: ["low", "high"],
+        }),
+      ];
+      const responder = registerProviderHostRpcResponder(harness, {
+        hostId: host.id,
+        sessionId: session.id,
+        modelsByProviderId: Object.fromEntries(
+          providerIds.map((id) => [
+            id,
+            {
+              models,
+              selectedOnlyModels: [],
+            },
+          ]),
+        ),
+      });
+      try {
+        const adminHeaders = {
+          cookie: await signIn(harness, ADMIN_EMAIL, ADMIN_PASSWORD),
+        };
+        const userHeaders = {
+          cookie: await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD),
+        };
+        const bootstrap = await harness.app.request(
+          "/api/v1/access/bootstrap",
+          {
+            headers: adminHeaders,
+          },
+        );
+        expect(bootstrap.status, await bootstrap.clone().text()).toBe(200);
+        expect(await bootstrap.json()).toMatchObject({
+          capabilities: {
+            execution: {
+              agents: expect.arrayContaining(
+                ["creative", "admin"].map((id) =>
+                  expect.objectContaining({
+                    id,
+                    providerIds: expect.arrayContaining(providerIds),
+                    defaultProviderId: "codex",
+                    defaultModel: "gpt-5.6-luna",
+                  }),
+                ),
+              ),
+            },
+          },
+        });
+        for (const agentId of ["creative", "admin"]) {
+          for (const providerId of providerIds) {
+            const response = await harness.app.request(
+              `/api/v1/system/execution-options?agentId=${agentId}&providerId=${providerId}`,
+              { headers: adminHeaders },
+            );
+            expect(response.status, await response.clone().text()).toBe(200);
+            const body = systemExecutionOptionsResponseSchema.parse(
+              await response.json(),
+            );
+            expect(body.modelLoadError).toBeNull();
+            expect(body.providers).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({ id: providerId }),
+              ]),
+            );
+            expect(body.models.map((model) => model.model)).toEqual([
+              "first-model",
+              "second-model",
+            ]);
+            expect(
+              assertExecutionAllowedForUser(harness.db, "admin-user", {
+                agentId,
+                providerId,
+                model: "second-model",
+                reasoningLevel: "high",
+                permissionMode: "full",
+                requireComplete: true,
+              }),
+            ).toMatchObject({ agentId, providerId, model: "second-model" });
+          }
+        }
+        const denied = await harness.app.request(
+          "/api/v1/system/execution-options?agentId=creative&providerId=claude-code",
+          { headers: userHeaders },
+        );
+        expect(denied.status).toBe(403);
+        expect(() =>
+          assertExecutionAllowedForUser(harness.db, "user-a", {
+            agentId: "creative",
+            providerId: "claude-code",
+            model: "allowed-model",
+            reasoningLevel: "low",
+            permissionMode: "auto",
+            requireComplete: true,
+          }),
+        ).toThrow();
+        const unknown = await harness.app.request(
+          "/api/v1/system/execution-options?agentId=unknown-agent&providerId=claude-code",
+          { headers: adminHeaders },
+        );
+        expect(unknown.status).toBe(403);
+      } finally {
+        responder.unregister();
+      }
     });
   });
 

@@ -12,6 +12,19 @@ policy controls which agents and execution tuples a user can see or run.
 Agent workspaces are server-managed under the EVA data directory; the API and
 CLI expose relative workspace manifests only.
 
+Inside an Admin agent thread, the server provides scoped CLI credentials for
+read-only diagnosis of policy-readable threads in the same project:
+
+  bb thread show <thread-id> [--json]
+  bb thread log <thread-id> [--json]
+  bb thread output <thread-id>
+
+These reads also work through the corresponding SDK thread APIs. No BB account
+login or Automations grant is needed for Admin inspection. The credential does
+not authorize thread mutations, settings/account administration, cross-project
+reads, or reads beyond the user's existing policy. Other agents do not inherit
+Admin's inspection routes. Never print the injected credential.
+
 Administrator-only Git workspace synchronization preserves allowed files while
 keeping credentials, runtime state, the EVA fork, and the database outside the
 repository:

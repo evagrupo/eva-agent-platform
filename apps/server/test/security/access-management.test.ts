@@ -18,6 +18,7 @@ import {
   grantCoreResourceAccess,
   resolveCorePolicy,
 } from "../../src/access-policy.js";
+import { ensureEvaAgentRegistry } from "../../src/agents/eva-agent-registry.js";
 import { resolveCoreRuntimeInstructions } from "../../src/access-management.js";
 import { withTestHarness } from "../helpers/test-app.js";
 import { seedHostSession, seedProjectWithSource } from "../helpers/seed.js";
@@ -285,6 +286,7 @@ describe("access management", () => {
         }),
       });
       expect(grant.status).toBe(201);
+      ensureEvaAgentRegistry(harness.db);
 
       const assignDefaultAgent = await harness.app.request(
         `/api/v1/access/users/${created.id}`,
@@ -307,7 +309,7 @@ describe("access management", () => {
         providerId: "codex",
         model: "gpt-5.6-luna",
         reasoningLevel: "max",
-        permissionMode: "accept-edits",
+        permissionMode: "full",
       });
 
       const { host } = seedHostSession(harness.deps, {
@@ -377,7 +379,7 @@ describe("access management", () => {
           defaultProviderId: "codex",
           defaultModel: "gpt-5.6-luna",
           defaultReasoningLevel: "max",
-          defaultPermissionMode: "accept-edits",
+          defaultPermissionMode: "full",
         }),
       ]);
       const unauthorizedDefault = await harness.app.request(

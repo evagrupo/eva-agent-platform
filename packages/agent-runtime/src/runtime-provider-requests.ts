@@ -169,6 +169,19 @@ function buildAutoApprovedToolUseResolution(
   return null;
 }
 
+function buildAutoApprovedApprovalResolution(
+  payload: PendingInteractionPayload,
+): PendingInteractionResolution | null {
+  if (!isApprovalPendingInteractionPayload(payload)) return null;
+  if (payload.availableDecisions.includes("allow_once")) {
+    return { decision: "allow_once", grantedPermissions: null };
+  }
+  if (payload.availableDecisions.includes("allow_for_session")) {
+    return { decision: "allow_for_session", grantedPermissions: null };
+  }
+  return null;
+}
+
 function resolveRuntimeProviderRequestTurnId(
   args: ResolveRuntimeProviderRequestTurnIdArgs,
 ): string | null {
@@ -312,21 +325,27 @@ function handleInteractiveProviderRequest(
   );
   const runtimeOwnsApprovalPolicy =
     args.providerProcess.adapter.approvalEnforcedBy === "runtime";
-  const executionOptions = runtimeOwnsApprovalPolicy
+  const executionOptions = isApprovalRequest
     ? args.getThreadExecutionOptions(resolvedThreadId)
     : undefined;
-  const shouldAutoDenyApprovalRequest =
-    isApprovalRequest &&
-    ((runtimeOwnsApprovalPolicy && executionOptions
-      ? shouldAutoDenyInteractiveRequest(executionOptions)
-      : false) ||
-      !args.onInteractiveRequest);
-  const autoApprovedResolution =
+  const policyDeniesApprovalRequest =
     isApprovalRequest &&
     runtimeOwnsApprovalPolicy &&
-    !shouldAutoDenyApprovalRequest
-      ? buildAutoApprovedToolUseResolution(interactiveReq.payload)
+    executionOptions !== undefined &&
+    shouldAutoDenyInteractiveRequest(executionOptions);
+  const autoApprovedResolution =
+    isApprovalRequest && !policyDeniesApprovalRequest
+      ? executionOptions?.permissionMode === "full" &&
+        executionOptions.permissionEscalation !== "deny"
+        ? buildAutoApprovedApprovalResolution(interactiveReq.payload)
+        : runtimeOwnsApprovalPolicy && args.onInteractiveRequest
+          ? buildAutoApprovedToolUseResolution(interactiveReq.payload)
+          : null
       : null;
+  const shouldAutoDenyApprovalRequest =
+    isApprovalRequest &&
+    (policyDeniesApprovalRequest ||
+      (!args.onInteractiveRequest && autoApprovedResolution === null));
   if (shouldAutoDenyApprovalRequest) {
     try {
       const resolution = buildDeniedInteractiveResolution(

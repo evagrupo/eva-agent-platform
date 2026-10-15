@@ -19,6 +19,9 @@ does not call it.
 For explicit, administrator-controlled Git backup and migration of agent
 workspaces, see [EVA workspace Git synchronization](eva-workspace-sync.md).
 
+For the global agent instruction file and temporary browser previews with all
+assets served over HTTPS, see [EVA preview sharing](eva-preview-sharing.md).
+
 ## Install
 
 The commands below assume a Debian-like Linux host with systemd, Node.js

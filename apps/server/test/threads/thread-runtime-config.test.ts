@@ -166,6 +166,114 @@ function registerRemoteRuntimeFileResponder(
 }
 
 describe("thread runtime config", () => {
+  it.each([
+    { agentId: "admin", receivesCredential: true },
+    { agentId: "creative", receivesCredential: false },
+  ])(
+    "resolves $agentId CLI credentials independently of Automations access",
+    async ({ agentId, receivesCredential }) => {
+      await withTestHarness(async (harness) => {
+        const now = new Date();
+        const userId = "admin-cli-runtime-owner";
+        harness.db
+          .insert(authUsers)
+          .values({
+            id: userId,
+            name: "Admin",
+            email: "admin-cli-runtime@eva.test",
+            emailVerified: true,
+            image: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        harness.db
+          .insert(authPrincipals)
+          .values({
+            userId,
+            role: "user",
+            status: "active",
+            policyId: "user",
+            revision: 1,
+            updatedAt: Date.now(),
+          })
+          .run();
+        harness.db
+          .update(authPolicies)
+          .set({
+            policyJson: JSON.stringify({
+              ...defaultUserPolicy,
+              allowedPluginIds: [],
+            }),
+          })
+          .where(eq(authPolicies.id, "user"))
+          .run();
+        harness.db
+          .insert(authAgentGrants)
+          .values({
+            id: "admin-cli-runtime-grant",
+            userId,
+            groupId: null,
+            agentId,
+            providerIdsJson: JSON.stringify(["codex"]),
+            modelPatternsJson: JSON.stringify(["test-model"]),
+            reasoningLevelsJson: JSON.stringify(["low"]),
+            fixedExecution: false,
+            permissionMode: "full",
+            terminalAccess: "none",
+            toolIdsJson: JSON.stringify([]),
+            pluginIdsJson: JSON.stringify([]),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          })
+          .run();
+        const { host, session } = seedHostSession(harness.deps);
+        const { project } = seedProjectWithSource(harness.deps, {
+          hostId: host.id,
+        });
+        const environment = seedEnvironment(harness.deps, {
+          hostId: host.id,
+          projectId: project.id,
+        });
+        const responder = registerRemoteRuntimeFileResponder(harness, {
+          hostId: host.id,
+          sessionId: session.id,
+          files: new Map(),
+        });
+        try {
+          const thread = createThread(harness.db, harness.hub, {
+            projectId: project.id,
+            environmentId: environment.id,
+            ownerUserId: userId,
+            agentId,
+            providerId: "codex",
+            status: "idle",
+            title: "CLI runtime",
+            titleFallback: "CLI runtime",
+            visibility: "visible",
+          });
+          const config = await resolveThreadRuntimeCommandConfig(harness.deps, {
+            thread,
+            model: "test-model",
+            environment: {
+              id: environment.id,
+              hostId: host.id,
+              path: environment.path,
+              status: environment.status,
+            },
+          });
+          expect(
+            config.contributedEnv.some(
+              (entry) => entry.name === "BB_AGENT_CLI_TOKEN",
+            ),
+          ).toBe(receivesCredential);
+        } finally {
+          responder.unregister();
+        }
+      });
+    },
+  );
+
   it("carries a configured ACP agent's launch spec on thread start and turn submit", async () => {
     await withTestHarness(
       {
@@ -425,16 +533,16 @@ describe("thread runtime config", () => {
   it.each([
     {
       childProviderId: "codex",
-      expectedPermissionMode: "auto",
+      expectedPermissionMode: "full",
       parentProviderId: null,
-      name: "defaults root-thread execution permission mode to auto",
+      name: "defaults root-thread execution permission mode to Full Access",
       requestedModel: "gpt-5",
     },
     {
       childProviderId: "codex",
-      expectedPermissionMode: "auto",
+      expectedPermissionMode: "full",
       parentProviderId: "codex",
-      name: "defaults child execution permission mode to auto without parent history or project defaults",
+      name: "defaults child execution permission mode to Full Access without parent history or project defaults",
       requestedModel: "gpt-5",
     },
     {
@@ -1644,6 +1752,25 @@ describe("thread runtime config", () => {
           updatedAt: Date.now(),
         })
         .run();
+      harness.db
+        .insert(authAgentGrants)
+        .values({
+          id: "admin-runtime-grant",
+          userId: "orchestrator-runtime-owner",
+          groupId: null,
+          agentId: "admin",
+          providerIdsJson: JSON.stringify(["codex"]),
+          modelPatternsJson: JSON.stringify(["test-model"]),
+          reasoningLevelsJson: JSON.stringify(["high"]),
+          fixedExecution: false,
+          permissionMode: null,
+          terminalAccess: "none",
+          toolIdsJson: JSON.stringify(EVA_AGENT_TOOL_NAMES),
+          pluginIdsJson: JSON.stringify([]),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        })
+        .run();
 
       const { host } = seedHostSession(harness.deps, {
         id: "host-orchestrator-runtime-tools",
@@ -1687,10 +1814,44 @@ describe("thread runtime config", () => {
         expect.arrayContaining([...EVA_AGENT_TOOL_NAMES]),
       );
       expect(runtimeConfig.instructions).toContain(
-        "Treat a resolved @EVA-agent mention as a delegation target",
+        "In an Orchestrator thread, route a resolved @EVA-agent mention",
       );
       expect(runtimeConfig.instructions).toContain(
         "Do not claim delegated work is complete until you read the child's result.",
+      );
+
+      const adminThread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        environmentId: environment.id,
+        ownerUserId: "orchestrator-runtime-owner",
+        agentId: "admin",
+        providerId: "codex",
+        status: "idle",
+        title: "Admin runtime",
+        titleFallback: "Admin runtime",
+        visibility: "visible",
+      });
+      const adminConfig = await resolveThreadRuntimeCommandConfig(
+        harness.deps,
+        {
+          thread: adminThread,
+          model: "test-model",
+          environment: {
+            hostId: environment.hostId,
+            id: environment.id,
+            path: environment.path,
+            status: environment.status,
+          },
+        },
+      );
+      expect(adminConfig.dynamicTools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining([...EVA_AGENT_TOOL_NAMES]),
+      );
+      expect(adminConfig.instructions).toContain(
+        "Only the EVA Master Orchestrator and the Admin EVA agent may create EVA child threads",
+      );
+      expect(adminConfig.instructions).toContain(
+        "When answering questions about what an agent does or inspecting its source workspace, Admin must inspect the files directly instead of delegating",
       );
 
       const specialistThread = createThread(harness.db, harness.hub, {
@@ -1724,7 +1885,7 @@ describe("thread runtime config", () => {
         expect(specialistToolNames).not.toContain(toolName);
       }
       expect(specialistConfig.instructions).toContain(
-        "Only the EVA Master Orchestrator may create or delegate work to EVA child threads",
+        "Only the EVA Master Orchestrator and the Admin EVA agent may create or delegate work to EVA child threads",
       );
     });
   });

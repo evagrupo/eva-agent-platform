@@ -33,6 +33,21 @@ function providerOptions(
 }
 
 describe("the Claude Code provider settings", () => {
+  it("uses host discovery without an outdated hardcoded fallback", async () => {
+    const { declaration, host } = loadClaudeCodePlugin();
+
+    try {
+      expect(declaration.models).toEqual({ scope: "host" });
+      expect(declaration.capabilities.permissionModes).toEqual([
+        "accept-edits",
+        "auto",
+        "full",
+      ]);
+    } finally {
+      await host.harness.lifecycle.dispose();
+    }
+  });
+
   it("keeps Claude in Chrome off by default and derives an explicit opt-in", () => {
     const { declaration, host } = loadClaudeCodePlugin();
 

@@ -78,6 +78,7 @@ export type WorkSessionDeps = Pick<
   | "hub"
   | "logger"
   | "lifecycleDedupers"
+  | "coreAuth"
   | "machineAuth"
   | "providerRegistry"
   | "pluginHostArtifacts"

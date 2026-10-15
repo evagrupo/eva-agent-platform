@@ -55,6 +55,7 @@ import {
   EVA_AGENT_COLLABORATION_INSTRUCTIONS,
   EVA_AGENT_SPECIALIST_INSTRUCTIONS,
   EVA_AGENT_TOOLS,
+  isEvaAgentDelegator,
 } from "../../agents/eva-agent-tools.js";
 import { resolveCoreRuntimeInstructions } from "../../access-management.js";
 
@@ -190,8 +191,8 @@ export async function resolveThreadRuntimeCommandConfig(
     ownerUserId !== null &&
     !unassignedThread &&
     getEvaAgentForDb(deps.db, effectiveAgentId) !== null;
-  const evaOrchestratorThread =
-    evaAgentThread && effectiveAgentId === "orchestrator";
+  const evaDelegatorThread =
+    evaAgentThread && isEvaAgentDelegator(effectiveAgentId);
   const allowedPluginIds = unassignedThread
     ? new Set<string>()
     : ownerUserId === null || ownerPluginPolicy === null
@@ -335,6 +336,27 @@ export async function resolveThreadRuntimeCommandConfig(
       "plugin" in entry.source ? pluginAllowed(entry.source.plugin) : true,
     ),
   );
+  const agentCliToken =
+    ownerUserId !== null &&
+    !unassignedThread &&
+    deps.coreAuth !== undefined &&
+    (effectiveAgentId === "admin" || pluginAllowed("automations"))
+      ? deps.coreAuth.issueAgentCliToken({
+          userId: ownerUserId,
+          threadId: args.thread.id,
+          projectId: args.thread.projectId,
+          agentId: effectiveAgentId,
+        })
+      : null;
+  if (agentCliToken !== null) {
+    contributedEnv.push({
+      name: "BB_AGENT_CLI_TOKEN",
+      value: agentCliToken,
+      source: { core: "agent-cli" },
+      reason:
+        "Short-lived, thread-scoped access to permitted EVA CLI operations",
+    });
+  }
   const injectedSkillSources = resolveSkillCatalog(deps, {
     includeGeneratedPluginCommands: ownerUserId === null || pluginAllowed("*"),
     pluginSkillRoots,
@@ -352,7 +374,7 @@ export async function resolveThreadRuntimeCommandConfig(
       ? []
       : resolveDynamicTools(
           filteredConditionalConfiguration.tools,
-          evaOrchestratorThread,
+          evaDelegatorThread,
         )
   ).filter((contribution) => {
     if (ownerUserId === null) return true;
@@ -390,9 +412,9 @@ export async function resolveThreadRuntimeCommandConfig(
       }),
     );
   }
-  if (evaOrchestratorThread && hasEvaAgentTools) {
+  if (evaDelegatorThread && hasEvaAgentTools) {
     instructionSections.push(EVA_AGENT_COLLABORATION_INSTRUCTIONS);
-  } else if (evaAgentThread && !evaOrchestratorThread) {
+  } else if (evaAgentThread && !evaDelegatorThread) {
     instructionSections.push(EVA_AGENT_SPECIALIST_INSTRUCTIONS);
   }
   for (const contribution of dynamicToolContributions) {

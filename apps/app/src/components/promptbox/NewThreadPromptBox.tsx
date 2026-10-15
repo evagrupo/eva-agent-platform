@@ -370,7 +370,7 @@ const DefaultNewThreadComposer = memo(function DefaultNewThreadComposer({
         minHeight={NEW_THREAD_PROMPT_BOX_MIN_HEIGHT}
         placeholder={placeholder}
         header={modeConfig.header}
-        footerStart={<ExecutionControls {...execution} agent={undefined} />}
+        footerStart={<ExecutionControls {...execution} />}
       />
       <div className="mt-1 flex select-none items-center justify-between gap-2 px-3.5">
         <div className="flex min-w-0 flex-1 items-center gap-1">

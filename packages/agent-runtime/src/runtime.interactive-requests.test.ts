@@ -14,6 +14,7 @@ import { parseJsonRpcLine } from "@bb/provider-bridge-protocol/bridge-kit";
 import type { JsonRpcMessage } from "@bb/provider-bridge-protocol/bridge-kit";
 import { createProviderForId } from "./provider-registry.js";
 import { handleRuntimeProviderRequest } from "./runtime-provider-requests.js";
+import type { AgentRuntimeExecutionOptions } from "./types.js";
 import {
   createScriptedEchoLaunch,
   createScriptedEchoRuntime,
@@ -102,11 +103,19 @@ const deniedEscalationOptions = {
   permissionEscalation: "deny",
 } as const;
 
+const interactiveRuntimeOptions = {
+  ...fullRuntimeOptions,
+  permissionMode: "accept-edits",
+  permissionScope: "workspace",
+  approvalReviewer: "user",
+  permissionEscalation: "ask",
+} as const;
+
 async function answerDirectRequest(args: {
   rawRequest: JsonRpcMessage;
   handshake?: Record<string, unknown>;
   getActiveTurnId?: (threadId: string) => string | null;
-  getThreadExecutionOptions?: () => typeof deniedEscalationOptions | undefined;
+  getThreadExecutionOptions?: () => AgentRuntimeExecutionOptions | undefined;
   onInteractiveRequest?:
     | ((
         request: PendingInteractionCreate,
@@ -187,13 +196,13 @@ describe("createAgentRuntime interactive requests", () => {
       threadId: "t1",
       projectId: "p1",
       providerId: "fake",
-      options: fullRuntimeOptions,
+      options: interactiveRuntimeOptions,
     });
     await runtime.runTurn({
       clientRequestId: "creq_222222224h",
       threadId: "t1",
       input: [promptTextInput({ text: "approve:command ship it" })],
-      options: fullRuntimeOptions,
+      options: interactiveRuntimeOptions,
     });
     const { turnId } = await waitForThreadTurnStarted({
       events,
@@ -237,6 +246,40 @@ describe("createAgentRuntime interactive requests", () => {
     expect(answer).toMatchObject({
       jsonrpc: "2.0",
       id: 80,
+      result: { decision: "allow_once" },
+    });
+    expect(onInteractiveRequest).not.toHaveBeenCalled();
+  });
+
+  it("auto-approves every approval request in Full Access without a handler", async () => {
+    const answer = await answerDirectRequest({
+      rawRequest: commandApprovalRequest(83),
+      getThreadExecutionOptions: () => fullRuntimeOptions,
+    });
+
+    expect(answer).toMatchObject({
+      jsonrpc: "2.0",
+      id: 83,
+      result: { decision: "allow_once" },
+    });
+  });
+
+  it("auto-approves provider-enforced approvals in Full Access", async () => {
+    const onInteractiveRequest = vi.fn(
+      async (): Promise<PendingInteractionResolution> => ({
+        decision: "deny",
+      }),
+    );
+    const answer = await answerDirectRequest({
+      rawRequest: toolUseApprovalRequest(84, "eva_list_agents"),
+      handshake: { approvalEnforcedBy: "provider" },
+      getThreadExecutionOptions: () => fullRuntimeOptions,
+      onInteractiveRequest,
+    });
+
+    expect(answer).toMatchObject({
+      jsonrpc: "2.0",
+      id: 84,
       result: { decision: "allow_once" },
     });
     expect(onInteractiveRequest).not.toHaveBeenCalled();
@@ -514,13 +557,13 @@ describe("createAgentRuntime interactive requests", () => {
       threadId: "t1",
       projectId: "p1",
       providerId: "fake",
-      options: fullRuntimeOptions,
+      options: interactiveRuntimeOptions,
     });
     await runtime.runTurn({
       clientRequestId: "creq_222222224n",
       threadId: "t1",
       input: [promptTextInput({ text: "approve:command boom" })],
-      options: fullRuntimeOptions,
+      options: interactiveRuntimeOptions,
     });
     await waitForThreadTurnCompleted({
       events,

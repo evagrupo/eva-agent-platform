@@ -62,7 +62,7 @@ Spawning:
   remembered project defaults. With no remembered model, EVA uses the explicitly
   requested provider or Codex and resolves its provider-reported default model
   on the target machine. The product reasoning and permission defaults are
-  medium and auto.
+  medium and Full Access.
   accept-edits uses workspace sandboxing with user-reviewed escalation. auto uses
   the same workspace sandbox with provider-native automatic review. full is the
   explicit sandbox and approval bypass. Plan mode is separate from permissions.

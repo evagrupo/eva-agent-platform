@@ -721,6 +721,19 @@ export function registerPluginRoutes(
         400,
       );
     }
+    const agentCliScope = getCoreAuthContext(context)?.agentCliScope;
+    if (
+      agentCliScope !== undefined &&
+      (context.req.param("id") !== "automations" ||
+        body?.threadId !== agentCliScope.threadId ||
+        body?.projectId !== agentCliScope.projectId)
+    ) {
+      throw new ApiError(
+        403,
+        "policy_denied",
+        "The agent CLI credential is limited to Automations in its current thread and project",
+      );
+    }
     const ctx: {
       cwd?: string;
       threadId?: string;

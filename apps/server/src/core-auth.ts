@@ -1,9 +1,15 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import {
+  createHmac,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { and, count, eq, gt, sql } from "drizzle-orm";
 import { betterAuth } from "better-auth";
 import { getSessionCookie } from "better-auth/cookies";
 import { hashPassword } from "better-auth/crypto";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
+import { z } from "zod";
 import {
   authAccounts,
   authPolicies,
@@ -11,6 +17,8 @@ import {
   authSessions,
   authUsers,
   authVerifications,
+  getProject,
+  getThread,
   type DbConnection,
 } from "@bb/db";
 import type { ServerRuntimeConfig } from "./types.js";
@@ -20,6 +28,8 @@ import {
   defaultUserPolicy,
   resolveCoreResourceAccess,
   resolveCorePolicy,
+  isAgentAllowedByPolicy,
+  isPluginAllowedByPolicyForAgent,
   type CoreAuthContext,
   type CoreRole,
   type CoreStatus,
@@ -43,6 +53,12 @@ export interface CoreAuthService {
   hasSessionCookie(request: Request): boolean;
   resolveRequest(request: Request): Promise<CoreAuthContext | null>;
   resolveSessionId(sessionId: string): CoreAuthContext | null;
+  issueAgentCliToken(args: {
+    userId: string;
+    threadId: string;
+    projectId: string;
+    agentId: string;
+  }): string | null;
   bootstrapConfiguredOwner(): Promise<boolean>;
   revokeUserSessions(userId: string): void;
   setUserAccess(args: {
@@ -51,6 +67,53 @@ export interface CoreAuthService {
     status?: CoreStatus;
     policyId?: string;
   }): boolean;
+}
+
+const AGENT_CLI_TOKEN_TTL_MS = 60 * 60 * 1000;
+const AGENT_CLI_TOKEN_HEADER = "x-bb-agent-cli-token";
+const agentCliTokenClaimsSchema = z
+  .object({
+    expiresAt: z.number().int().positive(),
+    userId: z.string().min(1),
+    threadId: z.string().min(1),
+    projectId: z.string().min(1),
+    agentId: z.string().min(1),
+  })
+  .strict();
+
+type AgentCliTokenClaims = z.infer<typeof agentCliTokenClaimsSchema>;
+
+function signAgentCliToken(payload: string, secret: string): string {
+  return createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
+function parseAgentCliToken(
+  token: string,
+  secret: string,
+): AgentCliTokenClaims | null {
+  if (token.length > 4096) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const [payload, signature] = parts;
+  const expected = Buffer.from(signAgentCliToken(payload, secret), "base64url");
+  const presented = Buffer.from(signature, "base64url");
+  if (
+    expected.length !== presented.length ||
+    !timingSafeEqual(expected, presented)
+  ) {
+    return null;
+  }
+  try {
+    const decoded: unknown = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    );
+    const parsed = agentCliTokenClaimsSchema.safeParse(decoded);
+    return parsed.success && parsed.data.expiresAt > Date.now()
+      ? parsed.data
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 interface CreateCoreAuthServiceArgs {
@@ -233,8 +296,28 @@ function contextForSession(
     defaultAgentId: resolved.defaultAgentId,
     resourceAccess: resolveCoreResourceAccess(db, args.userId),
     evaAgents: listEvaAgentsFromDb(db),
-    evaAgentProviderIds: listEvaAgentProviderIds(db),
+    evaAgentProviderIds: listEvaAgentProviderIds(db, resolved.role),
   };
+}
+
+function allowsAgentCliContext(
+  authContext: CoreAuthContext,
+  agentId: string,
+): boolean {
+  const knownAgentIds =
+    authContext.evaAgents === undefined
+      ? undefined
+      : new Set(authContext.evaAgents.map((agent) => agent.id));
+  return (
+    isAgentAllowedByPolicy(authContext.policy, agentId, knownAgentIds) &&
+    (agentId === "admin" ||
+      isPluginAllowedByPolicyForAgent(
+        authContext.policy,
+        agentId,
+        "automations",
+        knownAgentIds,
+      ))
+  );
 }
 
 export function createCoreAuthService(
@@ -244,6 +327,7 @@ export function createCoreAuthService(
   const required =
     args.config.authRequired ??
     resolveCoreAuthRequired({ isDevelopment: args.config.isDevelopment, env });
+  const authSecret = resolveAuthSecret(args);
   ensureDefaultPolicies(args.db);
   const baseURL =
     args.config.appUrl ?? `http://127.0.0.1:${args.config.serverPort}`;
@@ -251,7 +335,7 @@ export function createCoreAuthService(
   const auth = betterAuth({
     baseURL,
     basePath: "/api/auth",
-    secret: resolveAuthSecret(args),
+    secret: authSecret,
     database: drizzleAdapter(args.db, {
       provider: "sqlite",
       schema: coreAuthSchema,
@@ -278,6 +362,42 @@ export function createCoreAuthService(
     },
   });
 
+  const resolveAgentCliContext = (token: string): CoreAuthContext | null => {
+    const claims = parseAgentCliToken(token, authSecret);
+    if (claims === null) return null;
+    const thread = getThread(args.db, claims.threadId);
+    const project = getProject(args.db, claims.projectId);
+    if (
+      thread === null ||
+      thread.deletedAt !== null ||
+      thread.ownerUserId !== claims.userId ||
+      thread.projectId !== claims.projectId ||
+      thread.agentId !== claims.agentId ||
+      project === null ||
+      project.deletedAt !== null
+    ) {
+      return null;
+    }
+    const authContext = contextForSession(args.db, {
+      sessionId: `agent-cli:${claims.threadId}`,
+      userId: claims.userId,
+    });
+    if (
+      authContext === null ||
+      !allowsAgentCliContext(authContext, claims.agentId)
+    ) {
+      return null;
+    }
+    return {
+      ...authContext,
+      agentCliScope: {
+        threadId: claims.threadId,
+        projectId: claims.projectId,
+        agentId: claims.agentId,
+      },
+    };
+  };
+
   return {
     required,
     auth,
@@ -288,6 +408,10 @@ export function createCoreAuthService(
       return getSessionCookie(request) !== null;
     },
     async resolveRequest(request: Request): Promise<CoreAuthContext | null> {
+      const agentCliToken = request.headers.get(AGENT_CLI_TOKEN_HEADER);
+      if (agentCliToken !== null) {
+        return resolveAgentCliContext(agentCliToken);
+      }
       try {
         const session = await auth.api.getSession({ headers: request.headers });
         if (!session) return null;
@@ -316,6 +440,37 @@ export function createCoreAuthService(
             sessionId: session.id,
             userId: session.userId,
           });
+    },
+    issueAgentCliToken(tokenArgs): string | null {
+      const thread = getThread(args.db, tokenArgs.threadId);
+      const project = getProject(args.db, tokenArgs.projectId);
+      if (
+        thread === null ||
+        thread.deletedAt !== null ||
+        thread.ownerUserId !== tokenArgs.userId ||
+        thread.projectId !== tokenArgs.projectId ||
+        thread.agentId !== tokenArgs.agentId ||
+        project === null ||
+        project.deletedAt !== null
+      ) {
+        return null;
+      }
+      const authContext = contextForSession(args.db, {
+        sessionId: `agent-cli:${thread.id}`,
+        userId: tokenArgs.userId,
+      });
+      if (
+        authContext === null ||
+        !allowsAgentCliContext(authContext, tokenArgs.agentId)
+      ) {
+        return null;
+      }
+      const claims: AgentCliTokenClaims = {
+        ...tokenArgs,
+        expiresAt: Date.now() + AGENT_CLI_TOKEN_TTL_MS,
+      };
+      const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+      return `${payload}.${signAgentCliToken(payload, authSecret)}`;
     },
     async bootstrapConfiguredOwner(): Promise<boolean> {
       const principalCount =

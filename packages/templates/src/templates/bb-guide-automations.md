@@ -32,6 +32,9 @@ Agent execution:
 [--environment <environment-id|path> | --new-environment worktree]
 [--base-branch <branch>] [--target-thread <thread-id>]
 
+When omitted, permission mode defaults to Full Access if the provider supports
+it; otherwise it uses Approve for me.
+
 Script execution:
 
 --script <inline> | --script-file <path> [--host <name-or-id>]

@@ -1,14 +1,15 @@
-# EVA Orchestrator: delegate work to agents as BB child threads
+# EVA agents: delegate work as BB child threads
 
 Status: implemented locally; not committed. This document records the original
 plan and the implementation delivered against it.
 
 ## Goal
 
-From a Master Orchestrator conversation, a user can select an EVA agent with an
-`@agent` mention and give it a concrete task. The Orchestrator delegates that
-task through BB's native child-thread mechanism, can inspect the child and its
-result, and then reports back in the parent conversation.
+From a Master Orchestrator or Admin conversation, a user can select an EVA
+agent with an `@agent` mention or clearly assign it a concrete task. The
+authorized agent delegates through BB's native child-thread mechanism, can
+inspect the child and its result, and then reports back in the parent
+conversation.
 
 Example: `@crm prioritize the new leads and return a short call-preparation
 summary` should cause the Orchestrator to start a CRM child thread, not merely
@@ -50,17 +51,21 @@ add CRM as passive prompt context or open an unrelated existing CRM thread.
   bounded agent-only context without disclosing workspace filesystem paths.
   The legacy plugin-owned mention provider was removed to avoid duplicate or
   policy-gated results.
-- Strengthened the shared EVA collaboration prompt and Master Orchestrator
-  instructions: an allowed `@agent` plus a concrete task delegates through the
-  existing `eva_delegate_to_agent` BB child-thread tool; a mention alone does
-  not start work, and the parent must read the child result before claiming
-  completion.
+- Strengthened the shared EVA collaboration prompt and Orchestrator
+  instructions: an allowed `@agent` plus a concrete task delegates through
+  the existing `eva_delegate_to_agent` BB child-thread tool; a mention alone
+  does not start work, and the parent must read the child result before
+  claiming completion.
+- Allowed the Admin EVA agent to use the same policy-filtered collaboration
+  tools as the Master Orchestrator for concrete tasks assigned to another
+  agent, while keeping source-file questions and inspections local to Admin.
 - Added server security coverage for agent filtering, plugin-data-independent
   mention access, fixed-policy selection, denied mention resolution, and a real
   Orchestrator-to-specialist child-thread relationship. Runtime configuration
-  coverage proves an authorized Orchestrator receives the child-delegation
-  tools and instructions. App coverage verifies selected-agent propagation and
-  the core mention endpoint. Browser testing with a live model was not run.
+  coverage proves authorized Orchestrator and Admin threads receive the
+  child-delegation tools and instructions while specialists do not. App
+  coverage verifies selected-agent propagation and the core mention endpoint.
+  Browser testing with a live model was not run.
 
 ## Original delivery plan
 

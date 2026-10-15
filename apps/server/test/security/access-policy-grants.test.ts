@@ -15,7 +15,9 @@ import {
   applyPolicyToAvailableModelForUnassignedAgent,
   canReadThread,
   canWriteThread,
+  defaultAdminPolicy,
   defaultUserPolicy,
+  isProviderAllowedByPolicyForAgent,
   isPluginAllowedByPolicy,
   isPluginAllowedByPolicyForAgent,
   modelPermits,
@@ -138,6 +140,142 @@ function execution(
 }
 
 describe("agent-bound execution policy", () => {
+  it.each(["creative", "admin"])(
+    "allows administrator provider selection for the pinned %s agent without widening user access",
+    (agentId) => {
+      const knownAgentIds = new Set([agentId]);
+      const agentProviderIds = new Map([[agentId, ["codex"]]]);
+      const administratorProviderIds = new Map([[agentId, ["*"]]]);
+      const userPolicy: CorePolicy = {
+        ...defaultUserPolicy,
+        allowedAgentIds: [agentId],
+        allowedProviderIds: ["*"],
+        allowedModelPatterns: ["*"],
+      };
+      const model = availableModelFixture({
+        model: "claude-opus-5[1m]",
+        reasoningLevels: ["low", "medium", "high"],
+      });
+      for (const providerId of ["claude-code", "pi", "acp-cursor"]) {
+        expect(
+          isProviderAllowedByPolicyForAgent(
+            defaultAdminPolicy,
+            agentId,
+            providerId,
+            knownAgentIds,
+            administratorProviderIds,
+          ),
+        ).toBe(true);
+        expect(
+          isProviderAllowedByPolicyForAgent(
+            userPolicy,
+            agentId,
+            providerId,
+            knownAgentIds,
+            agentProviderIds,
+          ),
+        ).toBe(false);
+      }
+      expect(
+        applyPolicyToAvailableModel(
+          model,
+          defaultAdminPolicy,
+          agentId,
+          "claude-code",
+          knownAgentIds,
+          administratorProviderIds,
+        ),
+      ).toEqual(model);
+      expect(
+        applyPolicyToAvailableModel(
+          model,
+          userPolicy,
+          agentId,
+          "claude-code",
+          knownAgentIds,
+          agentProviderIds,
+        ),
+      ).toBeNull();
+      expect(
+        isProviderAllowedByPolicyForAgent(
+          defaultAdminPolicy,
+          "unknown-agent",
+          "claude-code",
+          knownAgentIds,
+          administratorProviderIds,
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("advertises all administrator providers while keeping pinned defaults and user catalogs", () => {
+    const context: CoreAuthContext = {
+      userId: "administrator",
+      email: "administrator@eva.test",
+      name: "Administrator",
+      sessionId: "session",
+      role: "admin",
+      policy: defaultAdminPolicy,
+      policyRevision: 1,
+      resourceAccess: [],
+    };
+    expect(
+      policyBootstrapForContext(
+        context,
+        new Map([["custom-provider", ["custom-model"]]]),
+      ),
+    ).toMatchObject({
+      capabilities: {
+        execution: {
+          agents: expect.arrayContaining(
+            ["creative", "admin"].map((id) => ({
+              id,
+              displayName: expect.any(String),
+              description: expect.any(String),
+              providerIds: [
+                "codex",
+                "claude-code",
+                "pi",
+                "acp-cursor",
+                "custom-provider",
+              ],
+              defaultProviderId: "codex",
+              defaultModel: "gpt-5.6-luna",
+              defaultReasoningLevel: "max",
+              defaultPermissionMode: "full",
+              reasoningLevels: expect.any(Array),
+              permissionModes: expect.any(Array),
+              fixedExecution: false,
+            })),
+          ),
+        },
+      },
+    });
+    expect(
+      policyBootstrapForContext({
+        ...context,
+        role: "user",
+        policy: {
+          ...defaultUserPolicy,
+          allowedAgentIds: ["creative"],
+          allowedProviderIds: ["*"],
+          allowedModelPatterns: ["*"],
+        },
+      }),
+    ).toMatchObject({
+      capabilities: {
+        execution: {
+          agents: [
+            expect.objectContaining({
+              id: "creative",
+              providerIds: ["codex"],
+            }),
+          ],
+        },
+      },
+    });
+  });
+
   it.each([
     ["grok-4.7", "acp-cursor/grok-4.7", true],
     ["acp-cursor/grok-4.7", "grok-4.7", true],

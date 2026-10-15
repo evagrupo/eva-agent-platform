@@ -186,6 +186,9 @@ const permissionModePreferenceStorage =
         if (storedValue === "workspace-write") {
           return "accept-edits";
         }
+        if (storedValue === "auto") {
+          return "full";
+        }
         return storedValue !== null && isStoredPermissionMode(storedValue)
           ? storedValue
           : initialValue;

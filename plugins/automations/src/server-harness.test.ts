@@ -651,11 +651,15 @@ describe("automations server plugin harness", () => {
   it.each([
     {
       supported: ["accept-edits", "auto", "full"] as const,
-      expected: "auto",
+      expected: "full",
     },
     {
       supported: ["accept-edits", "full"] as const,
       expected: "full",
+    },
+    {
+      supported: ["accept-edits", "auto"] as const,
+      expected: "auto",
     },
   ])(
     "defaults agent automations to $expected for provider capabilities",

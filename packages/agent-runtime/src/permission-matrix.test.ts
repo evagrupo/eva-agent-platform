@@ -58,7 +58,7 @@ type DenyAvailability = (typeof DENY_AVAILABILITY)[number];
 
 type CellKey = `${PolicyKey}|${SubjectKind}|${Enforcer}|${DenyAvailability}`;
 
-type Outcome = "forward" | "auto-deny" | "encode-error";
+type Outcome = "auto-allow" | "forward" | "auto-deny" | "encode-error";
 
 const EXPECTED = {
   "accept-edits/ask|command|runtime|deny-available": "forward",
@@ -141,26 +141,26 @@ const EXPECTED = {
   "auto/deny|tool_use|runtime|deny-unavailable": "encode-error",
   "auto/deny|tool_use|provider|deny-available": "forward",
   "auto/deny|tool_use|provider|deny-unavailable": "forward",
-  "full/-|tool_use|runtime|deny-available": "forward",
-  "full/-|tool_use|runtime|deny-unavailable": "forward",
-  "full/-|tool_use|provider|deny-available": "forward",
-  "full/-|tool_use|provider|deny-unavailable": "forward",
-  "full/-|command|runtime|deny-available": "forward",
-  "full/-|command|runtime|deny-unavailable": "forward",
-  "full/-|command|provider|deny-available": "forward",
-  "full/-|command|provider|deny-unavailable": "forward",
-  "full/-|file_change|runtime|deny-available": "forward",
-  "full/-|file_change|runtime|deny-unavailable": "forward",
-  "full/-|file_change|provider|deny-available": "forward",
-  "full/-|file_change|provider|deny-unavailable": "forward",
-  "full/-|permission_grant|runtime|deny-available": "forward",
-  "full/-|permission_grant|runtime|deny-unavailable": "forward",
-  "full/-|permission_grant|provider|deny-available": "forward",
-  "full/-|permission_grant|provider|deny-unavailable": "forward",
-  "full/-|plan|runtime|deny-available": "forward",
-  "full/-|plan|runtime|deny-unavailable": "forward",
-  "full/-|plan|provider|deny-available": "forward",
-  "full/-|plan|provider|deny-unavailable": "forward",
+  "full/-|tool_use|runtime|deny-available": "auto-allow",
+  "full/-|tool_use|runtime|deny-unavailable": "auto-allow",
+  "full/-|tool_use|provider|deny-available": "auto-allow",
+  "full/-|tool_use|provider|deny-unavailable": "auto-allow",
+  "full/-|command|runtime|deny-available": "auto-allow",
+  "full/-|command|runtime|deny-unavailable": "auto-allow",
+  "full/-|command|provider|deny-available": "auto-allow",
+  "full/-|command|provider|deny-unavailable": "auto-allow",
+  "full/-|file_change|runtime|deny-available": "auto-allow",
+  "full/-|file_change|runtime|deny-unavailable": "auto-allow",
+  "full/-|file_change|provider|deny-available": "auto-allow",
+  "full/-|file_change|provider|deny-unavailable": "auto-allow",
+  "full/-|permission_grant|runtime|deny-available": "auto-allow",
+  "full/-|permission_grant|runtime|deny-unavailable": "auto-allow",
+  "full/-|permission_grant|provider|deny-available": "auto-allow",
+  "full/-|permission_grant|provider|deny-unavailable": "auto-allow",
+  "full/-|plan|runtime|deny-available": "auto-allow",
+  "full/-|plan|runtime|deny-unavailable": "auto-allow",
+  "full/-|plan|provider|deny-available": "auto-allow",
+  "full/-|plan|provider|deny-unavailable": "auto-allow",
 } satisfies Record<CellKey, Outcome>;
 
 type SameUnion<A, B> = [A] extends [B]
@@ -438,6 +438,9 @@ function classify(result: CellResult): Outcome {
   const { decision } = response.result;
   if (decision === "deny" && result.forwarded === 0) {
     return "auto-deny";
+  }
+  if (decision === "allow_once" && result.forwarded === 0) {
+    return "auto-allow";
   }
   if (decision === "allow_once" && result.forwarded === 1) {
     return "forward";

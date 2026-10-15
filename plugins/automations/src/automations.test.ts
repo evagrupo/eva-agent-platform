@@ -292,6 +292,74 @@ describe("data migrations", () => {
     expect(modes).toEqual(["accept-edits", "accept-edits"]);
   });
 
+  it("upgrades existing agent automations to Full Access without changing scripts", () => {
+    const db = new Database(":memory:");
+    db.exec(migrations[0] ?? "");
+    const insert = db.prepare(
+      `INSERT INTO automations (
+         id, project_id, name, enabled, trigger_type, trigger_config,
+         run_mode, execution, origin, created_at, updated_at
+       ) VALUES (?, 'proj_test', ?, 1, 'schedule', '{}', ?, ?, 'human', 1, 1)`,
+    );
+    insert.run(
+      "auto_accept_edits",
+      "Accept edits",
+      "agent",
+      JSON.stringify({ mode: "agent", permissionMode: "accept-edits" }),
+    );
+    insert.run(
+      "auto_auto",
+      "Auto",
+      "agent",
+      JSON.stringify({ mode: "agent", permissionMode: "auto" }),
+    );
+    insert.run(
+      "auto_full",
+      "Full",
+      "agent",
+      JSON.stringify({ mode: "agent", permissionMode: "full" }),
+    );
+    insert.run(
+      "script_auto",
+      "Script",
+      "script",
+      JSON.stringify({ mode: "script", permissionMode: "auto" }),
+    );
+    db.exec(migrations[3] ?? "");
+
+    const rows = db
+      .prepare<[], { id: string; permissionMode: string | null }>(
+        `SELECT id, json_extract(execution, '$.permissionMode') AS permissionMode
+           FROM automations ORDER BY id`,
+      )
+      .all();
+    expect(rows).toEqual([
+      { id: "auto_accept_edits", permissionMode: "full" },
+      { id: "auto_auto", permissionMode: "full" },
+      { id: "auto_full", permissionMode: "full" },
+      { id: "script_auto", permissionMode: "auto" },
+    ]);
+  });
+
+  it("does not change invalid automation JSON during the Full Access migration", () => {
+    const db = new Database(":memory:");
+    db.exec(migrations[0] ?? "");
+    db.prepare(
+      `INSERT INTO automations (
+         id, project_id, name, enabled, trigger_type, trigger_config,
+         run_mode, execution, origin, created_at, updated_at
+       ) VALUES ('auto_invalid', 'proj_test', 'Invalid', 1, 'schedule', '{}', 'agent', '{', 'human', 1, 1)`,
+    ).run();
+    db.exec(migrations[3] ?? "");
+
+    const row = db
+      .prepare<[], { execution: string }>(
+        "SELECT execution FROM automations WHERE id = 'auto_invalid'",
+      )
+      .get();
+    expect(row?.execution).toBe("{");
+  });
+
   it("settles older duplicate running rows so single-flight can be introduced on history", () => {
     const db = new Database(":memory:");
     db.exec(migrations[0] ?? "");

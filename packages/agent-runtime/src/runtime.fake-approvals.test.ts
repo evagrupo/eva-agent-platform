@@ -16,6 +16,14 @@ import {
   waitForThreadTurnStarted,
 } from "./test/runtime-test-harness.js";
 
+const interactiveRuntimeOptions = {
+  ...fullRuntimeOptions,
+  permissionMode: "accept-edits",
+  permissionScope: "workspace",
+  approvalReviewer: "user",
+  permissionEscalation: "ask",
+} as const;
+
 describe("scripted echo provider approve:<kind> directive", () => {
   let tmpDir: string;
 
@@ -56,13 +64,13 @@ describe("scripted echo provider approve:<kind> directive", () => {
       threadId: "t1",
       projectId: "p1",
       providerId: "fake",
-      options: fullRuntimeOptions,
+      options: interactiveRuntimeOptions,
     });
     await runtime.runTurn({
       clientRequestId: "creq_fakeapprv2",
       threadId: "t1",
       input: [promptTextInput({ text: args.prompt })],
-      options: fullRuntimeOptions,
+      options: interactiveRuntimeOptions,
     });
     const { turnId } = await waitForThreadTurnStarted({
       events,

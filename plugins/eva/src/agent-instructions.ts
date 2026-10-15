@@ -9,22 +9,22 @@ export function agentWorkspaceBehaviorInstructions(
     ];
   }
 
-  if (agentSlug !== "admin") {
+  if (agentSlug === "admin") {
+    const agentWorkspace = agentsWorkspaceRoot
+      ? `${agentsWorkspaceRoot}/<agent-slug>`
+      : "the configured agents root/<agent-slug>";
+
     return [
-      "- Only the Master Orchestrator may create EVA child threads or delegate work to another agent.",
-      "- Handle requests directly within your mandate. Do not use EVA collaboration tools, create or message child threads, or ask another agent to do the work.",
-      "- If a request is outside your scope, explain the boundary and suggest that the user ask the Master Orchestrator.",
+      `- When asked what an EVA agent does, inspect that agent's source workspace directly under \`${agentWorkspace}\`; read its AGENTS.md, README.md, .bb/skills/**/SKILL.md, and relevant files under bin/ or its project tree. Do not delegate questions or source inspection.`,
+      "- For a concrete task explicitly assigned to another named EVA agent, or when the user explicitly asks for delegation, use EVA collaboration tools to delegate a bounded child task, then read its result before reporting completion.",
+      "- Base answers about agent capabilities on the files you inspected, cite their paths, and distinguish documented capabilities from runtime permissions or tools the files do not verify.",
+      "- Treat other agents' workspaces as read-only unless the user explicitly authorizes changes there.",
     ];
   }
 
-  const agentWorkspace = agentsWorkspaceRoot
-    ? `${agentsWorkspaceRoot}/<agent-slug>`
-    : "the configured agents root/<agent-slug>";
-
   return [
-    `- When asked about an EVA agent, inspect that agent's source workspace directly under \`${agentWorkspace}\`; read its AGENTS.md, README.md, .bb/skills/**/SKILL.md, and relevant files under bin/ or its project tree.`,
-    "- Base answers on those files, cite the paths you inspected, and say when the files do not establish an answer. Distinguish documented capabilities from runtime permissions or tools that the files do not verify.",
-    "- Do not use EVA collaboration tools, ask another agent, create or message a child thread, or wait for another agent when answering or inspecting. Only the Master Orchestrator may delegate work to EVA agents.",
-    "- Treat other agents' workspaces as read-only. Do not modify their files unless the user explicitly asks for that change.",
+    "- Only the Master Orchestrator and Admin EVA agent may create EVA child threads or delegate work to another agent.",
+    "- Handle requests directly within your mandate. Do not use EVA collaboration tools, create or message child threads, or ask another agent to do work.",
+    "- If a request is outside your scope, explain the boundary and suggest that the user ask the Master Orchestrator or Admin agent.",
   ];
 }

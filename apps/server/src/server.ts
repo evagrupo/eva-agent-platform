@@ -210,6 +210,28 @@ function allowsAnonymousCoreAuthPath(path: string): boolean {
   );
 }
 
+function allowsAgentCliRequest(
+  method: string,
+  path: string,
+  agentId: string,
+): boolean {
+  const normalizedPath = normalizePublicApiPath(path);
+  if (method.toUpperCase() === "POST") {
+    return normalizedPath === "/plugins/automations/cli";
+  }
+  if (method.toUpperCase() !== "GET") return false;
+  return (
+    normalizedPath === "/plugins" ||
+    normalizedPath === "/plugins/contributions" ||
+    normalizedPath === "/projects" ||
+    normalizedPath === "/threads" ||
+    /^\/threads\/[^/]+$/u.test(normalizedPath) ||
+    (agentId === "admin" &&
+      (/^\/threads\/[^/]+\/(?:events|timeline|output)$/u.test(normalizedPath) ||
+        /^\/environments\/[^/]+$/u.test(normalizedPath)))
+  );
+}
+
 export interface ServerMoveAppOptions {
   bindHost: ServerBindHost | null;
   manualImportPending: boolean;
@@ -499,6 +521,7 @@ export function createApp(
       db: deps.db,
       config: deps.config,
     });
+  const appDeps = { ...deps, coreAuth };
   const miniAppService = createMiniAppService({
     config: deps.config,
     coreAuth,
@@ -634,6 +657,22 @@ export function createApp(
     const authContext = await coreAuth.resolveRequest(context.req.raw);
     if (authContext !== null) {
       context.set(CORE_AUTH_CONTEXT_KEY, authContext);
+    }
+    if (
+      authContext?.agentCliScope !== undefined &&
+      !allowsAgentCliRequest(
+        context.req.method,
+        context.req.path,
+        authContext.agentCliScope.agentId,
+      )
+    ) {
+      return context.json(
+        {
+          code: "policy_denied",
+          message: "The agent CLI credential cannot access this route",
+        },
+        403,
+      );
     }
     if (
       authContext === null &&
@@ -984,29 +1023,24 @@ export function createApp(
     notifyCatalogChanged: () => deps.hub.notifySystem(["plugins-changed"]),
     warn: (message) => deps.logger.warn(message),
   });
-  registerProjectRoutes(publicApi, deps);
-  registerAccessRoutes(publicApi, deps, coreAuth, pluginService);
-  registerEvaAgentRoutes(publicApi, deps);
+  registerProjectRoutes(publicApi, appDeps);
+  registerAccessRoutes(publicApi, appDeps, coreAuth, pluginService);
+  registerEvaAgentRoutes(publicApi, appDeps);
   registerMiniAppRoutes(publicApi, miniAppService);
-  registerThreadSectionRoutes(publicApi, deps);
-  registerFileRoutes(publicApi, deps);
-  registerHostRoutes(publicApi, deps, pluginService);
-  registerDesktopBrowserRoutes(publicApi, deps);
-  registerTerminalRoutes(publicApi, deps);
-  registerEnvironmentRoutes(publicApi, deps);
-  registerThreadRoutes(publicApi, deps);
-  registerQueueRoutes(publicApi, deps);
-  registerSystemRoutes(publicApi, deps, pluginService);
-  registerUiPreferenceRoutes(publicApi, deps);
+  registerThreadSectionRoutes(publicApi, appDeps);
+  registerFileRoutes(publicApi, appDeps);
+  registerHostRoutes(publicApi, appDeps, pluginService);
+  registerDesktopBrowserRoutes(publicApi, appDeps);
+  registerTerminalRoutes(publicApi, appDeps);
+  registerEnvironmentRoutes(publicApi, appDeps);
+  registerThreadRoutes(publicApi, appDeps);
+  registerQueueRoutes(publicApi, appDeps);
+  registerSystemRoutes(publicApi, appDeps, pluginService);
+  registerUiPreferenceRoutes(publicApi, appDeps);
   registerPluginCatalogRoutes(publicApi, pluginCatalogService);
-  registerPluginRoutes(
-    publicApi,
-    { ...deps, coreAuth },
-    pluginService,
-    upgradeWebSocket,
-  );
-  registerSkillsRegistryRoutes(publicApi, deps);
-  registerServerMoveRoutes(publicApi, deps, serverMove);
+  registerPluginRoutes(publicApi, appDeps, pluginService, upgradeWebSocket);
+  registerSkillsRegistryRoutes(publicApi, appDeps);
+  registerServerMoveRoutes(publicApi, appDeps, serverMove);
   app.route("/api/v1", publicApi);
   app.use("/api/v1/*", () => {
     throw new ApiError(404, "not_found", "Not found");
