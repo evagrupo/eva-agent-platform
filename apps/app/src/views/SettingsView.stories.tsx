@@ -1,3 +1,4 @@
+import { MobileAppSection } from "@/components/settings/MobileAppSection";
 import { CliSkillsSettingsSectionContent } from "@/components/settings/CliSkillsSettingsSection";
 import { useEffect, useRef, useState } from "react";
 import { Route, Routes, useNavigate } from "react-router-dom";
@@ -31,7 +32,7 @@ import {
 } from "../../.ladle/settings-story-fixtures";
 import type { ThemePreference } from "@/hooks/useTheme";
 import type { AudioInputDeviceOption } from "@/hooks/useAudioInputDevices";
-import type { PreferredAudioInputDeviceId } from "@/lib/audio-input-device-preference";
+import { useAudioInputDevicePreferenceValue } from "@/lib/audio-input-device-preference";
 import {
   SETTINGS_MACHINE_ROUTE_PATH,
   SETTINGS_PROJECT_ROUTE_PATH,
@@ -117,17 +118,18 @@ function useSettingsStoryState() {
     useState(false);
   const [openLinksInAppBrowser, setOpenLinksInAppBrowser] = useState(false);
   const [rewriteLocalhostLinks, setRewriteLocalhostLinks] = useState(true);
-  const [richTextEditing, setRichTextEditing] = useState(false);
   const [steerActiveThreadOnEnter, setSteerActiveThreadOnEnter] =
     useState(false);
+  const [confirmThreadArchive, setConfirmThreadArchive] = useState(true);
+  const [keepHistoryAfterContextClear, setKeepHistoryAfterContextClear] =
+    useState(false);
+  const [showGitChanges, setShowGitChanges] = useState(true);
   const [streamerMode, setStreamerMode] = useState(false);
   const [telemetryEnabled, setTelemetryEnabled] = useState(true);
   const [managedBranchPrefix, setManagedBranchPrefix] = useState(
     defaultAppSettings.managedBranchPrefix,
   );
   const [showDiagnosticEvents, setShowDiagnosticEvents] = useState(false);
-  const [preferredAudioInputDeviceId, setPreferredAudioInputDeviceId] =
-    useState<PreferredAudioInputDeviceId>("studio-mic");
   const [directoryTargetId, setDirectoryTargetId] =
     useState<StoredTargetId>("finder");
   const [fileTargetId, setFileTargetId] =
@@ -143,10 +145,14 @@ function useSettingsStoryState() {
     managedBranchPrefix,
     navigateToThreadAfterCreate,
     openLinksInAppBrowser,
-    preferredAudioInputDeviceId,
     rewriteLocalhostLinks,
-    richTextEditing,
     steerActiveThreadOnEnter,
+    showGitChanges,
+    setShowGitChanges,
+    confirmThreadArchive,
+    setConfirmThreadArchive,
+    keepHistoryAfterContextClear,
+    setKeepHistoryAfterContextClear,
     streamerMode,
     telemetryEnabled,
     setTelemetryEnabled,
@@ -158,9 +164,7 @@ function useSettingsStoryState() {
     setManagedBranchPrefix,
     setNavigateToThreadAfterCreate,
     setOpenLinksInAppBrowser,
-    setPreferredAudioInputDeviceId,
     setRewriteLocalhostLinks,
-    setRichTextEditing,
     setSteerActiveThreadOnEnter,
     setStreamerMode,
     setShowDiagnosticEvents,
@@ -170,7 +174,7 @@ function useSettingsStoryState() {
 }
 
 function VoiceInputStory() {
-  const state = useSettingsStoryState();
+  const preferredDeviceId = useAudioInputDevicePreferenceValue();
 
   return (
     <VoiceInputSettingsSectionContent
@@ -178,9 +182,8 @@ function VoiceInputStory() {
       errorMessage={null}
       isLoading={false}
       isSupported={true}
-      onDeviceChange={state.setPreferredAudioInputDeviceId}
       onRefresh={() => undefined}
-      preferredDeviceId={state.preferredAudioInputDeviceId}
+      preferredDeviceId={preferredDeviceId}
     />
   );
 }
@@ -195,6 +198,14 @@ function GeneralSettingsStory({
   return (
     <>
       <GeneralSettingsSection
+        showGitChanges={state.showGitChanges}
+        onShowGitChangesChange={state.setShowGitChanges}
+        confirmThreadArchive={state.confirmThreadArchive}
+        onConfirmThreadArchiveChange={state.setConfirmThreadArchive}
+        keepHistoryAfterContextClear={state.keepHistoryAfterContextClear}
+        onKeepHistoryAfterContextClearChange={
+          state.setKeepHistoryAfterContextClear
+        }
         desktopBrowserAvailable={desktopBrowserAvailable}
         generalSettingsDisabled={false}
         managedBranchPrefix={state.managedBranchPrefix}
@@ -204,12 +215,11 @@ function GeneralSettingsStory({
           state.setNavigateToThreadAfterCreate
         }
         onOpenLinksInAppBrowserChange={state.setOpenLinksInAppBrowser}
+        onReplaySetupGuide={() => {}}
         onRewriteLocalhostLinksChange={state.setRewriteLocalhostLinks}
-        onRichTextEditingChange={state.setRichTextEditing}
         onSteerActiveThreadOnEnterChange={state.setSteerActiveThreadOnEnter}
         openLinksInAppBrowser={state.openLinksInAppBrowser}
         rewriteLocalhostLinks={state.rewriteLocalhostLinks}
-        richTextEditing={state.richTextEditing}
         steerActiveThreadOnEnter={state.steerActiveThreadOnEnter}
       />
       <CliSkillsSettingsSectionContent
@@ -289,6 +299,7 @@ function ExperimentsStory() {
     <ExperimentsSettingsSection
       disabled={false}
       experiments={state.experiments}
+      performanceDiagnosticsAvailable={true}
       onExperimentChange={(key, enabled) =>
         state.setExperiments((current) => ({ ...current, [key]: enabled }))
       }
@@ -303,7 +314,9 @@ function ProvidersSettingsStory() {
     <ProvidersSettingsSection
       disabled={false}
       generalSettings={generalSettings}
-      onGeneralSettingsChange={setGeneralSettings}
+      onGeneralSettingsChange={(patch) =>
+        setGeneralSettings((current) => ({ ...current, ...patch }))
+      }
     />
   );
 }
@@ -347,6 +360,8 @@ function SettingsStoryContent({ route }: { route: SettingsStoryRoute }) {
       return <MachineEnvironmentSettings />;
     case "updates":
       return <SettingsUpdatesStory />;
+    case "mobile":
+      return <MobileAppSection />;
     case "experiments":
       return <ExperimentsStory />;
     case "community":

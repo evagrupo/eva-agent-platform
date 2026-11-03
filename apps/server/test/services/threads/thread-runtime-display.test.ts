@@ -1,8 +1,11 @@
+import { ensureEvaAgentRegistry } from "../../../src/agents/eva-agent-registry.js";
+import { applyGeneratedThreadTitle } from "../../../src/services/threads/title-generation.js";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
   appendStoredThreadEvent,
+  authUsers,
   closeSession,
   createConnection,
   createEnvironment,
@@ -31,9 +34,16 @@ import type {
   Thread,
   ThreadRuntimeState,
 } from "@bb/domain";
-import { DAEMON_ACTIVE_WORK_DISCONNECT_GRACE_MS } from "../../../src/constants.js";
+import { HOST_RECONNECT_GRACE_MS } from "../../../src/constants.js";
+import {
+  defaultAdminPolicy,
+  defaultUserPolicy,
+  runWithCoreAuthRequest,
+  type CoreAuthContext,
+} from "../../../src/access-policy.js";
 import {
   resolveThreadRuntimeState,
+  toThreadResponseFromThread,
   toThreadListEntryResponses,
 } from "../../../src/services/threads/thread-runtime-display.js";
 import { NotificationHub } from "../../../src/ws/hub.js";
@@ -54,6 +64,7 @@ interface OpenTestSessionArgs {
 }
 
 interface CloseTestSessionArgs {
+  closeReason?: "daemon-disconnect" | "expired";
   closedAt: number;
   db: DbConnection;
   sessionId: string;
@@ -168,7 +179,12 @@ function openTestSession(args: OpenTestSessionArgs) {
 }
 
 function closeTestSession(args: CloseTestSessionArgs): void {
-  closeSession(args.db, noopNotifier, args.sessionId, "daemon-disconnect");
+  closeSession(
+    args.db,
+    noopNotifier,
+    args.sessionId,
+    args.closeReason ?? "daemon-disconnect",
+  );
   args.db
     .update(hostDaemonSessions)
     .set({
@@ -241,6 +257,112 @@ function createThreadListEntry(
 }
 
 describe("thread runtime display", () => {
+  it("shows agent names in old chat details and lists while retaining development and child titles", () => {
+    const { db, hostId, hub } = setup();
+    try {
+      ensureEvaAgentRegistry(db);
+      const { thread } = createThreadWithEnvironment({ db, hostId });
+      const chat = { ...thread, agentId: "meta", title: "Old task title" };
+      expect(
+        toThreadResponseFromThread({ db, hub }, { thread: chat }).title,
+      ).toBe("Meta");
+      const admin = { ...thread, agentId: "admin", title: "Fix login" };
+      const child = {
+        ...chat,
+        parentThreadId: "parent",
+        title: "Analyze campaign",
+      };
+      const ordinary = { ...thread, agentId: null, title: "Notes" };
+      const list = toThreadListEntryResponses(
+        { db, hub, providerRegistry },
+        {
+          threads: [chat, admin, child, ordinary].map((entry) =>
+            createThreadListEntry({
+              thread: { ...entry, pinSortKey: null },
+              environmentHostId: hostId,
+            }),
+          ),
+        },
+      );
+      expect(list.map((entry) => entry.title)).toEqual([
+        "Meta",
+        "Fix login",
+        "Analyze campaign",
+        "Notes",
+      ]);
+      expect(chat.title).toBe("Old task title");
+      const untitledChat = createThread(db, hub, {
+        projectId: thread.projectId,
+        agentId: "meta",
+        providerId: "codex",
+        status: "idle",
+      });
+      expect(
+        applyGeneratedThreadTitle(
+          { db, hub },
+          { threadId: untitledChat.id, title: "Generated task title" },
+        ),
+      ).toBe(false);
+      const untitledAdmin = createThread(db, hub, {
+        projectId: thread.projectId,
+        agentId: "admin",
+        providerId: "codex",
+        status: "idle",
+      });
+      expect(
+        applyGeneratedThreadTitle(
+          { db, hub },
+          { threadId: untitledAdmin.id, title: "Fix login" },
+        ),
+      ).toBe(true);
+    } finally {
+      db.$client.close();
+    }
+  });
+  it("includes the owner name in detail responses only for administrators", () => {
+    const { db, hostId, hub } = setup();
+    const { thread } = createThreadWithEnvironment({ db, hostId });
+    const ownerCreatedAt = new Date();
+    db.insert(authUsers)
+      .values({
+        id: "owner-1",
+        name: "Ana García",
+        email: "owner-1@eva.test",
+        emailVerified: true,
+        image: null,
+        createdAt: ownerCreatedAt,
+        updatedAt: ownerCreatedAt,
+      })
+      .run();
+    const threadWithOwner = { ...thread, ownerUserId: "owner-1" };
+    const authContext = (role: "admin" | "user"): CoreAuthContext => ({
+      userId: `${role}-1`,
+      email: `${role}-1@eva.test`,
+      name: role === "admin" ? "Administrator" : "User",
+      sessionId: `${role}-session`,
+      role,
+      policy: role === "admin" ? defaultAdminPolicy : defaultUserPolicy,
+      policyRevision: 1,
+      resourceAccess: [],
+    });
+
+    const adminResponse = runWithCoreAuthRequest(
+      authContext("admin"),
+      "GET",
+      () =>
+        toThreadResponseFromThread({ db, hub }, { thread: threadWithOwner }),
+    );
+    const userResponse = runWithCoreAuthRequest(
+      authContext("user"),
+      "GET",
+      () =>
+        toThreadResponseFromThread({ db, hub }, { thread: threadWithOwner }),
+    );
+
+    expect(adminResponse.ownerName).toBe("Ana García");
+    expect(userResponse).not.toHaveProperty("ownerName");
+  });
+
   it("keeps active threads active while the host daemon websocket is registered", () => {
     const { db, hostId, hub } = setup();
     const now = 1_000;
@@ -258,7 +380,6 @@ describe("thread runtime display", () => {
       ),
     ).toEqual({
       displayStatus: "active",
-      hostReconnectGraceExpiresAt: null,
     } satisfies ThreadRuntimeState);
   });
 
@@ -278,17 +399,15 @@ describe("thread runtime display", () => {
       ),
     ).toEqual({
       displayStatus: "waiting-for-host",
-      hostReconnectGraceExpiresAt: null,
     } satisfies ThreadRuntimeState);
   });
 
-  it("shows host-reconnecting for the full active-work grace after a daemon disconnect", () => {
+  it("keeps an active thread active while its host's closed socket is within the reconnect grace", () => {
     const { db, hostId, hub } = setup();
     const now = 60_000;
     const session = openTestSession({ db, hostId });
-    const closedAt = now - DAEMON_ACTIVE_WORK_DISCONNECT_GRACE_MS + 1_000;
     closeTestSession({
-      closedAt,
+      closedAt: now - HOST_RECONNECT_GRACE_MS + 1_000,
       db,
       sessionId: session.id,
     });
@@ -299,18 +418,38 @@ describe("thread runtime display", () => {
         { environmentHostId: hostId, now, status: "active" },
       ),
     ).toEqual({
-      displayStatus: "host-reconnecting",
-      hostReconnectGraceExpiresAt:
-        closedAt + DAEMON_ACTIVE_WORK_DISCONNECT_GRACE_MS,
+      displayStatus: "active",
     } satisfies ThreadRuntimeState);
   });
 
-  it("shows waiting-for-host after the active-work disconnect grace expires", () => {
+  it("keeps an active thread active while its reconnecting daemon has not registered its socket", () => {
+    const { db, hostId, hub } = setup();
+    const now = Date.now();
+    const lost = openTestSession({ db, hostId });
+    closeTestSession({
+      closedAt: now - 1_000,
+      db,
+      sessionId: lost.id,
+    });
+    openTestSession({ db, hostId });
+
+    expect(
+      resolveThreadRuntimeState(
+        { db, hub },
+        { environmentHostId: hostId, now, status: "active" },
+      ),
+    ).toEqual({
+      displayStatus: "active",
+    } satisfies ThreadRuntimeState);
+  });
+
+  it("shows waiting-for-host as soon as the server closes a silent daemon session", () => {
     const { db, hostId, hub } = setup();
     const now = 60_000;
     const session = openTestSession({ db, hostId });
     closeTestSession({
-      closedAt: now - DAEMON_ACTIVE_WORK_DISCONNECT_GRACE_MS - 1,
+      closeReason: "expired",
+      closedAt: now - 1_000,
       db,
       sessionId: session.id,
     });
@@ -322,7 +461,26 @@ describe("thread runtime display", () => {
       ),
     ).toEqual({
       displayStatus: "waiting-for-host",
-      hostReconnectGraceExpiresAt: null,
+    } satisfies ThreadRuntimeState);
+  });
+
+  it("shows waiting-for-host after the reconnect grace expires", () => {
+    const { db, hostId, hub } = setup();
+    const now = 60_000;
+    const session = openTestSession({ db, hostId });
+    closeTestSession({
+      closedAt: now - HOST_RECONNECT_GRACE_MS - 1,
+      db,
+      sessionId: session.id,
+    });
+
+    expect(
+      resolveThreadRuntimeState(
+        { db, hub },
+        { environmentHostId: hostId, now, status: "active" },
+      ),
+    ).toEqual({
+      displayStatus: "waiting-for-host",
     } satisfies ThreadRuntimeState);
   });
 
@@ -340,7 +498,6 @@ describe("thread runtime display", () => {
       ),
     ).toEqual({
       displayStatus: "idle",
-      hostReconnectGraceExpiresAt: null,
     } satisfies ThreadRuntimeState);
   });
 
@@ -358,7 +515,6 @@ describe("thread runtime display", () => {
       ),
     ).toEqual({
       displayStatus: "active",
-      hostReconnectGraceExpiresAt: null,
     } satisfies ThreadRuntimeState);
   });
 
@@ -387,6 +543,42 @@ describe("thread runtime display", () => {
 
     expect(providerIdByThreadId.get(provided.thread.id)).toBe("git-worktree");
     expect(providerIdByThreadId.get(checkout.thread.id)).toBeNull();
+  });
+
+  it("reports the selected machine before a new thread has an environment", () => {
+    const { db, hostId, hub } = setup();
+    const { project } = createThreadWithEnvironment({ db, hostId });
+    const thread = createThread(db, noopNotifier, {
+      projectId: project.id,
+      environmentId: null,
+      providerId: "codex",
+      status: "pending",
+      startupContext: JSON.stringify({
+        kind: "pending",
+        environmentIntent: {
+          type: "provider",
+          environmentProviderId: "git-worktree",
+          machine: { type: "existing", hostId },
+          inputs: null,
+          selectionResolved: true,
+        },
+        fork: null,
+        startedOnBehalfOf: null,
+        titleProvided: false,
+      }),
+    });
+
+    const [entry] = toThreadListEntryResponses(
+      { db, hub, providerRegistry },
+      {
+        threads: listThreadsWithPendingInteractionState(db, {
+          projectId: project.id,
+        }).filter((row) => row.id === thread.id),
+      },
+    );
+
+    expect(entry?.environmentHostId).toBe(hostId);
+    expect(entry?.environmentId).toBeNull();
   });
 
   it("resolves list entry runtime from daemon registration per host", () => {
@@ -430,15 +622,12 @@ describe("thread runtime display", () => {
     expect(entries.map((entry) => entry.runtime)).toEqual([
       {
         displayStatus: "active",
-        hostReconnectGraceExpiresAt: null,
       },
       {
         displayStatus: "active",
-        hostReconnectGraceExpiresAt: null,
       },
       {
         displayStatus: "active",
-        hostReconnectGraceExpiresAt: null,
       },
     ] satisfies ThreadRuntimeState[]);
   });
@@ -476,6 +665,8 @@ describe("thread runtime display", () => {
       id: failedRow.id,
       threadId: failed.thread.id,
       failureReason: "The message could not be sent.",
+      now: Date.now(),
+      retryDelaysMs: [],
     });
 
     const entries = toThreadListEntryResponses(

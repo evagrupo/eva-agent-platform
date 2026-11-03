@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Icon } from "@bb/shared-ui/icon";
 import { Button } from "@bb/shared-ui/button";
@@ -27,8 +33,6 @@ import {
 } from "@/lib/route-paths";
 import { PageShell } from "@/components/ui/page-shell.js";
 
-type AgentStatus = SdkEvaAgent["status"];
-
 interface AgentSkill {
   id: string;
   name: string;
@@ -46,34 +50,12 @@ interface CreateFormState {
   instructions: string;
 }
 
-function statusLabel(status: AgentStatus): string {
-  if (status === "live") return "Live";
-  if (status === "shadow") return "Shadow";
-  return "Draft";
-}
-
 function formatDate(value: number | null): string {
   if (value === null) return "Not scaffolded yet";
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(value);
-}
-
-function AgentStatusBadge({ status }: { status: AgentStatus }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
-        status === "live"
-          ? "border-success/30 bg-success/10 text-success"
-          : status === "shadow"
-            ? "border-warning/30 bg-warning/10 text-warning"
-            : "border-border bg-surface-recessed text-muted-foreground"
-      }`}
-    >
-      {statusLabel(status)}
-    </span>
-  );
 }
 
 function AgentIcon({ name }: { name: string }) {
@@ -218,7 +200,6 @@ function AgentCard({ agent }: { agent: Agent }) {
     >
       <div className="flex items-start justify-between gap-3">
         <AgentIcon name={agent.icon} />
-        <AgentStatusBadge status={agent.status} />
       </div>
       <div className="mt-5">
         <h2 className="font-semibold text-foreground group-hover:underline">
@@ -244,7 +225,7 @@ function AgentListView() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -254,11 +235,11 @@ function AgentListView() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   if (loading) {
     return (
@@ -415,32 +396,35 @@ export function WorkspaceSyncPanel({ agentId }: { agentId: string }) {
   const [pendingAction, setPendingAction] =
     useState<PendingWorkspaceSyncAction | null>(null);
 
-  const loadStatus = async (showLoading = true) => {
-    if (showLoading) setLoading(true);
-    setError(null);
-    try {
-      const response = await sdk.evaAgents.workspaceSync({ agentId });
-      setStatus(response.status);
-      setRemoteUrl(response.status.remoteUrl ?? "");
-      setBranch(response.status.branch);
-      setForbidden(false);
-    } catch (caught) {
-      if (caught instanceof BbHttpError && caught.status === 403) {
-        setForbidden(true);
-        setError(null);
-      } else {
-        setError(
-          caught instanceof Error ? caught.message : "Sync status failed",
-        );
+  const loadStatus = useCallback(
+    async (showLoading = true) => {
+      if (showLoading) setLoading(true);
+      setError(null);
+      try {
+        const response = await sdk.evaAgents.workspaceSync({ agentId });
+        setStatus(response.status);
+        setRemoteUrl(response.status.remoteUrl ?? "");
+        setBranch(response.status.branch);
+        setForbidden(false);
+      } catch (caught) {
+        if (caught instanceof BbHttpError && caught.status === 403) {
+          setForbidden(true);
+          setError(null);
+        } else {
+          setError(
+            caught instanceof Error ? caught.message : "Sync status failed",
+          );
+        }
+      } finally {
+        if (showLoading) setLoading(false);
       }
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  };
+    },
+    [agentId],
+  );
 
   useEffect(() => {
     void loadStatus();
-  }, [agentId]);
+  }, [loadStatus]);
 
   const confirmAction = async () => {
     if (pendingAction === null) return;
@@ -830,7 +814,7 @@ function AgentDetailView({ agentId }: { agentId: string }) {
   const [skills, setSkills] = useState<AgentSkill[]>([]);
   const canManage = auth?.user?.role === "admin";
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -847,11 +831,11 @@ function AgentDetailView({ agentId }: { agentId: string }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [agentId]);
 
   useEffect(() => {
     void load();
-  }, [agentId]);
+  }, [load]);
 
   const startConversation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -956,7 +940,6 @@ function AgentDetailView({ agentId }: { agentId: string }) {
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                 {agent.displayName}
               </h1>
-              <AgentStatusBadge status={agent.status} />
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
               {agent.description}

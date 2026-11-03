@@ -10,6 +10,7 @@ import {
   listQueuedThreadMessagePluginWaitRefs,
   listQueuedThreadMessagesByWaitHolder,
   listQueuedThreadMessagesWaitingOnKind,
+  listRetryableFailedQueuedThreadMessages,
   listThreadIdsWithHostOfflineQueueWaits,
 } from "@bb/db";
 import {
@@ -42,11 +43,13 @@ export type QueuedMessageDispatchWake =
   | { kind: "workspace-ready"; threadId: string }
   | { kind: "provisioning-ended"; threadId: string }
   | { kind: "interaction-settled"; threadId: string }
+  | { kind: "edit-released"; queuedMessageId: string; threadId: string }
   | { kind: "host-connected"; hostId: string }
   | { kind: "time-reached"; now: number }
   | { kind: "plugin-recheck" }
   | { kind: "plugin-unregistered"; pluginId: string }
   | { kind: "idle-recovery"; now: number }
+  | { kind: "failed-retry"; now: number }
   | {
       kind: "orphaned-plugin-recovery";
       plugins: QueueWaitPluginDirectory;
@@ -115,7 +118,14 @@ function dispatchWakeContext(
     case "turn-started":
     case "interaction-settled":
       return { threadId: wake.threadId, wake: wake.kind };
+    case "edit-released":
+      return {
+        queuedMessageId: wake.queuedMessageId,
+        threadId: wake.threadId,
+        wake: wake.kind,
+      };
     case "idle-recovery":
+    case "failed-retry":
       return { now: wake.now, wake: wake.kind };
     case "orphaned-plugin-recovery":
       return { wake: wake.kind };
@@ -231,6 +241,7 @@ async function executePreparedQueuedMessageDispatch(
           await attemptAutomaticQueuedMessage(deps, row, {
             now: Date.now(),
             respectRequeuePacing: false,
+            retryingFailure: false,
           });
         }
       }
@@ -247,6 +258,12 @@ async function executePreparedQueuedMessageDispatch(
     case "interaction-settled":
       await runInteractionSettledDispatch(deps, wake.threadId);
       return;
+    case "edit-released":
+      await runEditReleasedDispatch(deps, {
+        id: wake.queuedMessageId,
+        threadId: wake.threadId,
+      });
+      return;
     case "plugin-recheck":
       await runPluginRecheckDispatch(deps);
       return;
@@ -259,6 +276,9 @@ async function executePreparedQueuedMessageDispatch(
     case "idle-recovery":
       releaseStaleQueuedMessageDispatchClaims(deps, wake.now);
       await runIdleThreadRecovery(deps);
+      return;
+    case "failed-retry":
+      await runFailedRetryDispatch(deps, wake.now);
       return;
     case "orphaned-plugin-recovery":
       await runOrphanedPluginWaitRecovery(deps, wake.plugins);
@@ -319,6 +339,7 @@ async function runTurnStartedDispatch(
     await attemptAutomaticQueuedMessage(deps, row, {
       now: Date.now(),
       respectRequeuePacing: false,
+      retryingFailure: false,
     });
   }
 }
@@ -343,6 +364,7 @@ async function runWorkspaceReadyDispatch(
     await attemptAutomaticQueuedMessage(deps, row, {
       now: Date.now(),
       respectRequeuePacing: false,
+      retryingFailure: false,
     });
   }
 }
@@ -361,10 +383,26 @@ async function runInteractionSettledDispatch(
   }
 }
 
+async function runEditReleasedDispatch(
+  deps: QueueDispatchDeps,
+  row: QueuedMessageDispatchRef,
+): Promise<void> {
+  await attemptAutomaticQueuedMessage(deps, row, {
+    now: Date.now(),
+    respectRequeuePacing: false,
+    retryingFailure: false,
+  });
+  await runThreadReadyDispatch(deps, row.threadId);
+}
+
 async function attemptAutomaticQueuedMessage(
   deps: QueueDispatchDeps,
   row: QueuedMessageDispatchRef,
-  args: { now: number; respectRequeuePacing: boolean },
+  args: {
+    now: number;
+    respectRequeuePacing: boolean;
+    retryingFailure: boolean;
+  },
 ): Promise<void> {
   if (args.respectRequeuePacing && isDispatchRequeuedRecently(row.threadId))
     return;
@@ -377,8 +415,10 @@ async function attemptAutomaticQueuedMessage(
         kind: "automatic",
         isGroupEligible: createAutomaticQueuedMessageGroupEligibility(deps, {
           now: args.now,
+          retryingFailure: args.retryingFailure,
           thread,
         }),
+        retryingFailure: args.retryingFailure,
       },
       mode: "auto",
       queuedMessageId: row.id,
@@ -396,7 +436,12 @@ async function attemptAutomaticQueuedMessage(
       );
       return;
     }
-    recordQueuedMessageDrainFailure(deps, { error, row, thread });
+    recordQueuedMessageDrainFailure(deps, {
+      error,
+      now: args.now,
+      row,
+      thread,
+    });
     deps.logger.warn(
       {
         queuedMessageId: row.id,
@@ -416,6 +461,7 @@ async function runPluginRecheckDispatch(
     await attemptAutomaticQueuedMessage(deps, row, {
       now,
       respectRequeuePacing: true,
+      retryingFailure: false,
     });
   }
 }
@@ -449,6 +495,40 @@ async function runDueScheduledDispatch(
     await attemptAutomaticQueuedMessage(deps, row, {
       now,
       respectRequeuePacing: true,
+      retryingFailure: false,
+    });
+  }
+}
+
+/**
+ * Re-attempts rows whose booked retry has come due.
+ *
+ * This is the only automatic path that may claim a row with a recorded
+ * failure, and it exists because a failure is not a verdict about the message:
+ * it is what the server was able to do at one instant, usually an instant
+ * during a restart. Every other wake asks "did the thing this row waits for
+ * happen?", which a row that failed can no longer be asked — its wait may have
+ * gone stale while it sat there, and the edge that would have cleared it has
+ * passed. So this one re-asks the whole question instead, and the row's
+ * remaining attempts are what stop it asking forever.
+ */
+async function runFailedRetryDispatch(
+  deps: QueueDispatchDeps,
+  now: number,
+): Promise<void> {
+  for (const row of listRetryableFailedQueuedThreadMessages(deps.db, now)) {
+    deps.logger.info(
+      {
+        failureCount: row.failureCount,
+        queuedMessageId: row.id,
+        threadId: row.threadId,
+      },
+      "Retrying a queued message whose dispatch failed",
+    );
+    await attemptAutomaticQueuedMessage(deps, row, {
+      now,
+      respectRequeuePacing: true,
+      retryingFailure: true,
     });
   }
 }

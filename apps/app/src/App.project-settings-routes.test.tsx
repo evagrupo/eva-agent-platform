@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import type { ReactNode } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { renderWithCoreAuth as render } from "@/test/coreAuthTestHarness";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MemoryRouter,

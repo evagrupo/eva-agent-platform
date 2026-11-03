@@ -6,7 +6,11 @@ import type { ServerConfig } from "@bb/config/server";
 import { isLoopbackHostname } from "@bb/config/loopback";
 import { toOptionalString } from "@bb/config/strings";
 import { createLogger } from "@bb/logger";
-import { getAppSettings } from "@bb/db";
+import {
+  getAppSettings,
+  getDisabledProviderIds,
+  listRunningThreads,
+} from "@bb/db";
 import { initDb } from "./db.js";
 import { createApp } from "./server.js";
 import { createCoreAuthService, resolveCoreAuthRequired } from "./core-auth.js";
@@ -17,8 +21,11 @@ import { SkillTreeRegistry } from "./services/skills/injected-skills.js";
 import { PluginHostArtifactRegistry } from "./services/plugins/plugin-host-artifact-registry.js";
 import { createProviderNativeRootsCache } from "./services/providers/native-roots.js";
 import { createAiServiceRegistry } from "./services/ai/ai-service-registry.js";
+import { createAppUpdateService } from "./services/system/app-update.js";
 import { createAppVersionService } from "./services/system/app-version.js";
+import { createLauncherChannel } from "./services/system/launcher-channel.js";
 import { createBbAppManagedConfigReloader } from "./services/system/bb-app-managed-config.js";
+import { startGatedPerformanceDiagnostics } from "./services/system/performance-diagnostics.js";
 import { startEventLoopStallMonitor } from "./services/system/event-loop-stall-monitor.js";
 import {
   runPeriodicSweeps,
@@ -30,11 +37,15 @@ import {
   type ProviderRegistryService,
 } from "./services/providers/provider-registry.js";
 import type { PluginService } from "./services/plugins/plugin-service.js";
-import { createTelemetryService } from "./services/system/telemetry.js";
+import {
+  appInstallFromServerConfig,
+  createTelemetryService,
+} from "./services/system/telemetry.js";
 import { TerminalSessionLifecycle } from "./services/terminals/terminal-session-lifecycle.js";
 import { createLifecycleDedupers } from "./lifecycle-dedupers.js";
 import type { ServerLogger, ServerRuntimeConfig } from "./types.js";
 import { NotificationHub } from "./ws/hub.js";
+import { startDaemonLivenessChecks } from "./ws/daemon-protocol.js";
 import { WatchInterestCoordinator } from "./ws/watch-interests.js";
 import { WorkspaceReadCaches } from "./services/environments/workspace-read-cache.js";
 import { HostSharedPortCoordinator } from "./ws/host-shared-ports.js";
@@ -101,7 +112,10 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     dataDir: serverConfig.BB_DATA_DIR,
     logger,
   });
+  let diagnosticsEnabled = () => false;
   const db = initDb(serverConfig.databasePath, {
+    slowQueryThresholdMs: () => (diagnosticsEnabled() ? 25 : 100),
+    slowQueryDiagnosticsEnabled: () => diagnosticsEnabled(),
     dataDir: serverConfig.BB_DATA_DIR,
     logger,
   });
@@ -144,18 +158,16 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     appVersion: serverConfig.BB_APP_VERSION,
     builtinSkillsRootPath: resolveBuiltinSkillsRootPath(),
     marketplaceUrl: serverConfig.BB_MARKETPLACE_URL,
+    miniAppsPublicDomain: serverConfig.BB_MINI_APPS_PUBLIC_DOMAIN,
     customModels: [],
     dataDir: serverConfig.BB_DATA_DIR,
     featureFlags: serverConfig.featureFlags,
     hostDaemonPort: serverConfig.BB_HOST_DAEMON_PORT,
     inheritedSkillsRootPaths: serverConfig.BB_INHERITED_SKILLS_ROOTS,
-    inferenceFallbackModel: serverConfig.BB_INFERENCE_FALLBACK,
-    inferenceModel: serverConfig.BB_INFERENCE,
     isDevelopment: !isProduction,
-    openAiApiKey: serverConfig.OPENAI_API_KEY,
+    performanceDiagnosticsAvailable: serverConfig.BB_PERF_DIAGNOSTICS,
     serverPort: serverConfig.BB_SERVER_PORT,
     sharedSkillRoots: { user: [], project: [] },
-    transcriptionModel: serverConfig.BB_TRANSCRIPTION,
     authRequired: resolveCoreAuthRequired({
       isDevelopment: !isProduction,
     }),
@@ -167,6 +179,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
       const settings = getAppSettings(db);
       return {
         providerOrder: settings.providerOrder,
+        disabledProviderIds: getDisabledProviderIds(db),
         defaultProviderId: settings.defaultProviderId,
       };
     },
@@ -206,6 +219,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
 
   const telemetry = await createTelemetryService({
     apiKey: serverConfig.BB_POSTHOG_API_KEY,
+    appInstall: appInstallFromServerConfig(serverConfig),
     appSurface: serverConfig.BB_APP_SURFACE,
     appVersion: serverConfig.BB_APP_VERSION,
     dataDir: serverConfig.BB_DATA_DIR,
@@ -224,7 +238,9 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   const skillTreeRegistry = new SkillTreeRegistry();
   const pluginHostArtifacts = new PluginHostArtifactRegistry();
   const providerNativeRoots = createProviderNativeRootsCache();
-  const aiServices = createAiServiceRegistry();
+  const aiServices = createAiServiceRegistry({
+    onStatusChange: () => hub.notifySystem(["config-changed"]),
+  });
   const pendingInteractions = new PendingInteractionLifecycle({
     config: runtimeConfig,
     db,
@@ -243,8 +259,25 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   setPluginToolCallRegistry(new PluginToolCallRegistry({ logger }));
 
   const appVersion = createAppVersionService({
+    installKind: serverConfig.BB_APP_INSTALL_KIND ?? null,
+    sourceCommit: serverConfig.BB_APP_SOURCE_COMMIT ?? null,
     config: runtimeConfig,
     logger,
+  });
+  const appUpdateMode = serverConfig.BB_APP_UPDATE_MODE ?? null;
+  const appUpdate = createAppUpdateService({
+    currentCommit:
+      serverConfig.BB_APP_INSTALL_KIND === "source"
+        ? (serverConfig.BB_APP_SOURCE_COMMIT ?? null)
+        : null,
+    appSurface: serverConfig.BB_APP_SURFACE,
+    appVersion,
+    config: runtimeConfig,
+    countRunningThreads: () => listRunningThreads(db).length,
+    launcher: appUpdateMode === null ? null : createLauncherChannel(process),
+    logger,
+    mode: appUpdateMode,
+    notifyChanged: () => hub.notifySystem(["app-update-changed"]),
   });
   const {
     app,
@@ -256,6 +289,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     serverMove,
   } = createApp(
     {
+      appUpdate,
       appVersion,
       bbAppManagedConfig,
       config: runtimeConfig,
@@ -279,6 +313,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     },
     {
       serverMove: {
+        appSurface: serverConfig.BB_APP_SURFACE,
         bindHost: serverConfig.BB_SERVER_BIND_HOST,
         manualImportPending: serverImport.manualImportPending,
         pending: pendingServerMove,
@@ -286,20 +321,55 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
         retireProcess: retireServerProcess,
       },
       staticDir,
+      performanceDiagnosticsEnabled: () => diagnosticsEnabled(),
     },
   );
   disconnectImportedDaemonSessions(
     {
+      config: runtimeConfig,
       db,
       hub,
+      lifecycleDedupers,
       logger,
+      machineAuth,
       pendingInteractions,
       providerRegistry,
+      pluginHostArtifacts,
+      aiServices,
+      skillTreeRegistry,
+      telemetry,
       terminalSessions,
     },
     { sessions: serverImport.importedDaemonSessions },
   );
-  const eventLoopStallMonitor = startEventLoopStallMonitor({ logger });
+  const performanceDiagnostics = await startGatedPerformanceDiagnostics({
+    allowed: serverConfig.BB_PERF_DIAGNOSTICS,
+    dataDir: serverConfig.BB_DATA_DIR,
+    db,
+    hub,
+    logger,
+  });
+  diagnosticsEnabled = performanceDiagnostics.isEnabled;
+  const eventLoopStallMonitor = startEventLoopStallMonitor({
+    logger,
+    thresholdMs: () => (diagnosticsEnabled() ? 100 : 500),
+  });
+  const stopDaemonLivenessChecks = startDaemonLivenessChecks({
+    config: runtimeConfig,
+    db,
+    hub,
+    lifecycleDedupers,
+    logger,
+    machineAuth,
+    pendingInteractions,
+    providerRegistry,
+    pluginHostArtifacts,
+    aiServices,
+    sharedPorts,
+    skillTreeRegistry,
+    telemetry,
+    terminalSessions,
+  });
 
   const sweepDeps = {
     config: runtimeConfig,
@@ -393,8 +463,11 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     }
     shutdownPromise = (async () => {
       serverMove.dispose();
+      appUpdate.dispose();
       providerModelCatalogPrewarm?.stop();
       eventLoopStallMonitor.stop();
+      await performanceDiagnostics.stop();
+      stopDaemonLivenessChecks();
       if (sweepInterval !== null) {
         clearInterval(sweepInterval);
       }

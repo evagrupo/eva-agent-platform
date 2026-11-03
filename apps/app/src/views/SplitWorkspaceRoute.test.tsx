@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import { Suspense, useEffect } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
+import { renderWithCoreAuth as render } from "@/test/coreAuthTestHarness";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneContent } from "@/lib/split-layout";
@@ -21,13 +22,13 @@ vi.mock("./thread-detail/SplitThreadArea", () => ({
   },
 }));
 
-vi.mock("./RootComposeView", () => ({
+vi.mock("./LegacyProjectComposeRedirect", () => ({
   LegacyProjectComposeRedirect: () => <div>legacy redirect</div>,
 }));
 
 vi.mock("./ToolsView", () => ({
-  PluginsView: ({ pluginId }: { pluginId?: string }) => (
-    <output data-testid="tools-view">{pluginId ?? "overview"}</output>
+  PluginsView: ({ detailKey }: { detailKey?: string }) => (
+    <output data-testid="tools-view">{detailKey ?? "overview"}</output>
   ),
 }));
 

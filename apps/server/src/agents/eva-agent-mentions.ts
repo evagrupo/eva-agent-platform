@@ -38,9 +38,12 @@ export function searchEvaAgentMentions(args: {
   db: DbConnection;
   policy?: CorePolicy;
   query: string;
+  /** The agent the user is chatting with; tagging it would be a no-op. */
+  excludeAgentId?: string;
 }): PluginMentionSearchGroup | null {
   const needle = args.query.trim().toLocaleLowerCase();
   const items = listMentionableEvaAgents(args.db, args.policy)
+    .filter((agent) => agent.id !== args.excludeAgentId)
     .filter((agent) =>
       [agent.id, agent.displayName, agent.description].some((value) =>
         value.toLocaleLowerCase().includes(needle),
@@ -96,7 +99,6 @@ export function resolveEvaAgentMention(
     context: [
       `The user referenced registered EVA agent @${agent.id} (${agent.displayName}).`,
       `Mandate: ${agent.description}`,
-      `Operating status: ${agent.status}.`,
       "Treat this as a delegation target, not permission to impersonate the specialist.",
       "For a concrete task, use eva_delegate_to_agent to create a real BB child thread; wait for its result before reporting completion.",
     ].join("\n"),

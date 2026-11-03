@@ -37,6 +37,7 @@ const useThreadDetailBootstrapMock = vi.hoisted(() =>
 );
 
 const SIDEBAR_WIDTH_STORAGE_KEY = "bb.sidebar.width";
+const SIDEBAR_OPEN_STORAGE_KEY = "bb.sidebar.open";
 const APP_ROUTE = "/projects/proj_one/threads/thr_one?message=12#event-12";
 const SETTINGS_ROUTE = "/settings/providers/codex?tab=models#preferred";
 const PLUGINS_ROUTE = "/plugins/ui-patterns?tab=settings#source";
@@ -89,11 +90,17 @@ vi.mock("@/hooks/useHostDaemon", () => ({
   useLocalHostDaemonAccess: () => ({ accessState: "unavailable" }),
 }));
 
+vi.mock("@/hooks/usePluginSafeModeCommands", () => ({
+  usePluginSafeModeCommands: () => undefined,
+}));
+
 vi.mock("@/components/project/ProjectActionsProvider", () => ({
   ProjectActionsProvider: ({ children }: { children: ReactNode }) => (
     <>{children}</>
   ),
 }));
+
+vi.mock("@/hooks/mutations/thread-state-mutations", () => ({}));
 
 vi.mock("@/components/thread/ThreadActionsProvider", () => ({
   ThreadActionsProvider: ({ children }: { children: ReactNode }) => (
@@ -117,6 +124,7 @@ vi.mock("@/lib/bb-desktop", () => ({
   MACOS_CHROME_CONTROL_AXIS_CLASS: "",
   MACOS_CHROME_CONTROL_NO_DRAG_CLASS: "",
   MACOS_TRAFFIC_LIGHT_RESERVE_OFFSET_CLASS: "",
+  MACOS_TRAFFIC_LIGHT_RESERVE_PADDING_CLASS: "",
   MACOS_WINDOW_DRAG_CLASS: "",
   MACOS_WINDOW_NO_DRAG_CLASS: "",
   getBbDesktopInfo: () => null,
@@ -142,7 +150,10 @@ vi.mock("@/hooks/useQuickCreateProject", () => ({
 vi.mock("@/hooks/queries/sidebar-navigation-query", () => ({
   useSidebarNavigation: () => ({
     data: {
-      sections: [],
+      sections: [
+        { id: "sec_planning", name: "Planning" },
+        { id: "sec_building", name: "Building" },
+      ],
       personalProject: {
         id: "proj_personal",
         kind: "personal",
@@ -165,7 +176,6 @@ vi.mock("@/hooks/queries/thread-queries", () => ({
   useThread: () => ({ data: undefined }),
   useThreadDetailBootstrap: useThreadDetailBootstrapMock,
   useThreadPendingInteractions: () => ({ data: undefined }),
-  getLatestPendingInteraction: () => null,
 }));
 
 function widthVar(element: Element | null): string {
@@ -212,6 +222,7 @@ function renderLayout(initialPath = "/", children: ReactNode = null) {
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   useThreadDetailBootstrapMock.mockReset();
   useThreadDetailBootstrapMock.mockReturnValue({
     isError: false,
@@ -226,6 +237,7 @@ afterEach(() => {
   setCompactSecondaryPanelPresentation("closed");
   vi.restoreAllMocks();
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 describe("canonical thread routes", () => {
@@ -399,6 +411,47 @@ describe("AppLayout Back to app", () => {
     });
 
     expect(screen.getByTestId("location").textContent).toBe(SETTINGS_ROUTE);
+  });
+});
+
+describe("AppLayout sidebar state is scoped to this tab", () => {
+  function sidebarRoot() {
+    const gap = document.querySelector('[data-sidebar="gap"]');
+    if (!gap?.parentElement) throw new Error("missing sidebar");
+    return gap.parentElement;
+  }
+
+  function dispatchCrossTabWrite(key: string, newValue: string) {
+    window.localStorage.setItem(key, newValue);
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key,
+          newValue,
+          storageArea: window.localStorage,
+        }),
+      );
+    });
+  }
+
+  it("keeps this tab expanded when another tab collapses the sidebar", () => {
+    renderLayout();
+    expect(sidebarRoot().getAttribute("data-state")).toBe("expanded");
+
+    dispatchCrossTabWrite(SIDEBAR_OPEN_STORAGE_KEY, "false");
+
+    expect(sidebarRoot().getAttribute("data-state")).toBe("expanded");
+  });
+
+  it("keeps this tab's width when another tab resizes the sidebar", () => {
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, "320");
+    renderLayout();
+    const gap = document.querySelector('[data-sidebar="gap"]');
+    expect(widthVar(gap)).toBe("320px");
+
+    dispatchCrossTabWrite(SIDEBAR_WIDTH_STORAGE_KEY, "420");
+
+    expect(widthVar(gap)).toBe("320px");
   });
 });
 

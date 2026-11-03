@@ -18,9 +18,12 @@ Read the installed declarations for exact current signatures.
 - `CodeOverflowMode`
 - `ComposerCustomization`
 - `ComposerPlusMenuItem`
+- `ComposerSendMenuItem`
 - `ComposerRichTextSpec`
-- `ComposerStructuredDraft`
-- `ComposerView`
+- `ComposerDraft`
+- `ComposerMention`
+- `ComposerInsertPart`
+- `ComposerInsertOptions`
 - `DiffProps`
 - `DiffViewMode`
 - `ExperimentalAppPanel`
@@ -57,6 +60,9 @@ Read the installed declarations for exact current signatures.
 - `ExperimentalOpenFixedTabOptions`
 - `ExperimentalPermissionModePickerProps`
 - `ExperimentalPluginFixedTabReference`
+- `ExperimentalPluginRpcCaller`
+- `ExperimentalPluginRpcHandlerContext`
+- `ExperimentalPluginRpcHandlersWithContext`
 - `ExperimentalPluginWebSocket`
 - `ExperimentalPluginWebSocketContext`
 - `ExperimentalPluginWebSocketHandler`
@@ -64,6 +70,7 @@ Read the installed declarations for exact current signatures.
 - `ExperimentalProviderModelPickerProps`
 - `ExperimentalProviderModelPickerRouting`
 - `ExperimentalProviderModelPickerValue`
+- `ExperimentalVoiceInputTextareaProps`
 - `JsonValue`
 - `ReadonlyJsonValue` — deep-readonly JSON, e.g. `context.pluginMetadata` values
 - `MarkdownProps`
@@ -100,8 +107,8 @@ Read the installed declarations for exact current signatures.
 - `PluginHookSignatures`
 - `PluginHooks`
 - `PluginTurnFailedEvent`
-- `ExperimentalComposerSubmitOptions`
-- `ExperimentalComposerSelection`
+- `ComposerSubmitOptions`
+- `ComposerSelection`
 - `PluginAgentConfiguration`
 - `PluginAgentConfigurationContext`
 - `PluginAgentToolContentPart`
@@ -110,9 +117,11 @@ Read the installed declarations for exact current signatures.
 - `PluginAgentToolResult`
 - `PluginAgentToolSelection`
 - `PluginAgents`
+- `PluginAiCompleteOptions`
 - `PluginAiServiceDeclaration`
-- `PluginAiServiceKind`
+- `PluginAiServiceStatus`
 - `PluginAiServices`
+- `PluginAiTranscribeOptions`
 - `PluginAppBuilder`
 - `PluginAppComposer`
 - `PluginAppContentScripts`
@@ -147,10 +156,12 @@ Read the installed declarations for exact current signatures.
 - `PluginCodeThemeData`
 - `PluginCodeThemeState`
 - `PluginCodeThemeTokenRule`
+- `ExperimentalClipboardContent`
 - `PluginAppCommands`
 - `PluginCommandContext`
 - `PluginCommandShortcut`
 - `PluginCommandRegistration`
+- `ExperimentalComposerCommandRegistration`
 - `PluginComposerApi`
 - `PluginComposerMention`
 - `PluginComposerScope`
@@ -255,7 +266,6 @@ Read the installed declarations for exact current signatures.
 - `PluginSidebarPullRequest`
 - `PluginSidebarSplitPane`
 - `PluginSidebarThread`
-- `PluginSidebarThreadActions`
 - `PluginSidebarThreadActivity`
 - `PluginSidebarThreadIndicator`
 - `PluginSidebarThreadPullRequestState`
@@ -300,15 +310,19 @@ Read the installed declarations for exact current signatures.
   `PluginEnvironmentProviderAvailability` — context and result for a
   declaration's optional `availability` method
 - `PluginEnvironmentProviderDefinition` — idempotent long-running `create`
-  and `remove`, plus optional `validate`, `availability`, `inputs` and policy
+  and `remove`, plus optional `validate`, `availability`,
+  `restore`, `inputs` and policy
 - `PluginEnvironmentProviderInputsSchema` — the `inputs` type parameter:
   a Standard Schema v1 validator (a zod schema is one), or `undefined` for
   `inputs: null` in `create`
 - `PluginEnvironmentProviderPolicy` — `retireGraceMs`, `pathKeys`
 - `PluginEnvironmentProviderValidateContext` — the `validate` context
   typed from `requires` and `inputs`, like the create context
-- `PluginEnvironmentProviderCreateContext` — a replacement create's
-  `previous.resource` is the provider's private JSON handle
+- `PluginEnvironmentProviderCreateContext` — facts for a fresh environment,
+  including the `suggestedBranchName` core would use
+- `PluginEnvironmentProviderRestoreContext` — `restore`'s
+  context: the creation inputs plus `previous.environment` and its private
+  `previous.resource`
 - `PluginEnvironmentProviderCreateResult` — `created` names the path and may
   carry the private, 16 KiB-capped JSON `resource`; the selected machine owns
   the host identity
@@ -334,30 +348,18 @@ Read the installed declarations for exact current signatures.
 - `PluginMachineProviderResourceResult`
 - `PluginMachineProviderRemoveResult`
 
-## `@get-bb/plugin-sdk/ai-services`
-
-- `experimental_aiInferenceCompleteInputSchema`
-- `experimental_aiInferenceCompleteOutputSchema`
-- `experimental_aiServiceErrorCodeSchema`
-- `experimental_aiServicesHostContract`
-- `experimental_aiVoiceTranscribeInputSchema`
-- `experimental_aiVoiceTranscribeOutputSchema`
-- `ExperimentalAiInferenceCompleteInput`
-- `ExperimentalAiInferenceCompleteOutput`
-- `ExperimentalAiServiceErrorCode`
-- `ExperimentalAiServicesHostContract`
-- `ExperimentalAiVoiceTranscribeInput`
-- `ExperimentalAiVoiceTranscribeOutput`
-
 ## `@get-bb/plugin-sdk/host`
 
 - `experimental_defineHostEntry`
 - `experimental_filterResolvedNativeRoots`
-- `experimental_killProcessesWithCwdUnder` — reap processes whose cwd is under a
-  workspace a provider is tearing down, before removing the directory
+- `experimental_killProcessesWithCwdUnder` — reap processes whose cwd is under
+  any of the given directories, before removing them; one process listing per
+  call
 - `experimental_nativeRootsHostContract`
 - `experimental_nativeRootsResolveInputSchema`
 - `experimental_nativeRootsResolveOutputSchema`
+- `experimental_readProcessIdentity` — a PID's command line and start time,
+  to confirm it is still the process you recorded before signalling it
 - `experimental_resolveClaudePluginRoots`
 - `experimental_resolveVendorPluginRoots`
 - `experimental_sanitizeInheritedChildProcessEnv`
@@ -383,6 +385,9 @@ Read the installed declarations for exact current signatures.
 - `ExperimentalNativeRootsResolveAnswer`
 - `ExperimentalNativeRootsResolveInput`
 - `ExperimentalNativeRootsResolveOutput`
+- `ExperimentalProcessIdentity`
+- `ExperimentalQuestionFormHost`
+- `ExperimentalQuestionShortcut`
 - `ExperimentalSanitizeInheritedChildProcessEnvArgs`
 - `ExperimentalVendorPlugin`
 - `ExperimentalVendorPluginRoots`

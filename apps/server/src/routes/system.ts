@@ -1,3 +1,5 @@
+import { createMobileAppReleaseService } from "../services/install/mobile-app-releases.js";
+import { isProviderModelSupported } from "../services/providers/provider-model-rules.js";
 import {
   setMachineEnvironmentVariable,
   deleteMachineEnvironmentVariable,
@@ -55,6 +57,11 @@ import type { ServerAppDeps, ServerRuntimeConfig } from "../types.js";
 import type { PluginService } from "../services/plugins/plugin-service.js";
 import { ApiError } from "../errors.js";
 import {
+  buildAiServicesView,
+  testAiService,
+  updateAiServiceSelection,
+} from "../services/ai/ai-services-view.js";
+import {
   resolveVoiceTranscriptionEnabled,
   transcribeVoiceInput,
 } from "../services/ai/voice-transcription.js";
@@ -62,6 +69,10 @@ import {
   listSystemProviderInfos,
   resolveSystemExecutionOptions,
 } from "../services/system/execution-options.js";
+import {
+  providerManagementCatalog,
+  setProviderEnabled,
+} from "../services/system/provider-management.js";
 import { getProviderStates } from "../services/system/provider-states.js";
 import { getProviderUsageLimits } from "../services/system/usage-limits.js";
 import {
@@ -280,6 +291,16 @@ export function registerSystemRoutes(
     agentId: string | null | undefined,
   ) {
     const authContext = getCoreAuthContext(context);
+    if (query.providerId !== undefined) {
+      const providerId = query.providerId;
+      const supported = (model: AvailableModel) =>
+        isProviderModelSupported(providerId, model.model);
+      result = {
+        ...result,
+        models: result.models.filter(supported),
+        selectedOnlyModels: result.selectedOnlyModels.filter(supported),
+      };
+    }
     if (authContext === null) return result;
     const unassigned = query.unassigned === "true";
     const providers = result.providers.filter((provider) =>
@@ -379,6 +400,11 @@ export function registerSystemRoutes(
       ),
     };
   }
+  const mobileAppReleases = createMobileAppReleaseService();
+  get(routes.mobileAppReleases, async (context) => {
+    context.header("cache-control", "no-store");
+    return context.json(await mobileAppReleases());
+  });
 
   get(routes.attention, (context) =>
     context.json({ hasAttention: hasActiveThreadAttention(deps.db) }),
@@ -453,6 +479,8 @@ export function registerSystemRoutes(
       defaultKeybindings: DEFAULT_APP_KEYBINDINGS,
       keybindingOverrides,
       experiments: getExperiments(deps.db),
+      performanceDiagnosticsAvailable:
+        deps.config.performanceDiagnosticsAvailable,
       appearance: await resolveSelectedTheme(
         getStoredThemeId(deps.db),
         getStoredFaviconColor(deps.db),
@@ -472,20 +500,6 @@ export function registerSystemRoutes(
           ? null
           : deps.hub.getDaemonPlatformForHost(primaryHostId),
       voiceTranscriptionEnabled: resolveVoiceTranscriptionEnabled(deps),
-      aiServices: {
-        inference: deps.config.inferenceModel,
-        inferenceFallback: deps.config.inferenceFallbackModel,
-        transcription: deps.config.transcriptionModel,
-        services: deps.aiServices
-          .list()
-          .filter((service) => pluginVisible(context, service.pluginId))
-          .map((service) => ({
-            id: service.id,
-            displayName: service.displayName,
-            kinds: [...service.kinds],
-            pluginId: service.pluginId,
-          })),
-      },
       dataDir: "",
     };
   }
@@ -519,9 +533,7 @@ export function registerSystemRoutes(
     );
     deps.lifecycleDedupers.providerModelCatalogs.markAllStale();
     deps.hub.notifySystem(["config-changed"]);
-    return context.json(
-      await machineEnvironmentView(deps.db, deps.config.dataDir),
-    );
+    return context.json(await machineEnvironmentView(deps.db));
   });
 
   del(routes.deleteMachineEnvironmentVariable, async (context, payload) => {
@@ -536,16 +548,12 @@ export function registerSystemRoutes(
     await deleteMachineEnvironmentVariable(deps.db, payload.name, null);
     deps.lifecycleDedupers.providerModelCatalogs.markAllStale();
     deps.hub.notifySystem(["config-changed"]);
-    return context.json(
-      await machineEnvironmentView(deps.db, deps.config.dataDir),
-    );
+    return context.json(await machineEnvironmentView(deps.db));
   });
 
   get(routes.machineEnvironment, async (context) => {
     assertCoreCapability(context, "settings");
-    return context.json(
-      await machineEnvironmentView(deps.db, deps.config.dataDir),
-    );
+    return context.json(await machineEnvironmentView(deps.db));
   });
   put(routes.replaceMachineEnvironment, async (context, payload) => {
     assertCoreCapability(context, "settings");
@@ -559,9 +567,7 @@ export function registerSystemRoutes(
     await replaceMachineEnvironment(deps.db, deps.config.dataDir, payload);
     deps.lifecycleDedupers.providerModelCatalogs.markAllStale();
     deps.hub.notifySystem(["config-changed"]);
-    return context.json(
-      await machineEnvironmentView(deps.db, deps.config.dataDir),
-    );
+    return context.json(await machineEnvironmentView(deps.db));
   });
 
   put(routes.generalSettings, (context, payload) => {
@@ -575,7 +581,19 @@ export function registerSystemRoutes(
         : undefined;
     const updatedSettings = appSettingsSchema.parse({
       ...settings,
+      allowFastServiceTier:
+        settings.allowFastServiceTier ?? current.allowFastServiceTier,
       telemetryEnabled: settings.telemetryEnabled ?? current.telemetryEnabled,
+      showGitChanges: settings.showGitChanges ?? current.showGitChanges,
+      keepHistoryAfterContextClear:
+        settings.keepHistoryAfterContextClear ??
+        current.keepHistoryAfterContextClear,
+      confirmThreadArchive:
+        settings.confirmThreadArchive ?? current.confirmThreadArchive,
+      onboardingCompletedAt:
+        settings.onboardingCompletedAt === undefined
+          ? current.onboardingCompletedAt
+          : settings.onboardingCompletedAt,
       showDiagnosticEvents:
         diagnosticValue === undefined ||
         (showUnhandledProviderEvents !== undefined &&
@@ -584,6 +602,9 @@ export function registerSystemRoutes(
           : diagnosticValue,
     });
     setAppSettings(deps.db, updatedSettings);
+    if (current.telemetryEnabled && !updatedSettings.telemetryEnabled) {
+      deps.telemetry.capture({ name: "telemetry_disabled" });
+    }
     deps.telemetry.setEnabled(updatedSettings.telemetryEnabled);
     deps.hub.notifySystem(["config-changed"]);
     return context.json(compatibleGeneralSettings());
@@ -893,6 +914,25 @@ export function registerSystemRoutes(
     ),
   );
 
+  get(routes.providerCatalog, async (context) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
+    await deps.providerRegistry.whenRegistrationsSettled();
+    return context.json(providerManagementCatalog(deps, pluginService));
+  });
+  put(routes.providerEnabled, async (context, payload) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
+    return context.json(
+      await setProviderEnabled(
+        deps,
+        pluginService,
+        context.req.param("id"),
+        payload.enabled,
+      ),
+    );
+  });
+
   get(routes.providerLogo, async (context) => {
     const providerId = context.req.param("id");
     if (!providerVisible(context, providerId)) {
@@ -988,6 +1028,29 @@ export function registerSystemRoutes(
     );
   });
 
+  get(routes.aiServices, async (context) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
+    return context.json(await buildAiServicesView(deps));
+  });
+
+  put(routes.setAiServiceSelection, async (context, payload) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
+    return context.json(await updateAiServiceSelection(deps, payload));
+  });
+
+  post(routes.testAiService, async (context, payload) => {
+    assertCoreCapability(context, "settings");
+    requireAdministratorForMutation(context);
+    return context.json(
+      await testAiService(deps, {
+        task: payload.task,
+        signal: context.req.raw.signal,
+      }),
+    );
+  });
+
   post(routes.voiceTranscription, async (context) => {
     const formData = await context.req.formData();
     const file = formData.get("file");
@@ -1001,6 +1064,7 @@ export function registerSystemRoutes(
           typeof formData.get("prompt") === "string"
             ? String(formData.get("prompt"))
             : undefined,
+        signal: context.req.raw.signal,
       }),
     });
   });
@@ -1012,4 +1076,46 @@ export function registerSystemRoutes(
       }),
     ),
   );
+
+  get(routes.appUpdate, async (context, query) =>
+    context.json(
+      await deps.appUpdate.getStatus({
+        forceRefresh:
+          query.force === "true" && getGateAuthKind(context) !== "machine",
+      }),
+    ),
+  );
+
+  post(routes.applyAppUpdate, async (context, body) => {
+    assertAppUpdateAllowed(context);
+    return context.json(
+      await deps.appUpdate.apply({
+        confirmInterruptingThreads: body.confirmInterruptingThreads,
+      }),
+    );
+  });
+
+  post(routes.acknowledgeAppUpdate, async (context, body) => {
+    assertAppUpdateAllowed(context);
+    return context.json(
+      await deps.appUpdate.acknowledgeResult({ id: body.id }),
+    );
+  });
+}
+
+function assertAppUpdateAllowed(
+  context: Parameters<typeof getGateAuthKind>[0],
+): void {
+  assertCoreCapability(context, "settings");
+  const authContext = getCoreAuthContext(context);
+  if (authContext !== null && authContext.role !== "admin") {
+    throw new ApiError(403, "policy_denied", "Administrator access required");
+  }
+  if (getGateAuthKind(context) === "machine") {
+    throw new ApiError(
+      403,
+      "forbidden",
+      "Machine credentials cannot update the EVA server",
+    );
+  }
 }

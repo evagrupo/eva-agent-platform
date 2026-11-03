@@ -13,8 +13,13 @@ import {
   usePluginMentionSearch,
 } from "./queries/plugin-contribution-queries";
 import { useSidebarNavigation } from "./queries/sidebar-navigation-query";
-import { useThreadMentionCandidates } from "./queries/thread-queries";
+import {
+  useThread,
+  useThreadMentionCandidates,
+} from "./queries/thread-queries";
+import { isAgentsOnlyMentionContext } from "./agentMentionScope";
 import { buildThreadMentionSuggestions } from "./threadMentionSuggestions";
+import { useResolveThreadTitle } from "@/components/thread/ThreadTitleMentions";
 import {
   usePathSuggestions,
   PATH_SUGGESTION_DEBOUNCE_MS,
@@ -48,6 +53,8 @@ interface UsePromptMentionsResult {
   results: OrderedMentionSuggestions;
   isLoading: boolean;
   isError: boolean;
+  /** True in EVA agent chats, where @ suggests only agents. */
+  agentsOnly: boolean;
 }
 
 function buildProjectNamesById(
@@ -126,7 +133,18 @@ export function usePromptMentions(
   );
   const query = activeMention?.query ?? null;
   const trigger = activeMention?.trigger ?? DEFAULT_PLUGIN_MENTION_TRIGGER;
-  const includeBuiltInSources = trigger === DEFAULT_PLUGIN_MENTION_TRIGGER;
+  // A follow-up composer knows only its thread; read the thread's agent from
+  // the (already cached) thread detail when no agent was passed in.
+  const currentThreadQuery = useThread(options.currentThreadId ?? "", {
+    enabled: options.agentId === undefined && !!options.currentThreadId,
+  });
+  const agentsOnly = isAgentsOnlyMentionContext(
+    options.agentId !== undefined
+      ? options.agentId
+      : (currentThreadQuery.data?.agentId ?? null),
+  );
+  const includeBuiltInSources =
+    trigger === DEFAULT_PLUGIN_MENTION_TRIGGER && !agentsOnly;
   const hasQuery = (query?.trim().length ?? 0) > 0;
   const trimmedQuery = query?.trim() ?? "";
 
@@ -147,10 +165,12 @@ export function usePromptMentions(
   });
   const pluginContributions = usePluginContributions();
   const hasPluginMentionProviders =
-    pluginContributions.data?.mentionProviders.some(
+    !agentsOnly &&
+    (pluginContributions.data?.mentionProviders.some(
       (provider) =>
         provider.pluginId !== "bb-eva" && provider.triggers.includes(trigger),
-    ) ?? false;
+    ) ??
+      false);
   const hasEvaAgentMentionProvider =
     pluginContributions.data?.mentionProviders.some(
       (provider) =>
@@ -194,7 +214,8 @@ export function usePromptMentions(
         hasEvaAgentMentionProvider &&
         trigger === DEFAULT_PLUGIN_MENTION_TRIGGER &&
         pluginSearchMatchesInput &&
-        debouncedQuery.length > 0,
+        // In agent chats a bare "@" already lists every agent.
+        (debouncedQuery.length > 0 || (agentsOnly && query !== null)),
     },
   );
   const projectNamesById = useMemo(
@@ -211,6 +232,7 @@ export function usePromptMentions(
   );
 
   const currentThreadId = options.currentThreadId;
+  const resolveTitle = useResolveThreadTitle();
   const pathSuggestions = useMemo(
     () =>
       includeBuiltInSources
@@ -230,6 +252,7 @@ export function usePromptMentions(
       currentEnvironmentId: options.environmentId,
       projectNamesById,
       limit: PROMPT_MENTION_SOURCE_LIMIT,
+      resolveTitle,
     });
   }, [
     currentThreadId,
@@ -237,6 +260,7 @@ export function usePromptMentions(
     options.environmentId,
     projectId,
     projectNamesById,
+    resolveTitle,
     threadsQuery.data,
     trimmedQuery,
   ]);
@@ -283,9 +307,10 @@ export function usePromptMentions(
         threads: hasQuery ? threadSuggestions : [],
         projects: hasQuery ? projectSuggestions : [],
         sections: hasQuery ? sectionSuggestions : [],
-        plugins: hasQuery ? pluginSuggestions : [],
+        plugins: hasQuery || agentsOnly ? pluginSuggestions : [],
       }),
     [
+      agentsOnly,
       hasQuery,
       pathSuggestions,
       threadSuggestions,
@@ -297,7 +322,7 @@ export function usePromptMentions(
   );
 
   const isLoading =
-    hasQuery &&
+    (hasQuery || (agentsOnly && query !== null)) &&
     results.suggestions.length === 0 &&
     ((includeBuiltInSources &&
       (pathSearch.isDebouncing ||
@@ -330,5 +355,6 @@ export function usePromptMentions(
     results,
     isLoading,
     isError,
+    agentsOnly,
   };
 }

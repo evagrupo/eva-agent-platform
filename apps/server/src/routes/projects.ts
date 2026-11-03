@@ -7,7 +7,6 @@ import {
   deleteMachineEnvironmentVariable,
 } from "../services/machines/environment-storage.js";
 import { getGateAuthKind } from "../request-context.js";
-import path from "node:path";
 import {
   countProjectSources,
   findOrCreateProjectByLocalPathSource,
@@ -54,7 +53,7 @@ import {
   requirePublicProject,
   requirePublicStandardProject,
 } from "../services/lib/entity-lookup.js";
-import { PROMPT_HISTORY_ENTRY_LIMIT } from "@bb/domain";
+import { isWindowsHostPath, PROMPT_HISTORY_ENTRY_LIMIT } from "@bb/domain";
 import { toThreadListEntryResponses } from "../services/threads/thread-runtime-display.js";
 import { callHostRetryableOnlineRpc } from "../services/hosts/online-rpc.js";
 import {
@@ -69,11 +68,7 @@ import {
   readProjectSkill,
   writeProjectSkill,
 } from "../services/skills/skill-listing.js";
-import {
-  createDaemonFileContentResponse,
-  serveDaemonFileContent,
-  requestMatchesEntityTag,
-} from "../services/hosts/daemon-file-response.js";
+import { requestMatchesEntityTag } from "../services/hosts/daemon-file-response.js";
 import { parseBoundedPositiveOptionalInteger } from "../services/lib/validation.js";
 import {
   buildCommandListResponse,
@@ -95,9 +90,11 @@ import {
   parseBranchListLimit,
 } from "./branch-list-query.js";
 import { parseFileListLimit } from "./file-list-query.js";
-import { parseSafeRelativeRoutePath } from "./relative-route-path.js";
 import { resolveSkillCatalog } from "../services/skills/skill-catalog.js";
-import { resolveWorkspaceProjectSkills } from "../services/skills/workspace-skills.js";
+import {
+  readWorkspaceAgentContext,
+  type WorkspaceAgentContext,
+} from "../services/threads/workspace-agent-context.js";
 import { resolveSharedSkills } from "../services/skills/shared-skills.js";
 import { getPluginSkillRootContributions } from "../services/plugins/plugin-agent-contributions.js";
 import {
@@ -402,6 +399,31 @@ function requireReadableStandardProject(
   return project;
 }
 
+function assertPathMatchesHostPlatform(
+  deps: Pick<AppDeps, "hub">,
+  args: { hostId: string; path: string },
+): void {
+  const platform = deps.hub.getDaemonPlatformForHost(args.hostId);
+  if (platform === null || platform === "unknown") {
+    return;
+  }
+  const isWindowsPath = isWindowsHostPath(args.path);
+  if (platform === "win32" && !isWindowsPath) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "This machine uses Windows paths. Use an absolute path like C:\\Users\\me\\repo.",
+    );
+  }
+  if (platform !== "win32" && isWindowsPath) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "This machine uses POSIX paths. Use an absolute path like /home/me/repo.",
+    );
+  }
+}
+
 async function inspectProjectGitRemoteBestEffort(
   deps: AppDeps,
   args: { hostId: string; path: string },
@@ -442,11 +464,7 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
     await deleteMachineEnvironmentVariable(deps.db, payload.name, project.id);
     deps.hub.notifySystem(["config-changed"]);
     return context.json(
-      await projectMachineEnvironmentView(
-        deps.db,
-        deps.config.dataDir,
-        project.id,
-      ),
+      await projectMachineEnvironmentView(deps.db, project.id),
     );
   });
 
@@ -470,11 +488,7 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
     );
     deps.hub.notifySystem(["config-changed"]);
     return context.json(
-      await projectMachineEnvironmentView(
-        deps.db,
-        deps.config.dataDir,
-        project.id,
-      ),
+      await projectMachineEnvironmentView(deps.db, project.id),
     );
   });
 
@@ -498,11 +512,7 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
     );
     deps.hub.notifySystem(["config-changed"]);
     return context.json(
-      await projectMachineEnvironmentView(
-        deps.db,
-        deps.config.dataDir,
-        project.id,
-      ),
+      await projectMachineEnvironmentView(deps.db, project.id),
     );
   });
 
@@ -513,11 +523,7 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
       context.req.param("id"),
     );
     return context.json(
-      await projectMachineEnvironmentView(
-        deps.db,
-        deps.config.dataDir,
-        project.id,
-      ),
+      await projectMachineEnvironmentView(deps.db, project.id),
     );
   });
 
@@ -549,6 +555,7 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
       requireNonDestroyedHostWithStatus(deps, source.hostId);
       assertResourceAccess(deps.db, context, "host", source.hostId, "read");
       assertUsableHostId(deps, { hostId: source.hostId });
+      assertPathMatchesHostPlatform(deps, source);
     }
     const existingProject = getPublicProjectByLocalPathSource(deps.db, source);
     if (existingProject) {
@@ -674,6 +681,14 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
     if (getProjectSourceByHost(deps.db, projectId, payload.hostId)) {
       throw projectSourceHostConflict();
     }
+    const requestedPath =
+      payload.type === "clone" ? payload.targetPath : payload.path;
+    if (requestedPath !== undefined) {
+      assertPathMatchesHostPlatform(deps, {
+        hostId: payload.hostId,
+        path: requestedPath,
+      });
+    }
     const source =
       payload.type === "clone"
         ? await cloneProjectSourceOnHost(deps, {
@@ -706,6 +721,12 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
     });
     if (existing.type === "local_path") {
       assertUsableHostId(deps, { hostId: existing.hostId });
+      if (payload.path) {
+        assertPathMatchesHostPlatform(deps, {
+          hostId: existing.hostId,
+          path: payload.path,
+        });
+      }
     }
     if (payload.type !== existing.type) {
       throw new ApiError(
@@ -802,33 +823,6 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
     return context.json({ files: result.files, truncated: result.truncated });
   });
 
-  get(routes.fileContent, async (context, query) => {
-    assertCoreCapability(context, "files");
-    const projectId = context.req.param("id");
-    requireReadableProject(deps, context, projectId);
-    const target = resolveProjectWorkspaceTarget(deps, {
-      projectId,
-      environmentId: query.environmentId,
-      hostId: query.hostId,
-    });
-    const filePath = parseSafeRelativeRoutePath(query.path);
-
-    return serveDaemonFileContent(
-      deps,
-      {
-        hostId: target.hostId,
-        ifNoneMatch: context.req.header("if-none-match"),
-        path: path.join(target.path, filePath.relativePath),
-        rootPath: target.path,
-      },
-      (result) =>
-        createDaemonFileContentResponse(result, {
-          headers: { "x-bb-content-encoding": result.contentEncoding },
-          ifNoneMatch: context.req.header("if-none-match"),
-        }),
-    );
-  });
-
   get(routes.paths, async (context, query) => {
     assertCoreCapability(context, "files");
     const projectId = context.req.param("id");
@@ -889,24 +883,31 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
         cwd: workspace.cwd,
       });
     };
-    const [result, projectSkillSources, sharedSkills] = await Promise.all([
-      listProviderCommands(),
+    const readWorkspaceSkills = async (): Promise<
+      Pick<WorkspaceAgentContext, "projectSkillSources" | "sharedSkills">
+    > =>
       workspace.cwd === null
-        ? Promise.resolve([])
-        : resolveWorkspaceProjectSkills(deps, {
+        ? {
+            projectSkillSources: [],
+            sharedSkills: await resolveSharedSkills(deps, {
+              hostId: workspace.hostId,
+              cwd: null,
+            }),
+          }
+        : readWorkspaceAgentContext(deps, {
             hostId: workspace.hostId,
             workspacePath: workspace.cwd,
-          }),
-      resolveSharedSkills(deps, {
-        hostId: workspace.hostId,
-        cwd: workspace.cwd,
-      }),
+            includeAgentInstructions: false,
+          });
+    const [result, workspaceSkills] = await Promise.all([
+      listProviderCommands(),
+      readWorkspaceSkills(),
     ]);
     const skillCatalog = resolveSkillCatalog(deps, {
       includeGeneratedPluginCommands: includesAllPluginContributions(context),
       pluginSkillRoots: resolvePluginSkillRootsForContext(context),
-      projectSkillSources,
-      sharedSkillSources: sharedSkills.runtimeSources,
+      projectSkillSources: workspaceSkills.projectSkillSources,
+      sharedSkillSources: workspaceSkills.sharedSkills.runtimeSources,
     });
     return context.json(
       buildCommandListResponse({

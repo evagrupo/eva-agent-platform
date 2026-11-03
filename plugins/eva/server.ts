@@ -13,16 +13,22 @@ import {
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
-import { agentWorkspaceBehaviorInstructions } from "./src/agent-instructions";
+import {
+  agentReplyStyleInstructions,
+  agentWorkspaceBehaviorInstructions,
+  withoutLegacyAgentMode,
+} from "./src/agent-instructions";
 
 const AGENTS_CHANGED = "agents-changed";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const EVA_DEFAULT_MODEL = "gpt-5.6-luna";
-const EVA_DEFAULT_REASONING_LEVEL = "max" as const;
+// Every EVA agent defaults to Codex GPT-6.1 Terra with high reasoning.
+const EVA_DEFAULT_PROVIDER = "codex";
+const EVA_DEFAULT_MODEL = "gpt-6.1-terra";
+const EVA_DEFAULT_REASONING_LEVEL = "high" as const;
 const AGENT_INSTRUCTIONS_FILE = "AGENTS.md";
 const BB_AGENT_INSTRUCTIONS_FILE = ".bb/AGENTS.md";
 const CLAUDE_INSTRUCTIONS_FILE = "CLAUDE.md";
-const agentStatusSchema = z.enum(["draft", "shadow", "live"]);
+const agentStatusSchema = z.literal("live");
 const agentSlugSchema = z
   .string()
   .trim()
@@ -134,7 +140,6 @@ export const rpcContract = defineRpcContract({
     input: z
       .object({
         slug: agentSlugSchema,
-        status: agentStatusSchema.optional(),
         instructions: z.string().max(16_000).optional(),
         skills: agentSkillsInputSchema.optional(),
         provider: z.string().trim().min(1).max(200).nullable().optional(),
@@ -191,7 +196,6 @@ type SeedAgent = Omit<
   AgentRow,
   "created_at" | "updated_at" | "status" | "provider" | "model" | "project_id"
 > & {
-  status?: AgentStatus;
   provider?: string | null;
   model?: string | null;
 };
@@ -295,7 +299,7 @@ export const SEEDED_AGENTS: readonly SeedAgent[] = [
     icon: "Users",
     sort_order: 11,
     instructions:
-      "Observa productividad, carga y capacidad del equipo para detectar riesgos y proponer análisis. Límite estricto: opera solo en shadow, nunca propongas disciplina, despidos, compensación ni decisiones individuales sobre personas.",
+      "Observa productividad, carga y capacidad del equipo para detectar riesgos y proponer análisis. Límite estricto: nunca propongas disciplina, despidos, compensación ni decisiones individuales sobre personas.",
   },
   {
     slug: "admin",
@@ -303,7 +307,7 @@ export const SEEDED_AGENTS: readonly SeedAgent[] = [
     tagline: "Implementa y mantiene la plataforma EVA",
     icon: "Wrench",
     provider: "codex",
-    model: "gpt-5.6-luna",
+    model: EVA_DEFAULT_MODEL,
     sort_order: 12,
     instructions:
       "Implements and maintains the EVA Agent Platform. Respond in the same language as the user; use English when the user writes in English. Before changing code, read AGENTS.md and any more-specific guidance; inspect Git status and preserve existing changes. Ground diagnosis in evidence, follow repository architecture and conventions, make the smallest complete change, add tests for affected behavior, and run relevant checks. Repository map: apps/app is the web UI; apps/server contains the API, authentication, and product policy; apps/host-daemon handles local provider execution and sessions; apps/cli contains the CLI; packages/db handles persistence; packages/domain contains shared types and rules; packages/server-contract contains API contracts; packages/agent-runtime handles agent configuration and execution; packages/plugin-sdk contains the plugin API; plugins/* contains plugins; eva-agents-seed/* contains initial agent instructions; docs contains architecture and operations guides. For production restarts, read docs/eva-systemd.md. The built frontend is served by bb-app, which supervises the HTTP/API server and host daemon together. After an explicitly requested build, run pnpm run build using the deployment's documented owner account, then restart only the active service: sudo systemctl restart eva-agent-platform.service for a system unit, or systemctl --user restart eva-agent-platform.service for a user unit. Check the service scope first, confirm the unit is active, and verify /health and /readyz on the configured web port (38886 is the documented dedicated-server default); never print the full environment file. In development, pnpm dev runs the frontend with hot reload plus the backend; stop it with Ctrl-C in its owning terminal and rerun pnpm dev to restart the whole stack. pnpm run dev:restart rebuilds and restarts only the server and host daemon, leaving the frontend dev server running. Do not deploy, restart services, change production data, publish, commit, or push unless the user explicitly requests it. Never expose secrets or personal data.",
@@ -342,16 +346,6 @@ export const ENGLISH_AGENT_TAGLINES: Readonly<Record<string, string>> = {
 
 function englishAgentName(agent: Pick<AgentRow, "slug" | "name">): string {
   return ENGLISH_AGENT_NAMES[agent.slug] ?? agent.name;
-}
-
-function modeLine(status: AgentStatus): string {
-  if (status === "shadow") {
-    return "You are in SHADOW mode: propose work, never execute it.";
-  }
-  if (status === "live") {
-    return "You are in LIVE mode: execute only within your explicit mandate and limits.";
-  }
-  return "You are in DRAFT mode: prepare proposals and wait for confirmation before executing.";
 }
 
 function indicatorForThread(thread: { status: string }): SidebarIndicator {
@@ -393,10 +387,6 @@ function promptFromNativeInput(input: NewThreadRequest["input"]): string {
     .trim();
 }
 
-function isAgentStatus(value: string | undefined): value is AgentStatus {
-  return value === "draft" || value === "shadow" || value === "live";
-}
-
 export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
     project: {
@@ -435,6 +425,10 @@ export default async function plugin(bb: BbPluginApi) {
     db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
   }
 
+  db.prepare(
+    "UPDATE agents SET status = 'live' WHERE status IS NULL OR status != 'live'",
+  ).run();
+
   const now = Date.now();
   const seed = db.prepare(
     "INSERT OR IGNORE INTO agents (slug, name, tagline, icon, status, provider, model, instructions, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -446,7 +440,7 @@ export default async function plugin(bb: BbPluginApi) {
         agent.name,
         agent.tagline,
         agent.icon,
-        agent.status ?? "draft",
+        "live",
         agent.provider ?? null,
         agent.model ?? null,
         agent.instructions,
@@ -489,8 +483,6 @@ export default async function plugin(bb: BbPluginApi) {
       "",
       agent.instructions.trim(),
       "",
-      modeLine(agent.status),
-      "",
       "Agent-local skills live in `.bb/skills/` and executable helpers live in `bin/`.",
       "Invoke local helpers explicitly as `./bin/<command>`.",
       "",
@@ -504,7 +496,7 @@ export default async function plugin(bb: BbPluginApi) {
     return [
       "# " + agent.name,
       "",
-      instructions.trim() || agent.tagline.trim(),
+      withoutLegacyAgentMode(instructions.trim()) || agent.tagline.trim(),
       "",
       "## Local capabilities",
       "",
@@ -550,15 +542,15 @@ export default async function plugin(bb: BbPluginApi) {
     const path = agentInstructionsPath(agent.slug);
     if (path && existsSync(path)) {
       const contents = readFileSync(path, "utf8").trim();
-      if (contents) return contents;
+      if (contents) return withoutLegacyAgentMode(contents);
     }
     const legacyPath = bbAgentInstructionsPath(agent.slug);
     if (legacyPath && existsSync(legacyPath)) {
       const contents = readFileSync(legacyPath, "utf8").trim();
       if (contents && contents !== bbAgentInstructionsBridge().trim())
-        return contents;
+        return withoutLegacyAgentMode(contents);
     }
-    return agent.instructions.trim();
+    return withoutLegacyAgentMode(agent.instructions.trim());
   }
 
   function writeAgentInstructions(agent: AgentRow, instructions: string): void {
@@ -628,6 +620,10 @@ export default async function plugin(bb: BbPluginApi) {
         "utf8",
       );
     }
+    const currentInstructions = readFileSync(instructionsPath, "utf8");
+    const cleanedInstructions = withoutLegacyAgentMode(currentInstructions);
+    if (cleanedInstructions !== currentInstructions)
+      writeFileSync(instructionsPath, cleanedInstructions, "utf8");
     const bbBridge = bbAgentInstructionsBridge();
     if (
       !existsSync(bbInstructionsPath) ||
@@ -804,11 +800,8 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   function compiledAgentInstructions(agent: AgentRow): string {
-    const mode = modeLine(agent.status);
     const body = readAgentInstructions(agent);
-    const suffix = "\n\n" + mode;
-    const available = Math.max(0, 4_096 - suffix.length);
-    return body.slice(0, available).trimEnd() + suffix;
+    return body.slice(0, 4_096).trimEnd();
   }
 
   function listAgents(): {
@@ -905,7 +898,6 @@ export default async function plugin(bb: BbPluginApi) {
   async function updateAgent(
     slug: string,
     changes: {
-      status?: AgentStatus;
       instructions?: string;
       provider?: string | null;
       model?: string | null;
@@ -923,22 +915,14 @@ export default async function plugin(bb: BbPluginApi) {
     }
 
     const next = {
-      status: changes.status ?? previous.status,
       instructions: changes.instructions ?? currentInstructions,
       provider:
         changes.provider === undefined ? previous.provider : changes.provider,
       model: changes.model === undefined ? previous.model : changes.model,
     };
     db.prepare(
-      "UPDATE agents SET status = ?, instructions = ?, provider = ?, model = ?, updated_at = ? WHERE slug = ?",
-    ).run(
-      next.status,
-      next.instructions,
-      next.provider,
-      next.model,
-      Date.now(),
-      slug,
-    );
+      "UPDATE agents SET instructions = ?, provider = ?, model = ?, updated_at = ? WHERE slug = ?",
+    ).run(next.instructions, next.provider, next.model, Date.now(), slug);
     if (changes.skills !== undefined) replaceAgentSkills(slug, changes.skills);
     refreshCaches();
     if (changes.instructions !== undefined) {
@@ -998,7 +982,7 @@ export default async function plugin(bb: BbPluginApi) {
       input.name.trim(),
       input.tagline.trim(),
       "Bot",
-      "draft",
+      "live",
       null,
       null,
       input.instructions.trim(),
@@ -1120,8 +1104,7 @@ export default async function plugin(bb: BbPluginApi) {
             hostId,
             workspace: { type: "unmanaged", path: workspace },
           },
-          title:
-            englishAgentName(agent) + " — " + titleFromPrompt(prompt ?? ""),
+          title: titleFromPrompt(prompt ?? ""),
           ...(agent.provider ? { providerId: agent.provider } : {}),
           ...(agent.model ? { model: agent.model } : {}),
         })
@@ -1134,8 +1117,7 @@ export default async function plugin(bb: BbPluginApi) {
             workspace: { type: "unmanaged", path: workspace },
           },
           prompt: prompt ?? "",
-          title:
-            englishAgentName(agent) + " — " + titleFromPrompt(prompt ?? ""),
+          title: titleFromPrompt(prompt ?? ""),
           ...(options.parentThreadId
             ? {
                 parentThreadId: options.parentThreadId,
@@ -1146,9 +1128,15 @@ export default async function plugin(bb: BbPluginApi) {
               }
             : {}),
           ...(options.visibility ? { visibility: options.visibility } : {}),
-          model: agent.model ?? EVA_DEFAULT_MODEL,
+          // A saved model belongs to the saved provider; only fall back to
+          // the default model together with the default provider.
+          providerId: agent.provider ?? EVA_DEFAULT_PROVIDER,
+          ...(agent.model
+            ? { model: agent.model }
+            : (agent.provider ?? EVA_DEFAULT_PROVIDER) === EVA_DEFAULT_PROVIDER
+              ? { model: EVA_DEFAULT_MODEL }
+              : {}),
           reasoningLevel: EVA_DEFAULT_REASONING_LEVEL,
-          ...(agent.provider ? { providerId: agent.provider } : {}),
         });
 
     db.prepare(
@@ -1203,9 +1191,13 @@ export default async function plugin(bb: BbPluginApi) {
     const boundSlug = relatedThreadIds
       .map((id) => threadAgentById.get(id))
       .find((slug): slug is string => slug !== undefined);
-    // During threads.spawn the configure hook runs before startThread can
-    // persist the new thread id. The spawn title is already present, so this
-    // one-time fallback makes the first session receive the agent context too.
+    const workspaceAgent =
+      context.environment.path === null
+        ? undefined
+        : Array.from(agentRows.values()).find(
+            (candidate) =>
+              agentWorkspacePath(candidate.slug) === context.environment.path,
+          );
     const titleAgent = context.thread.title
       ? Array.from(agentRows.values()).find(
           (candidate) =>
@@ -1215,7 +1207,10 @@ export default async function plugin(bb: BbPluginApi) {
             ),
         )
       : undefined;
-    const agent = boundSlug ? agentRows.get(boundSlug) : titleAgent;
+    const agent =
+      (boundSlug ? agentRows.get(boundSlug) : undefined) ??
+      workspaceAgent ??
+      titleAgent;
     // SDK 0.4.21 requires an empty configuration instead of null to make no
     // contribution for unrelated threads. It is the native equivalent of
     // returning null and keeps the callback valid on every thread start.
@@ -1238,10 +1233,10 @@ export default async function plugin(bb: BbPluginApi) {
           ];
     const dynamicInstructions = [
       `You are the registered EVA agent @${agent.slug} (${englishAgentName(agent)}).`,
-      modeLine(agent.status),
       ...workspaceInstructions,
       "That `AGENTS.md` file is this agent's authoritative instruction file.",
       ...agentWorkspaceBehaviorInstructions(agent.slug, agentsWorkspaceRoot),
+      ...agentReplyStyleInstructions(agent.slug),
     ].join("\n");
     const instructions = hasNativeWorkspaceInstructions
       ? dynamicInstructions
@@ -1297,16 +1292,8 @@ export default async function plugin(bb: BbPluginApi) {
       };
     },
     agents_create: async (input) => createAgent(input),
-    agents_update: async ({
-      slug,
-      status,
-      instructions,
-      skills,
-      provider,
-      model,
-    }) => ({
+    agents_update: async ({ slug, instructions, skills, provider, model }) => ({
       agent: await updateAgent(slug, {
-        status,
         instructions,
         skills,
         provider,
@@ -1319,7 +1306,6 @@ export default async function plugin(bb: BbPluginApi) {
     "Usage:",
     "  bb eva agents",
     "  bb eva show <slug>",
-    "  bb eva set <slug> --status <draft|shadow|live>",
     '  bb eva start <slug> "<prompt>"',
   ].join("\n");
 
@@ -1331,9 +1317,7 @@ export default async function plugin(bb: BbPluginApi) {
       agent.slug +
       "  " +
       (ENGLISH_AGENT_NAMES[agent.slug] ?? agent.name) +
-      "  [" +
-      agent.status +
-      "]  " +
+      "  " +
       agent.threadCount +
       " threads · " +
       agent.skills.length +
@@ -1348,18 +1332,13 @@ export default async function plugin(bb: BbPluginApi) {
     commands: [
       {
         name: "agents",
-        summary: "List EVA agents, status, and thread counts",
+        summary: "List EVA agents and conversation counts",
         usage: "bb eva agents",
       },
       {
         name: "show",
         summary: "Show one agent and its custom instructions",
         usage: "bb eva show <slug>",
-      },
-      {
-        name: "set",
-        summary: "Set an agent status",
-        usage: "bb eva set <slug> --status <draft|shadow|live>",
       },
       {
         name: "start",
@@ -1398,18 +1377,6 @@ export default async function plugin(bb: BbPluginApi) {
                   .join("\n"),
           ].join("\n");
           return { exitCode: 0, stdout: output };
-        }
-        if (command === "set" && args.length === 3 && args[1] === "--status") {
-          const slug = args[0] ?? "";
-          const status = args[2];
-          if (!isAgentStatus(status)) {
-            return {
-              exitCode: 1,
-              stderr: "Status must be draft, shadow, or live.",
-            };
-          }
-          const agent = await updateAgent(slug, { status });
-          return { exitCode: 0, stdout: lineForAgent(agent) };
         }
         if (command === "start" && args.length >= 2) {
           const slug = args[0] ?? "";

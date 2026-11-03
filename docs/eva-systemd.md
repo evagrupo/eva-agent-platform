@@ -153,6 +153,36 @@ the local readiness endpoint after the proxy is configured:
 curl --fail http://127.0.0.1:38886/readyz
 ```
 
+## Agent browser on the platform domain
+
+The server reserves `/agent-browser/` for the dedicated Admin browser viewer
+on `127.0.0.1:38990`. The existing platform HTTPS ingress forwards this path
+through the server; it needs no additional tunnel, DNS entry, public port,
+or change to the platform's existing tunnel configuration.
+
+Only the viewer's fixed asset and control routes are forwarded. The proxy
+drops platform authorization headers and cookies, passes only the dedicated
+viewer cookie, limits input bodies to 64 KiB, and refuses the server and host
+daemon ports. The viewer separately checks its single-use credential,
+session expiry, request host, and mutation origin. PinchTab, Chrome CDP, and
+browser profile files remain private. Only run the trusted Admin viewer on
+this reserved loopback port; it serves scripts on the platform origin.
+
+From the Admin workspace, configure the helper with
+`./bin/agent-browser configure-platform https://<platform-domain>`, then run
+`./bin/agent-browser takeover` to mint a private link. The Node exports in
+`browser/runtime.mjs` and `browser/takeover.mjs` provide the same programmatic
+operations. The HTTP viewer stays up when its 30-minute authentication lease
+expires, displaying an expiry message rather than removing the ingress.
+Automation remains paused until the user returns control. The Chrome
+profile persists independently of the viewer's lifetime.
+
+Deploying this server route requires the normal build and an explicitly
+authorized production restart. Verify the public viewer assets and confirm
+`/agent-browser/api/status` and `/agent-browser/api/frame` return 401 without
+viewer authentication before delivering a link. An offline viewer returns
+503 and never falls back to the EVA application shell.
+
 ## Internal mini-app links
 
 Set `BB_MINI_APPS_PUBLIC_DOMAIN` to a dedicated subdomain below the public

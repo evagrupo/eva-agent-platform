@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   SPANISH_LOCALIZATION_LANGUAGE_FOOTER_KEY,
   withThemeFooterItem,
+  isEvaSidebarFooterPluginVisible,
   type FooterItem,
 } from "./sidebarFooterPreferences";
 
@@ -51,4 +52,13 @@ describe("withThemeFooterItem", () => {
     const keys = withThemeFooterItem([settingsItem]).map((item) => item.key);
     expect(keys).toEqual(["builtin:settings", "builtin:theme"]);
   });
+});
+
+describe("EVA footer actions", () => {
+  it.each(["connect", "provider-usage", "bb--provider-usage"])(
+    "keeps %s out of the footer",
+    (pluginId) => {
+      expect(isEvaSidebarFooterPluginVisible(pluginId)).toBe(false);
+    },
+  );
 });

@@ -221,6 +221,17 @@ export const migrations = [
    SET execution = json_set(execution, '$.permissionMode', 'full')
    WHERE run_mode = 'agent'
      AND json_valid(execution);`,
+  // Threads an automation only posts into (a target thread or an EVA agent
+  // chat) are not "automation-spawned": they keep the ability to create
+  // automations. Existing marks on current target threads are corrected.
+  `ALTER TABLE automation_thread_marks
+     ADD COLUMN spawned INTEGER NOT NULL DEFAULT 1;
+   UPDATE automation_thread_marks
+      SET spawned = 0
+    WHERE thread_id IN (
+      SELECT target_thread_id FROM automations
+       WHERE target_thread_id IS NOT NULL
+    );`,
 ];
 
 function automationRetryDelayMs(consecutiveFailures: number): number {
@@ -941,22 +952,48 @@ export function setAutomationRunThread(
 
 export function markAutomationThread(
   db: Db,
-  args: { threadId: string; automationId: string; runId: string; now: number },
+  args: {
+    threadId: string;
+    automationId: string;
+    runId: string;
+    now: number;
+    /** False when the run only posted into an existing thread or chat. */
+    spawned: boolean;
+  },
 ): void {
+  // A thread an automation started stays marked as spawned even if a later
+  // run only posts into it.
   db.prepare(
-    `INSERT OR REPLACE INTO automation_thread_marks (
-       thread_id, automation_id, run_id, created_at
-     ) VALUES (?, ?, ?, ?)`,
-  ).run(args.threadId, args.automationId, args.runId, args.now);
+    `INSERT INTO automation_thread_marks (
+       thread_id, automation_id, run_id, created_at, spawned
+     ) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(thread_id) DO UPDATE SET
+       automation_id = excluded.automation_id,
+       run_id = excluded.run_id,
+       created_at = excluded.created_at,
+       spawned = MAX(automation_thread_marks.spawned, excluded.spawned)`,
+  ).run(
+    args.threadId,
+    args.automationId,
+    args.runId,
+    args.now,
+    args.spawned ? 1 : 0,
+  );
 }
 
+/**
+ * True for threads an automation started. Threads that only receive runs (a
+ * target thread or an EVA agent chat) are not spawned and may still create
+ * automations. Runs recorded without any mark (older data) count as spawned.
+ */
 export function isAutomationSpawnedThread(db: Db, threadId: string): boolean {
+  const mark = db
+    .prepare(
+      `SELECT spawned FROM automation_thread_marks WHERE thread_id = ? LIMIT 1`,
+    )
+    .get(threadId) as { spawned: number } | undefined;
+  if (mark !== undefined) return mark.spawned === 1;
   return (
-    db
-      .prepare(
-        `SELECT thread_id FROM automation_thread_marks WHERE thread_id = ? LIMIT 1`,
-      )
-      .get(threadId) !== undefined ||
     db
       .prepare(`SELECT id FROM automation_runs WHERE thread_id = ? LIMIT 1`)
       .get(threadId) !== undefined

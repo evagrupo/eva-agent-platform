@@ -9,7 +9,7 @@ import {
 import {
   definePluginApp,
   experimental_NewThreadComposer as NewThreadComposer,
-  experimental_useSidebarThreadActions,
+  experimental_ThreadActionsMenu as ThreadActionsMenu,
   experimental_useSidebarThreadSplit,
   experimental_useSidebarThreads,
   useBbNavigate,
@@ -20,7 +20,6 @@ import {
 import type {
   PluginSidebarThread,
   PluginSidebarProject,
-  PluginSidebarThreadActions,
   PluginThreadListProps,
   NewThreadRequest,
 } from "@get-bb/plugin-sdk/app";
@@ -42,7 +41,19 @@ import {
 } from "./src/StatusGlyph";
 import { countStatuses } from "./src/status";
 import { createEvaAgentThread } from "./src/create-agent-thread";
-import { listAgentThreadBindings } from "./src/list-agent-thread-bindings";
+import {
+  listAgentChats,
+  listAgentThreadData,
+  type AgentChatPreview,
+} from "./src/list-agent-thread-bindings";
+import { isEvaChatAgent } from "./src/agent-instructions";
+import {
+  agentColor,
+  chatPreviewLine,
+  chatTimeLabel,
+  sortChatAgents,
+} from "./src/chat-list";
+import { AgentMemories } from "./src/AgentMemories";
 
 type AgentRoster = {
   agents: EvaAgent[];
@@ -58,8 +69,10 @@ type AgentDetail = {
   workspacePath: string | null;
 };
 
-const EVA_DEFAULT_MODEL = "gpt-5.6-luna";
-const EVA_DEFAULT_REASONING_LEVEL = "max" as const;
+// Every EVA agent defaults to Codex GPT-6.1 Terra with high reasoning.
+const EVA_DEFAULT_PROVIDER = "codex";
+const EVA_DEFAULT_MODEL = "gpt-6.1-terra";
+const EVA_DEFAULT_REASONING_LEVEL = "high" as const;
 
 const AGENT_ICON_MAP: Readonly<Record<string, IconName>> = {
   Network: "Workflow",
@@ -196,24 +209,6 @@ function AgentIcon({ icon, className }: { icon: string; className?: string }) {
   );
 }
 
-function StatusBadge({ status }: { status: EvaAgent["status"] }) {
-  const styles = {
-    draft: "border-border bg-muted text-muted-foreground",
-    shadow: "border-primary/20 bg-primary/10 text-primary",
-    live: "border-success/20 bg-success/10 text-success",
-  };
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
-        styles[status],
-      )}
-    >
-      {status}
-    </span>
-  );
-}
-
 function ProviderMark({ agent }: { agent: EvaAgent }) {
   if (!agent.provider) return null;
   return (
@@ -302,31 +297,100 @@ function useAgentRoster() {
 function useAgentThreadBindings(
   enabled: boolean,
   refreshKey: string,
-): ReadonlyMap<string, string> {
-  const [bindings, setBindings] = useState<ReadonlyMap<string, string>>(
-    () => new Map(),
-  );
+): {
+  bindings: ReadonlyMap<string, string>;
+  canonicalThreadIds: ReadonlyMap<string, string>;
+  ready: boolean;
+} {
+  const [data, setData] = useState<{
+    bindings: ReadonlyMap<string, string>;
+    canonicalThreadIds: ReadonlyMap<string, string>;
+  } | null>(null);
 
   useEffect(() => {
     if (!enabled) {
-      setBindings(new Map());
+      setData(null);
       return;
     }
 
+    // Keep the previous bindings while refreshing so the agent list does not
+    // flicker or become briefly unclickable whenever a thread changes.
     const controller = new AbortController();
-    setBindings(new Map());
-    void listAgentThreadBindings(controller.signal)
+    void listAgentThreadData(controller.signal)
       .then((next) => {
-        if (!controller.signal.aborted) setBindings(next);
+        if (!controller.signal.aborted) setData(next);
       })
       .catch(() => {
-        if (!controller.signal.aborted) setBindings(new Map());
+        // Keep the last loaded bindings; the next refresh retries.
       });
 
     return () => controller.abort();
   }, [enabled, refreshKey]);
 
-  return bindings;
+  return {
+    bindings: data?.bindings ?? new Map(),
+    canonicalThreadIds: data?.canonicalThreadIds ?? new Map(),
+    ready: data !== null,
+  };
+}
+
+/**
+ * Latest message per agent chat for the sidebar previews. Refreshes (briefly
+ * debounced) whenever an agent conversation changes, with one request.
+ */
+function useAgentChatPreviews(
+  enabled: boolean,
+  activityKey: string,
+): ReadonlyMap<string, AgentChatPreview> {
+  const [previews, setPreviews] = useState<
+    ReadonlyMap<string, AgentChatPreview>
+  >(() => new Map());
+
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void listAgentChats(controller.signal)
+        .then((next) => {
+          if (!controller.signal.aborted) setPreviews(next.previews);
+        })
+        .catch(() => {
+          // Previews are optional; keep the last ones that loaded.
+        });
+    }, 400);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [enabled, activityKey]);
+
+  return previews;
+}
+
+function useAgentCanonicalChats(
+  enabled: boolean,
+  refreshKey: string,
+): { chats: ReadonlyMap<string, string>; ready: boolean } {
+  const [chats, setChats] = useState<ReadonlyMap<string, string> | null>(null);
+
+  useEffect(() => {
+    if (!enabled) {
+      setChats(null);
+      return;
+    }
+    const controller = new AbortController();
+    setChats(null);
+    void listAgentThreadData(controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) setChats(next.canonicalThreadIds);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setChats(null);
+      });
+    return () => controller.abort();
+  }, [enabled, refreshKey]);
+
+  return { chats: chats ?? new Map(), ready: chats !== null };
 }
 
 function useAgentDetail(slug: string) {
@@ -367,13 +431,11 @@ function AgentCard({ agent }: { agent: EvaAgent }) {
     <button
       type="button"
       onClick={() => navigate.toPluginPanel("agents", { subPath: agent.slug })}
-      className="group flex min-h-40 w-full flex-col rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="group flex min-h-40 w-full cursor-pointer flex-col rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-foreground">
-            <AgentIcon icon={agent.icon} className="size-4" />
-          </span>
+          <AgentAvatar agent={agent} />
           <span className="min-w-0">
             <span className="block truncate font-medium">
               {agentDisplayName(agent)}
@@ -383,7 +445,6 @@ function AgentCard({ agent }: { agent: EvaAgent }) {
             </span>
           </span>
         </div>
-        <StatusBadge status={agent.status} />
       </div>
       <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
         {agentDisplayTagline(agent)}
@@ -408,11 +469,6 @@ function AgentsRoster() {
   if (error) return <PageError message={error} retry={() => void refetch()} />;
   if (!roster) return <LoadingCards />;
 
-  const live = roster.agents.filter((agent) => agent.status === "live").length;
-  const shadow = roster.agents.filter(
-    (agent) => agent.status === "shadow",
-  ).length;
-
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       <div className="mx-auto w-full max-w-6xl space-y-5 px-4 pb-6 pt-4 md:px-5">
@@ -420,7 +476,7 @@ function AgentsRoster() {
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Agents</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {`${roster.agents.length} agents · ${live} live · ${shadow} shadow · ${roster.summary.conversationsThisWeek} conversations this week`}
+              {`${roster.agents.length} agents · ${roster.summary.conversationsThisWeek} conversations this week`}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               Shared BB project · Orchestrator owns the agents root ·
@@ -662,47 +718,11 @@ function CreateAgentPage() {
   );
 }
 
-function AgentStatusControl({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: EvaAgent["status"];
-  onChange: (next: EvaAgent["status"]) => void;
-  disabled: boolean;
-}) {
-  const options: EvaAgent["status"][] = ["draft", "shadow", "live"];
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Agent status"
-      className="inline-flex rounded-md border border-border bg-muted p-0.5"
-    >
-      {options.map((option) => (
-        <button
-          key={option}
-          type="button"
-          role="radio"
-          aria-checked={option === value}
-          disabled={disabled}
-          onClick={() => onChange(option)}
-          className={cn(
-            "rounded-[5px] px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50",
-            option === value
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {option}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function AgentDetail({ slug }: { slug: string }) {
   const navigate = useBbNavigate();
   const { rpc, detail, error, refetch } = useAgentDetail(slug);
+  const { chats: canonicalThreadIds, ready: canonicalChatsReady } =
+    useAgentCanonicalChats(true, slug);
   const [instructions, setInstructions] = useState("");
   const [savedInstructions, setSavedInstructions] = useState("");
   const [skills, setSkills] = useState<EvaAgent["skills"]>([]);
@@ -733,20 +753,6 @@ function AgentDetail({ slug }: { slug: string }) {
   const { agent, threads } = detail;
   const isDirty = instructions !== savedInstructions;
   const skillsDirty = JSON.stringify(skills) !== JSON.stringify(savedSkills);
-
-  const updateStatus = async (status: EvaAgent["status"]) => {
-    if (status === agent.status || saving) return;
-    setSaving(true);
-    try {
-      await rpc.call("agents_update", { slug: agent.slug, status });
-      toast.success("Status saved");
-      await refetch();
-    } catch (cause) {
-      toast.error(errorText(cause));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const saveInstructions = async () => {
     if (!isDirty || saving) return;
@@ -817,7 +823,17 @@ function AgentDetail({ slug }: { slug: string }) {
   };
 
   const startConversation = () => {
-    navigate.toPluginPanel("agents", { subPath: agent.slug + "/new" });
+    if (!isEvaChatAgent(agent.slug)) {
+      navigate.toPluginPanel("agents", { subPath: agent.slug + "/new" });
+      return;
+    }
+    if (!canonicalChatsReady) return;
+    const chatThreadId = canonicalThreadIds.get(agent.slug);
+    if (chatThreadId) {
+      navigate.toThread(chatThreadId);
+    } else {
+      navigate.toPluginPanel("agents", { subPath: agent.slug + "/new" });
+    }
   };
 
   return (
@@ -834,42 +850,23 @@ function AgentDetail({ slug }: { slug: string }) {
 
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-md bg-muted">
-              <AgentIcon icon={agent.icon} className="size-5" />
-            </span>
+            <AgentAvatar agent={agent} size="lg" />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-semibold tracking-tight">
                   {agentDisplayName(agent)}
                 </h1>
-                <StatusBadge status={agent.status} />
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {agentDisplayTagline(agent)}
               </p>
             </div>
           </div>
-          <Button onClick={startConversation}>
+          <Button onClick={startConversation} disabled={!canonicalChatsReady}>
             <Icon name="MessageSquarePlus" className="size-4" />
             Start conversation
           </Button>
         </header>
-
-        <section className="rounded-lg border border-border bg-card p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="font-medium">Operating status</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                The mode is added to the instructions for each new session.
-              </p>
-            </div>
-            <AgentStatusControl
-              value={agent.status}
-              onChange={(status) => void updateStatus(status)}
-              disabled={saving}
-            />
-          </div>
-        </section>
 
         <section>
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -1022,6 +1019,8 @@ function AgentDetail({ slug }: { slug: string }) {
           </p>
         </section>
 
+        <AgentMemories agentSlug={agent.slug} />
+
         <section className="rounded-lg border border-border bg-card p-4">
           <h2 className="font-medium">Provider</h2>
           {agent.provider ? (
@@ -1148,6 +1147,17 @@ function AgentDetail({ slug }: { slug: string }) {
 function AgentThreadComposer({ slug }: { slug: string }) {
   const navigate = useBbNavigate();
   const { rpc, detail, error, refetch } = useAgentDetail(slug);
+  const { chats: canonicalThreadIds, ready: canonicalChatsReady } =
+    useAgentCanonicalChats(true, slug);
+  // Chat agents have one conversation, so "new" opens it. The Admin
+  // development agent keeps starting separate threads.
+  const isChatAgent = isEvaChatAgent(slug);
+  const existingChatThreadId = isChatAgent
+    ? (canonicalThreadIds.get(slug) ?? null)
+    : null;
+  useEffect(() => {
+    if (existingChatThreadId !== null) navigate.toThread(existingChatThreadId);
+  }, [existingChatThreadId, navigate]);
 
   if (error) return <PageError message={error} retry={() => void refetch()} />;
   if (!detail) {
@@ -1162,6 +1172,20 @@ function AgentThreadComposer({ slug }: { slug: string }) {
   }
 
   const { agent, projectId } = detail;
+  if (isChatAgent && !canonicalChatsReady) {
+    return (
+      <div className="flex h-full items-center justify-center px-4 text-sm text-muted-foreground">
+        Loading the persistent {agentDisplayName(agent)} chat…
+      </div>
+    );
+  }
+  if (existingChatThreadId !== null) {
+    return (
+      <div className="flex h-full items-center justify-center px-4 text-sm text-muted-foreground">
+        Opening the persistent {agentDisplayName(agent)} chat…
+      </div>
+    );
+  }
   if (!projectId) {
     return (
       <div className="h-full min-h-0 overflow-y-auto px-4 py-4 md:px-5">
@@ -1204,9 +1228,15 @@ function AgentThreadComposer({ slug }: { slug: string }) {
 
   const submit = async (request: NewThreadRequest) => {
     try {
+      const currentCanonicalThreadId = isChatAgent
+        ? canonicalThreadIds.get(agent.slug)
+        : undefined;
+      if (currentCanonicalThreadId) {
+        navigate.toThread(currentCanonicalThreadId);
+        return;
+      }
       const threadId = await createEvaAgentThread({
         agentId: agent.slug,
-        agentName: agentDisplayName(agent),
         request,
       });
       toast.success("Conversation started");
@@ -1231,9 +1261,7 @@ function AgentThreadComposer({ slug }: { slug: string }) {
           {agentDisplayName(agent)}
         </button>
         <header className="flex items-start gap-3">
-          <span className="grid size-11 shrink-0 place-items-center rounded-md bg-muted">
-            <AgentIcon icon={agent.icon} className="size-5" />
-          </span>
+          <AgentAvatar agent={agent} size="lg" />
           <div className="min-w-0">
             <h1 className="text-xl font-semibold tracking-tight">
               New conversation with <span>{agentDisplayName(agent)}</span>
@@ -1246,8 +1274,13 @@ function AgentThreadComposer({ slug }: { slug: string }) {
         <NewThreadComposer
           defaultProjectId={projectId}
           defaultAgentId={agent.slug}
-          defaultProviderId={agent.provider ?? undefined}
-          defaultModel={agent.model ?? EVA_DEFAULT_MODEL}
+          defaultProviderId={agent.provider ?? EVA_DEFAULT_PROVIDER}
+          defaultModel={
+            agent.model ??
+            ((agent.provider ?? EVA_DEFAULT_PROVIDER) === EVA_DEFAULT_PROVIDER
+              ? EVA_DEFAULT_MODEL
+              : undefined)
+          }
           defaultReasoningLevel={EVA_DEFAULT_REASONING_LEVEL}
           defaultEnvironment={{
             type: "host",
@@ -1275,6 +1308,13 @@ function AgentsHome({ subPath }: { subPath: string }) {
 function AgentNavigation() {
   const { roster, error, refetch } = useAgentRoster();
   const navigate = useBbNavigate();
+  const rosterAgentKey =
+    roster?.agents
+      .map((agent) => agent.slug)
+      .sort()
+      .join("\u001f") ?? "";
+  const { chats: canonicalThreadIds, ready: canonicalChatsReady } =
+    useAgentCanonicalChats(roster !== null, rosterAgentKey);
   if (error) return <PageError message={error} retry={() => void refetch()} />;
   if (!roster) {
     return <div className="animate-pulse rounded-lg bg-muted px-3 py-10" />;
@@ -1295,19 +1335,25 @@ function AgentNavigation() {
         <button
           key={agent.slug}
           type="button"
-          onClick={() =>
-            navigate.toPluginPanel("agents", { subPath: agent.slug })
-          }
-          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-state-hover"
+          disabled={!canonicalChatsReady}
+          onClick={() => {
+            if (!isEvaChatAgent(agent.slug)) {
+              navigate.toPluginPanel("agents", { subPath: agent.slug });
+              return;
+            }
+            const chatThreadId = canonicalThreadIds.get(agent.slug);
+            if (chatThreadId) navigate.toThread(chatThreadId);
+            else
+              navigate.toPluginPanel("agents", {
+                subPath: agent.slug + "/new",
+              });
+          }}
+          className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-state-hover disabled:cursor-default"
         >
-          <AgentIcon
-            icon={agent.icon}
-            className="size-4 text-muted-foreground"
-          />
+          <AgentAvatar agent={agent} size="sm" />
           <span className="min-w-0 flex-1 truncate text-sm">
             {agentDisplayName(agent)}
           </span>
-          <StatusBadge status={agent.status} />
         </button>
       ))}
     </div>
@@ -1359,7 +1405,7 @@ function SidebarSection({
           type="button"
           onClick={onToggle}
           aria-expanded={!collapsed}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
           <Icon
             name="ChevronRight"
@@ -1381,92 +1427,33 @@ function SidebarSection({
   );
 }
 
-function ThreadOverflowMenu({
-  thread,
-  actions,
-}: {
-  thread: PluginSidebarThread;
-  actions: PluginSidebarThreadActions;
-}) {
-  const invoke = (operation: () => Promise<void>) => {
-    void operation().catch((cause) => toast.error(errorText(cause)));
-  };
-
-  const rename = () => {
-    const title = window.prompt(
-      "Conversation name",
-      thread.title ?? thread.titleFallback ?? "",
-    );
-    if (!title?.trim()) return;
-    invoke(() => actions.rename(thread.id, title.trim()));
-  };
-
+function ThreadOverflowMenu({ thread }: { thread: PluginSidebarThread }) {
   return (
-    <DropdownMenu.Root modal={false}>
-      <DropdownMenu.Trigger asChild>
+    <ThreadActionsMenu
+      thread={{
+        ...thread,
+        environment: thread.environment?.id
+          ? { id: thread.environment.id, path: thread.environment.path }
+          : null,
+      }}
+      side="right"
+      align="start"
+      sideOffset={4}
+      trigger={(props) => (
         <button
+          {...props}
           type="button"
-          aria-label={
-            "Manage " + (thread.title ?? thread.titleFallback ?? "conversation")
-          }
+          aria-label={`Manage ${thread.displayTitle}`}
           title="Manage conversation"
-          className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className={cn(
+            props.className,
+            "grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          )}
         >
           <Icon name="MoreHorizontal" className="size-4" aria-hidden="true" />
         </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          side="right"
-          align="start"
-          sideOffset={4}
-          className="z-50 min-w-44 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
-        >
-          <DropdownMenu.Item
-            onSelect={() => actions.open(thread.id, { split: true })}
-            className="cursor-pointer rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-state-hover focus:bg-state-hover"
-          >
-            Open in split pane
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator className="my-1 h-px bg-border" />
-          <DropdownMenu.Item
-            onSelect={() =>
-              invoke(() => actions.setPinned(thread.id, !thread.isPinned))
-            }
-            className="cursor-pointer rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-state-hover focus:bg-state-hover"
-          >
-            {thread.isPinned ? "Unpin" : "Pin"}
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            onSelect={() =>
-              invoke(() => actions.setRead(thread.id, thread.isUnread))
-            }
-            className="cursor-pointer rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-state-hover focus:bg-state-hover"
-          >
-            {thread.isUnread ? "Mark as read" : "Mark as unread"}
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            onSelect={rename}
-            className="cursor-pointer rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-state-hover focus:bg-state-hover"
-          >
-            Rename
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator className="my-1 h-px bg-border" />
-          <DropdownMenu.Item
-            onSelect={() => actions.archive(thread.id)}
-            className="cursor-pointer rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-state-hover focus:bg-state-hover"
-          >
-            Archive
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            onSelect={() => actions.requestDelete(thread.id)}
-            className="cursor-pointer rounded-sm px-2 py-1.5 text-sm text-destructive outline-none hover:bg-destructive/10 focus:bg-destructive/10"
-          >
-            Delete…
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+      )}
+    />
   );
 }
 
@@ -1474,25 +1461,22 @@ function SidebarThreadRow({
   thread,
   activeThreadId,
   onOpen,
-  actions,
   nested = false,
 }: {
   thread: PluginSidebarThread;
   activeThreadId: string | null;
   onOpen: (threadId: string, split: boolean) => void;
-  actions: PluginSidebarThreadActions;
   nested?: boolean;
 }) {
   const { splitProps } = experimental_useSidebarThreadSplit(thread.id);
   const title = thread.title ?? thread.titleFallback ?? "Conversation";
-  const ownerName = thread.ownerName?.trim() || null;
-  const accessibleLabel = ownerName ? `${title} (${ownerName})` : title;
+  const accessibleLabel = title;
   const isActive = activeThreadId === thread.id;
   return (
     <li
       className={cn(
         "group/row relative flex w-full items-center gap-2 rounded-md pr-1 text-sm transition-colors",
-        ownerName ? "min-h-9 py-0.5" : "h-7",
+        "h-7",
         isActive
           ? "bg-sidebar-accent text-sidebar-foreground"
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground dark:text-sidebar-foreground",
@@ -1504,7 +1488,7 @@ function SidebarThreadRow({
       }
     >
       <a
-        href="#"
+        href={thread.href}
         data-sidebar-thread-shortcut-target=""
         data-sidebar-thread-id={thread.id}
         aria-label={accessibleLabel}
@@ -1523,23 +1507,146 @@ function SidebarThreadRow({
         >
           {title}
         </span>
-        {ownerName ? (
-          <span
-            className="block truncate text-2xs leading-3 text-subtle-foreground/80"
-            title={ownerName}
-          >
-            {ownerName}
-          </span>
-        ) : null}
       </span>
       <span className="relative flex size-5 shrink-0 items-center justify-center">
         <span className="flex items-center justify-center transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
           <StatusGlyph thread={thread} colored />
         </span>
         <span className="absolute inset-[-4px] opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100">
-          <ThreadOverflowMenu thread={thread} actions={actions} />
+          <ThreadOverflowMenu thread={thread} />
         </span>
       </span>
+    </li>
+  );
+}
+
+function AgentAvatar({
+  agent,
+  size = "md",
+}: {
+  agent: Pick<EvaAgent, "slug" | "icon">;
+  size?: "sm" | "md" | "lg";
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      data-agent-avatar={agent.slug}
+      className={cn(
+        "grid shrink-0 place-items-center rounded-full text-white shadow-sm",
+        size === "lg" ? "size-12" : size === "md" ? "size-10" : "size-6",
+      )}
+      style={{ backgroundColor: agentColor(agent.slug) }}
+    >
+      <AgentIcon
+        icon={agent.icon}
+        className={
+          size === "lg" ? "size-6" : size === "md" ? "size-5" : "size-3.5"
+        }
+      />
+    </span>
+  );
+}
+
+function SidebarAgentRow({
+  agent,
+  chatThreadId,
+  chatThread,
+  preview,
+  activeThreadId,
+  ready,
+  onOpen,
+}: {
+  agent: EvaAgent;
+  chatThreadId: string | null;
+  chatThread?: PluginSidebarThread;
+  preview?: AgentChatPreview;
+  activeThreadId: string | null;
+  ready: boolean;
+  onOpen: (agent: EvaAgent, chatThreadId: string | null) => void;
+}) {
+  const label = agentDisplayName(agent);
+  const isActive = chatThreadId !== null && chatThreadId === activeThreadId;
+  const isWorking =
+    chatThread?.status === "starting" || chatThread?.status === "active";
+  const needsAnswer = chatThread?.hasPendingInteraction === true;
+  const isUnread = !isActive && chatThread?.isUnread === true;
+  const previewText = chatPreviewLine(preview, agentDisplayTagline(agent));
+  const stateLabel = needsAnswer
+    ? "waiting for your answer"
+    : isWorking
+      ? "working"
+      : isUnread
+        ? "new message"
+        : null;
+  return (
+    <li className="relative flex w-full items-center">
+      <button
+        type="button"
+        disabled={!ready}
+        data-sidebar-agent-entry=""
+        data-agent-slug={agent.slug}
+        aria-label={stateLabel ? `${label}, ${stateLabel}` : label}
+        aria-current={isActive ? "page" : undefined}
+        title={previewText}
+        onClick={() => onOpen(agent, chatThreadId)}
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors outline-none ring-sidebar-ring focus-visible:ring-2 disabled:cursor-default",
+          isActive
+            ? "bg-sidebar-accent text-sidebar-foreground"
+            : "text-sidebar-foreground hover:bg-sidebar-accent/70",
+        )}
+      >
+        <span className="relative shrink-0">
+          <AgentAvatar agent={agent} />
+          {needsAnswer || isWorking ? (
+            <span
+              aria-hidden="true"
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-sidebar",
+                needsAnswer ? "bg-warning" : "animate-pulse bg-success",
+              )}
+            />
+          ) : null}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-sm",
+                isUnread ? "font-semibold" : "font-medium",
+              )}
+            >
+              {label}
+            </span>
+            {preview ? (
+              <span
+                className={cn(
+                  "shrink-0 text-2xs tabular-nums",
+                  isUnread ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                {chatTimeLabel(preview.at)}
+              </span>
+            ) : null}
+          </span>
+          <span className="mt-0.5 flex items-center gap-2">
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-xs",
+                isUnread ? "text-sidebar-foreground" : "text-muted-foreground",
+              )}
+            >
+              {isWorking && !needsAnswer ? "Working on it…" : previewText}
+            </span>
+            {isUnread ? (
+              <span
+                aria-hidden="true"
+                className="size-2 shrink-0 rounded-full bg-primary"
+              />
+            ) : null}
+          </span>
+        </span>
+      </button>
     </li>
   );
 }
@@ -1554,7 +1661,6 @@ function SidebarConversationFolder({
   newLabel,
   activeThreadId,
   onOpenThread,
-  actions,
   agent,
   project,
 }: {
@@ -1567,7 +1673,6 @@ function SidebarConversationFolder({
   newLabel: string;
   activeThreadId: string | null;
   onOpenThread: (threadId: string, split: boolean) => void;
-  actions: PluginSidebarThreadActions;
   agent?: EvaAgent;
   project?: PluginSidebarProject;
 }) {
@@ -1589,11 +1694,16 @@ function SidebarConversationFolder({
           onClick={onToggle}
           aria-expanded={open}
           aria-label={`${label} (${threads.length} conversations)`}
-          className="absolute inset-0 rounded-md outline-none ring-sidebar-ring focus-visible:ring-2"
+          className="absolute inset-0 cursor-pointer rounded-md outline-none ring-sidebar-ring focus-visible:ring-2"
         />
         <span className="pointer-events-none relative flex w-4 shrink-0 items-center justify-center text-subtle-foreground">
           {agent ? (
-            <AgentIcon icon={agent.icon} className="size-4" />
+            <span
+              className="grid size-5 place-items-center rounded-full text-white"
+              style={{ backgroundColor: agentColor(agent.slug) }}
+            >
+              <AgentIcon icon={agent.icon} className="size-3" />
+            </span>
           ) : (
             <Icon
               name={open ? "FolderOpen" : "Folder"}
@@ -1618,7 +1728,7 @@ function SidebarConversationFolder({
             event.stopPropagation();
             onNew();
           }}
-          className="relative z-10 hidden size-5 items-center justify-center rounded text-muted-foreground hover:text-foreground max-md:flex group-hover/folder:flex group-focus-within/folder:flex"
+          className="relative z-10 hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground max-md:flex group-hover/folder:flex group-focus-within/folder:flex"
         >
           <Icon name="Plus" className="size-3.5" />
         </button>
@@ -1631,7 +1741,7 @@ function SidebarConversationFolder({
               thread={thread}
               activeThreadId={activeThreadId}
               onOpen={onOpenThread}
-              actions={actions}
+
               nested
             />
           ))}
@@ -1651,10 +1761,8 @@ function EVAThreadList({
   activeProjectId,
   searchQuery,
   onNavigate,
-  Original,
 }: PluginThreadListProps) {
   const { status, threads, projects } = experimental_useSidebarThreads();
-  const actions = experimental_useSidebarThreadActions();
   const navigate = useBbNavigate();
   const { roster, error } = useAgentRoster();
   const { collapsed, toggle } = useCollapsedGroups();
@@ -1667,9 +1775,26 @@ function EVAThreadList({
     .map((thread) => `${thread.id}:${thread.isArchived ? 1 : 0}`)
     .sort()
     .join("\u001f");
-  const authorizedThreadBindings = useAgentThreadBindings(
+  const {
+    bindings: authorizedThreadBindings,
+    canonicalThreadIds,
+    ready: agentThreadDataReady,
+  } = useAgentThreadBindings(
     roster !== null,
     `${rosterAgentKey}\u001e${sidebarThreadRevision}`,
+  );
+  const agentChatActivityKey = threads
+    .filter((thread) => thread.experimental_agentId)
+    .map((thread) => `${thread.id}:${thread.updatedAt}`)
+    .sort()
+    .join("\u001f");
+  const chatPreviews = useAgentChatPreviews(
+    roster !== null,
+    `${rosterAgentKey}\u001e${agentChatActivityKey}`,
+  );
+  const threadById = useMemo(
+    () => new Map(threads.map((thread) => [thread.id, thread])),
+    [threads],
   );
 
   useEffect(() => {
@@ -1724,7 +1849,12 @@ function EVAThreadList({
     return ids;
   }, [roster]);
 
-  if (status === "error" || error) return <Original />;
+  if (status === "error" || error)
+    return (
+      <div role="alert" className="px-3 py-4 text-xs text-muted-foreground">
+        Conversations could not be loaded.
+      </div>
+    );
   if (status !== "ready" || !roster) {
     return (
       <div className="px-3 py-4 text-xs text-muted-foreground">
@@ -1746,16 +1876,76 @@ function EVAThreadList({
   };
 
   const openThread = (threadId: string, split: boolean) => {
-    actions.open(threadId, { split });
+    navigate.toThread(threadId, { split });
     onNavigate();
   };
 
+  const openAgent = (agent: EvaAgent, chatThreadId: string | null) => {
+    if (!agentThreadDataReady) return;
+    if (chatThreadId !== null) {
+      navigate.toThread(chatThreadId);
+    } else {
+      navigate.toPluginPanel("agents", { subPath: agent.slug + "/new" });
+    }
+    onNavigate();
+  };
+
+  const chatAgents = sortChatAgents(
+    roster.agents.filter((agent) => isEvaChatAgent(agent.slug)),
+    chatPreviews,
+  );
+  const developmentAgents = roster.agents.filter(
+    (agent) => !isEvaChatAgent(agent.slug),
+  );
+  const renderChatAgent = (agent: EvaAgent) => {
+    const chatThreadId = canonicalThreadIds.get(agent.slug) ?? null;
+    return (
+      <SidebarAgentRow
+        key={agent.slug}
+        agent={agent}
+        chatThreadId={chatThreadId}
+        chatThread={
+          chatThreadId === null ? undefined : threadById.get(chatThreadId)
+        }
+        preview={chatPreviews.get(agent.slug)}
+        activeThreadId={activeThreadId}
+        ready={agentThreadDataReady}
+        onOpen={openAgent}
+      />
+    );
+  };
+  const developmentThreadsOf = (agent: EvaAgent) =>
+    visibleThreads.filter(
+      (thread) => agentByThreadId.get(thread.id)?.slug === agent.slug,
+    );
+
   if (query) {
-    const results = visibleThreads.filter(matches);
+    const matchingAgents = chatAgents.filter((agent) => {
+      const label = agentDisplayName(agent).toLocaleLowerCase();
+      const preview = chatPreviews.get(agent.slug)?.text.toLocaleLowerCase();
+      return (
+        label.includes(query) ||
+        agent.slug.includes(query) ||
+        (preview?.includes(query) ?? false) ||
+        visibleThreads.some(
+          (thread) =>
+            agentByThreadId.get(thread.id)?.slug === agent.slug &&
+            matches(thread),
+        )
+      );
+    });
+    const matchingDevelopmentThreads = developmentAgents.flatMap((agent) => {
+      const label = agentDisplayName(agent).toLocaleLowerCase();
+      const agentThreads = developmentThreadsOf(agent);
+      return label.includes(query) || agent.slug.includes(query)
+        ? agentThreads
+        : agentThreads.filter(matches);
+    });
     return (
       <>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          {results.length === 0 ? (
+          {matchingAgents.length === 0 &&
+          matchingDevelopmentThreads.length === 0 ? (
             <p
               role="status"
               className="px-2 py-6 text-center text-xs text-muted-foreground"
@@ -1763,30 +1953,31 @@ function EVAThreadList({
               No conversations match “{searchQuery.trim()}”.
             </p>
           ) : (
-            <ul className="space-y-px">
-              {results.map((thread) => (
-                <SidebarThreadRow
-                  key={thread.id}
-                  thread={thread}
-                  activeThreadId={activeThreadId}
-                  onOpen={openThread}
-                  actions={actions}
-                />
-              ))}
-            </ul>
+            <>
+              {matchingAgents.length > 0 ? (
+                <ul className="space-y-0.5">
+                  {matchingAgents.map(renderChatAgent)}
+                </ul>
+              ) : null}
+              {matchingDevelopmentThreads.length > 0 ? (
+                <ul className="mt-2 space-y-px">
+                  {matchingDevelopmentThreads.map((thread) => (
+                    <SidebarThreadRow
+                      key={thread.id}
+                      thread={thread}
+                      activeThreadId={activeThreadId}
+                      onOpen={openThread}
+                    />
+                  ))}
+                </ul>
+              ) : null}
+            </>
           )}
         </div>
       </>
     );
   }
 
-  const groups = roster.agents.map((agent) => ({
-    id: agent.slug,
-    agent,
-    threads: visibleThreads.filter(
-      (thread) => agentByThreadId.get(thread.id)?.slug === agent.slug,
-    ),
-  }));
   const allThreadsByProject = new Map<string, PluginSidebarThread[]>();
   for (const thread of visibleThreads) {
     const group = allThreadsByProject.get(thread.projectId) ?? [];
@@ -1797,7 +1988,7 @@ function EVAThreadList({
   // Keep EVA threads out of Projects even though they share the configured BB
   // project, so that project folders only show ordinary conversations.
   const rootThreads = visibleThreads.filter(
-    (thread) => !agentByThreadId.has(thread.id),
+    (thread) => agentThreadDataReady && !agentByThreadId.has(thread.id),
   );
   const threadsByProject = new Map<string, PluginSidebarThread[]>();
   for (const thread of rootThreads) {
@@ -1826,6 +2017,7 @@ function EVAThreadList({
     });
 
   const agentsCollapsed = collapsed["section:agents"] === true;
+  const developmentCollapsed = collapsed["section:development"] === true;
   const projectsCollapsed = collapsed["section:projects"] === true;
 
   return (
@@ -1833,42 +2025,52 @@ function EVAThreadList({
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         <SidebarSection
           label="Agents"
-          count={groups.length}
+          count={chatAgents.length}
           collapsed={agentsCollapsed}
           onToggle={() => toggle("section:agents", agentsCollapsed)}
         >
-          {groups.map((group) => {
-            const key = `folder:agent:${group.id}`;
-            const activeHere = group.threads.some(
-              (thread) => thread.id === activeThreadId,
-            );
-            const open =
-              collapsed[key] === false ||
-              (collapsed[key] === undefined && activeHere);
-            return (
-              <SidebarConversationFolder
-                key={group.id}
-                id={group.id}
-                label={agentDisplayName(group.agent)}
-                agent={group.agent}
-                threads={group.threads}
-                open={open}
-                onToggle={() => toggle(key, !open)}
-                onNew={() =>
-                  navigate.toPluginPanel("agents", {
-                    subPath: group.agent.slug + "/new",
-                  })
-                }
-                newLabel={
-                  "New conversation with " + agentDisplayName(group.agent)
-                }
-                activeThreadId={activeThreadId}
-                onOpenThread={openThread}
-                actions={actions}
-              />
-            );
-          })}
+          <ul className="space-y-0.5">{chatAgents.map(renderChatAgent)}</ul>
         </SidebarSection>
+
+        {developmentAgents.length > 0 ? (
+          <SidebarSection
+            label="Development"
+            count={developmentAgents.length}
+            collapsed={developmentCollapsed}
+            onToggle={() => toggle("section:development", developmentCollapsed)}
+          >
+            {developmentAgents.map((agent) => {
+              const agentThreads = developmentThreadsOf(agent);
+              const key = `folder:agent:${agent.slug}`;
+              const activeHere = agentThreads.some(
+                (thread) => thread.id === activeThreadId,
+              );
+              const open =
+                collapsed[key] === false ||
+                (collapsed[key] === undefined && activeHere);
+              return (
+                <SidebarConversationFolder
+                  key={agent.slug}
+                  id={agent.slug}
+                  label={agentDisplayName(agent)}
+                  agent={agent}
+                  threads={agentThreads}
+                  open={open}
+                  onToggle={() => toggle(key, !open)}
+                  onNew={() => {
+                    navigate.toPluginPanel("agents", {
+                      subPath: agent.slug + "/new",
+                    });
+                    onNavigate();
+                  }}
+                  newLabel={"New thread with " + agentDisplayName(agent)}
+                  activeThreadId={activeThreadId}
+                  onOpenThread={openThread}
+                />
+              );
+            })}
+          </SidebarSection>
+        ) : null}
 
         <SidebarSection
           label="Projects"
@@ -1895,7 +2097,7 @@ function EVAThreadList({
                 open={open}
                 onToggle={() => toggle(key, !open)}
                 onNew={() => {
-                  actions.openNewThread({
+                  navigate.toCompose({
                     projectId: project.id,
                     focusPrompt: true,
                   });
@@ -1904,7 +2106,6 @@ function EVAThreadList({
                 newLabel={"New conversation in " + project.name}
                 activeThreadId={activeThreadId}
                 onOpenThread={openThread}
-                actions={actions}
               />
             );
           })}

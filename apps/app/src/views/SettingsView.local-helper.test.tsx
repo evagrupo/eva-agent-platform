@@ -75,17 +75,11 @@ describe("LocalOpenTargetSettingsSection", () => {
     ).not.toBeNull();
   });
 
-  it("opens the remote-browser setup guide", () => {
-    const openWindow = vi.spyOn(window, "open").mockImplementation(() => null);
+  it("explains that remote-browser setup is managed by the administrator", () => {
     renderSection({ accessState: "available" });
-
-    fireEvent.click(screen.getByRole("link", { name: "Setup guide" }));
-
-    expect(openWindow).toHaveBeenCalledExactlyOnceWith(
-      "https://github.com/get-bb/bb/blob/main/docs/multiple-devices.md#open-bb-from-another-browser",
-      "_blank",
-      "noopener,noreferrer",
-    );
+    expect(
+      screen.getByText(/Setup is managed by your administrator/),
+    ).toBeTruthy();
   });
 
   it("shows editor preferences when the helper is reachable", () => {

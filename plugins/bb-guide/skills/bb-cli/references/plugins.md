@@ -24,7 +24,8 @@
     plugin code, and a failed refresh keeps the last catalog EVA validated.
   - `bb plugin search <query> [--json]` — search the catalog by id,
     name, description, category, or tag; status shows installed / compatible /
-    requires a newer EVA release. The table includes a **Category** column. An
+    requires newer EVA / id in use by `<source>` (another installed plugin, such
+    as a local `path:` checkout, already uses the entry's id). The table includes a **Category** column. An
     **Installs** column appears once the curated
     marketplace's `stats.json` sidecar has been read (`installs` in `--json`,
     null when unknown): anonymous-telemetry install counts for published
@@ -109,6 +110,17 @@
     Installs from one repository and commit share a single checkout.
     A repository that has a collection manifest and is not a plugin itself
     refuses an unselected install and lists its entry names.
+    Every install (CLI, SDK, or app) is a server job. Jobs run one at a time
+    in request order and keep going when the client disconnects or the app
+    reloads; a second request for the same source or catalog entry joins the
+    active job. `--no-wait` starts the job and prints its id instead of
+    waiting.
+  - `bb plugin install-jobs` — list queued, running, and recently finished
+    installs (finished jobs stay for ten minutes; `--json` for the jobs).
+  - `bb plugin cancel-install <job-id>` — a queued install is dropped. A
+    running install kills its git/npm step and installs nothing; once it has
+    started registering the plugin, it finishes and reports success (remove
+    it afterwards if unwanted).
   - `bb plugin outdated` — check installed plugins for compatible updates
     (table; `--json` for raw results). Shows latest compatible candidate and
     any blocked incompatible newer release. Dev builds (bb `0.0.0`) annotate
@@ -128,12 +140,30 @@
     repository subdirectory for a nested plugin, the semver range with its tag
     prefix and resolved tag for a Git range install, engine ranges, install
     time, integrity/registry details, and recent activation history.
-  - `bb plugin enable|disable <id>`, `bb plugin reload [id]` (exits 1 when a
+  - `bb plugin enable|disable <id>` — a plugin included with bb that you have
+    never enabled or disabled follows bb's default, so a later release can turn
+    it on; once you enable or disable it, that choice survives every release.
+  - `bb plugin reload [id]` (exits 1 when a
     reloaded plugin does not come up on its current sources: the previous
     instance was kept, or it is degraded because a service ignored its abort),
     `bb plugin remove <id>` (deletes the plugin's settings, secrets, and
     schedules; managed git/npm files are deleted, and local path sources stay
     on disk).
+  - `bb plugin prune [--dry-run] [--json]` — delete cached git:/npm: plugin
+    versions under `<data>/plugins/cache` that no installed plugin uses
+    (left by earlier bb releases, rolled-back updates, or interrupted
+    operations) and unrecorded cache directories. A successful update already
+    deletes the version it replaced, and `bb plugin remove` deletes the
+    plugin's versions. Prints each removed version
+    with its size and the total freed; `--dry-run` only lists them. Active
+    versions, pending rollbacks, and local path sources are never touched.
+    The command palette's Clean up plugin cache runs the same prune.
+  - `bb plugin safe-mode [on|off] [--json]` — show or change plugin safe
+    mode. `on` stops every plugin you installed, official store plugins
+    included, while keeping each plugin's enabled setting; plugins included
+    with bb keep running. `off` restarts the ones that were enabled and exits 1
+    naming any that fail to start. Installing or updating a stopped plugin is
+    refused while safe mode is on. The command palette offers the same toggle.
   - `bb plugin config <id> [set <key> <value> | unset <key>]` — declared
     settings; boolean and number arguments are converted to their declared
     types. Reload the plugin after configuring (`bb plugin reload <id>`).
@@ -223,3 +253,9 @@
 `bb plugin rpc list [plugin-id] [--method <exact-name>] [--json]` lists discoverable methods from running plugins, optionally restricted to one plugin. `bb plugin rpc inspect <plugin-id> [method] [--json]` dumps registration and method descriptions plus input/output JSON Schemas. Copy the relevant schema into your consumer and call the existing plugin RPC endpoint. Discovery is opt-in advertising, not access control; method names may carry versions such as `provider-usage.v1.listResources`.
 
 `bb plugin rpc call <plugin-id> <method> [--input-file <json-path>] [--json]` invokes a method using server-side schema validation. Omitting the input file sends JSON null. Input files avoid putting sensitive values in command arguments.
+
+### Background updates
+
+`bb plugin update <id> --yes` starts a server job and waits by polling, so the activation stability check does not hold one HTTP request open. Add `--no-wait` to return immediately. Use `bb plugin update-jobs [job-id] --json` for progress and results, including automatic rollback. Queued/running updates continue after the CLI or app disconnects. Finished jobs remain for ten minutes; jobs do not survive server restarts. Running updates cannot be cancelled midway through activation.
+
+SDK: `plugins.applyUpdate({ pluginId })` waits; `plugins.experimental_startUpdate({ pluginId })` returns the job. Inspect with `plugins.experimental_updateJobs.list()` or `.get({ jobId })`. Raw HTTP callers opt in with `Prefer: respond-async`; legacy callers still receive the completed result.

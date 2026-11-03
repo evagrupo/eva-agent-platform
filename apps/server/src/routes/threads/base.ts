@@ -1,3 +1,4 @@
+import { countUnarchivedThreadDescendants } from "../../services/threads/thread-archive.js";
 import { cancelAbandonedProviderCreations } from "../../services/threads/thread-environment-providers.js";
 import {
   THREAD_SEARCH_LIMIT_PER_GROUP_DEFAULT,
@@ -6,12 +7,15 @@ import {
   countThreads,
   getEnvironment,
   getProject,
+  getHost,
   getThread,
   getThreadSectionById,
   listThreadMentionRowsByIds,
   listThreadsWithPendingInteractionState,
   markThreadDeleted,
   listLifecycleThreadTree,
+  listPluginThreadMetadata,
+  listThreadAncestors,
   searchThreadsWithPendingInteractionState,
   updateThread,
   type ThreadSearchResultGroup as DbThreadSearchResultGroup,
@@ -29,6 +33,8 @@ import {
   type ThreadIncludeOption,
   type ThreadChildSummaryResponse,
   type ThreadCountResponse,
+  type PluginThreadMetadataListResponse,
+  type ThreadAncestorsListResponse,
   type ThreadRunningResponse,
   type ThreadSearchResponse,
   type ThreadWithIncludesResponse,
@@ -52,6 +58,8 @@ import {
   assertCoreCapability,
   assertExecutionAllowed,
   assertPluginAllowed,
+  assertPluginAllowedForAgent,
+  canReadThread,
   assertThreadCreationAllowed,
   defaultDenyPolicy,
   filterThreadsForContext,
@@ -110,7 +118,9 @@ function resolveIncludedThreadEnvironment(
     return null;
   }
   const environment = getEnvironment(deps.db, thread.environmentId);
-  return environment === null ? null : toEnvironmentResponse(environment);
+  return environment === null
+    ? null
+    : toEnvironmentResponse(deps.db, environment);
 }
 
 function buildThreadResponse(
@@ -135,6 +145,9 @@ function buildThreadResponse(
   if (args.includes.has("host")) {
     response.host = environment
       ? getNonDestroyedHostWithStatus(deps, environment.hostId)
+      : null;
+    response.environmentHostName = environment
+      ? (getHost(deps.db, environment.hostId)?.name ?? null)
       : null;
   }
   return response;
@@ -322,6 +335,58 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
     return context.json(response);
   });
 
+  post(routes.ancestors, (context, payload) => {
+    for (const id of payload.threadIds) {
+      const thread = getThread(deps.db, id);
+      if (
+        thread !== null &&
+        !canReadThread(deps.db, getCoreAuthContext(context), thread)
+      ) {
+        throw new ApiError(
+          403,
+          "policy_denied",
+          "Your policy does not allow reading this thread",
+        );
+      }
+    }
+    const authContext = getCoreAuthContext(context);
+    return context.json({
+      threads: listThreadAncestors(deps.db, payload.threadIds).map((row) => ({
+        ...row,
+        ancestorIds: row.ancestorIds.filter((id) => {
+          const thread = getThread(deps.db, id);
+          return thread !== null && canReadThread(deps.db, authContext, thread);
+        }),
+      })),
+    } satisfies ThreadAncestorsListResponse);
+  });
+
+  post(routes.pluginMetadata.list, (context, payload) => {
+    for (const id of payload.threadIds) {
+      const thread = getThread(deps.db, id);
+      if (thread === null) continue;
+      if (!canReadThread(deps.db, getCoreAuthContext(context), thread)) {
+        throw new ApiError(
+          403,
+          "policy_denied",
+          "Your policy does not allow reading this thread",
+        );
+      }
+      assertPluginAllowedForAgent(context, thread.agentId, payload.pluginId);
+    }
+    const { threads, corruptThreadIds } = listPluginThreadMetadata(
+      deps.db,
+      payload.pluginId,
+      payload.threadIds,
+    );
+    for (const threadId of corruptThreadIds) {
+      deps.logger.warn(
+        `Ignoring corrupt plugin metadata for thread ${threadId}, plugin ${payload.pluginId}`,
+      );
+    }
+    return context.json({ threads } satisfies PluginThreadMetadataListResponse);
+  });
+
   get(routes.running, (context) => {
     const running = listRunningThreadsWithIntendedHosts(deps).filter(
       (entry) => {
@@ -361,6 +426,7 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
     const threads = listThreadsWithPendingInteractionState(deps.db, {
       ...(query.projectId ? { projectId: query.projectId } : {}),
       ...(query.environmentId ? { environmentId: query.environmentId } : {}),
+      ...(query.hostId ? { hostId: query.hostId } : {}),
       ...(query.parentThreadId ? { parentThreadId: query.parentThreadId } : {}),
       ...(query.sourceThreadId ? { sourceThreadId: query.sourceThreadId } : {}),
       ...(query.sectionId ? { sectionId: query.sectionId } : {}),
@@ -629,12 +695,16 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
     );
   });
 
-  function getThreadChildSummary(threadId: string): ThreadChildSummaryResponse {
+  function getThreadChildSummary(thread: Thread): ThreadChildSummaryResponse {
     const nonDeletedChildCount = countNonDeletedAssignedChildThreads(deps.db, {
-      parentThreadId: threadId,
+      parentThreadId: thread.id,
     });
     return {
       nonDeletedChildCount,
+      unarchivedDescendantCount: countUnarchivedThreadDescendants(
+        deps.db,
+        thread,
+      ),
     };
   }
 
@@ -645,7 +715,7 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       context.req.param("id"),
       "read",
     );
-    return context.json(getThreadChildSummary(thread.id));
+    return context.json(getThreadChildSummary(thread));
   });
 
   patch(routes.update, async (context, payload) => {
@@ -774,7 +844,7 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
     for (const dependent of dependents) {
       const deleted = getThread(deps.db, dependent.id);
       if (!deleted) continue;
-      emitPluginThreadDeleted(deleted);
+      if (dependent.deletedAt === null) emitPluginThreadDeleted(deleted);
       cancelAbandonedProviderCreations(deps, deleted.id);
       deps.terminalSessions.closeDeletedThreadTerminals({
         threadId: deleted.id,

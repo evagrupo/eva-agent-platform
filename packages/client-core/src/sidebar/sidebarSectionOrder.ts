@@ -1,8 +1,4 @@
 import type { SidebarSectionId } from "./sidebarSectionId.js";
-import {
-  applyNeighborReorder,
-  buildNeighborReorderRequest,
-} from "./neighbor-reorder.js";
 
 type SidebarEntitySectionKind = "project" | "section" | "machine" | "agent";
 export type LegacySidebarEntityAnchor =
@@ -27,28 +23,6 @@ function isSidebarSectionId(value: string): value is SidebarSectionId {
     value.startsWith("machine:") ||
     value.startsWith("agent:")
   );
-}
-
-interface ReorderSidebarSectionOrderArgs {
-  activeId: string;
-  overId: string;
-  order: readonly SidebarSectionId[];
-}
-
-export function reorderSidebarSectionOrder({
-  activeId,
-  overId,
-  order,
-}: ReorderSidebarSectionOrderArgs): SidebarSectionId[] | null {
-  if (!isSidebarSectionId(activeId) || !isSidebarSectionId(overId)) {
-    return null;
-  }
-  const items = order.map((id) => ({ id }));
-  const request = buildNeighborReorderRequest({ activeId, overId, items });
-  if (!request) return null;
-  return applyNeighborReorder({ items, request })
-    .map((item) => item.id)
-    .filter(isSidebarSectionId);
 }
 
 interface NormalizeSidebarSectionOrderArgs {

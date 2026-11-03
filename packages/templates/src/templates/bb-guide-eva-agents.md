@@ -25,6 +25,15 @@ not authorize thread mutations, settings/account administration, cross-project
 reads, or reads beyond the user's existing policy. Other agents do not inherit
 Admin's inspection routes. Never print the injected credential.
 
+When the conversation owner is an active administrator, Admin can also manage
+plugins through the existing `bb plugin` and `bb marketplace` commands: search,
+install, inspect install/update jobs, update, enable/disable, reload, configure,
+inspect sources/logs, remove, prune caches, and manage safe mode or marketplaces.
+The corresponding SDK plugin/catalog APIs use the same authorization. Standard
+capability and plugin-policy checks still apply. Plugin-token commands and
+arbitrary plugin HTTP/RPC execution are outside this grant. Other EVA agents,
+and ordinary users assigned the Admin agent, do not gain plugin management.
+
 Administrator-only Git workspace synchronization preserves allowed files while
 keeping credentials, runtime state, the EVA fork, and the database outside the
 repository:
@@ -70,3 +79,22 @@ connector credentials.
 Agents, skills, and workspace scaffolding are managed through the authenticated
 EVA API. Administrators can create agents and update their mandate or skills;
 grant an agent execution tuple before a user can start or delegate work.
+
+Agent chats use the agent's display name as their title, including existing
+conversations. Admin keeps its development thread titles. Agents work directly
+within their mandate and permissions; there is no operating-mode switch or
+`bb eva update --status` option. Legacy Draft and Shadow records become Live
+on upgrade. Custom instructions and skills are available from Agent settings
+in the chat header (administrator only), or through the existing registry
+update APIs and CLI. Progress appears as short chat messages. Detailed reports
+are linked Markdown files that open in the side panel; generated UI focuses
+on the user's results and choices. Admin retains technical reporting.
+
+Agent reports use `$BB_THREAD_STORAGE/reports/<name>.md`, where the name uses
+letters, numbers, hyphens, or underscores. A linked report opens in a simple
+report panel, including for chat users without workspace file access. The
+read-only `/eva/reports/:threadId?name=<name>.md` endpoint verifies thread
+access and confines host reads to that thread's reports folder. The same
+content is available through `sdk.evaAgents.report({ threadId, name })` and
+`bb eva report <thread-id> <name>.md [--json]`. Other files stay under their
+existing permissions.

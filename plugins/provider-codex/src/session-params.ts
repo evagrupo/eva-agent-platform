@@ -486,7 +486,7 @@ export function gitWritableRootsForWorkspace(
   return [...new Set(writableRoots)];
 }
 
-export function combineWorkspaceWriteRoots(
+function combineWorkspaceWriteRoots(
   roots: readonly string[],
   additionalRoots: readonly string[],
 ): string[] {
@@ -544,11 +544,11 @@ export function toCodexPermissionSettings(
 
 export function toCodexServiceTier(
   tier: ServiceTier | undefined,
-): "fast" | null | undefined {
+): string | null | undefined {
   return tier === "default" ? null : tier;
 }
 
-export function toCodexReasoningEffort(
+function toCodexReasoningEffort(
   reasoningLevel: ReasoningLevel,
 ): CodexReasoningEffort {
   const codexEffort = mapBbReasoningLevelToCodex(reasoningLevel);
@@ -572,7 +572,9 @@ export function toCodexUserInput(input: PromptInput[]): CodexUserInput[] {
       case "localFile":
         return {
           type: "text",
-          text: `[Attached file: ${chunk.path}]`,
+          text: chunk.name
+            ? `[Attached file "${chunk.name}": ${chunk.path}]`
+            : `[Attached file: ${chunk.path}]`,
           text_elements: [],
         };
     }
@@ -610,7 +612,6 @@ export function buildCodexConfig(
       args.options.reasoningLevel,
     );
   }
-  config["features.default_mode_request_user_input"] = false;
   if (args.options?.providerSubagentsEnabled === false) {
     config["features.multi_agent"] = false;
     config["features.multi_agent_v2.max_concurrent_threads_per_session"] = 1;

@@ -262,7 +262,7 @@ export const evaAgents = sqliteTable(
     status: text("status")
       .$type<"draft" | "shadow" | "live">()
       .notNull()
-      .default("draft"),
+      .default("live"),
     sourceProviderId: text("source_provider_id"),
     providerIdsJson: text("provider_ids_json").notNull(),
     defaultProviderId: text("default_provider_id"),
@@ -336,9 +336,7 @@ export const evaAgentWorkspaceSync = sqliteTable(
     remoteUrl: text("remote_url"),
     branch: text("branch").notNull().default("main"),
     lastOperation: text("last_operation")
-      .$type<
-        "none" | "configure" | "initialize" | "commit" | "pull" | "push"
-      >()
+      .$type<"none" | "configure" | "initialize" | "commit" | "pull" | "push">()
       .notNull()
       .default("none"),
     lastResult: text("last_result")
@@ -604,6 +602,11 @@ export const hosts = sqliteTable(
   },
   (table) => [
     index("hosts_last_seen_idx").on(table.lastSeenAt),
+    index("hosts_pending_provider_idx")
+      .on(table.machineProviderId)
+      .where(
+        sql`${table.destroyedAt} IS NULL AND ${table.phase} <> 'destroyed'`,
+      ),
     uniqueIndex("hosts_live_launch_key_idx")
       .on(table.launchKey)
       .where(sql`${table.destroyedAt} is null`),
@@ -683,6 +686,11 @@ export const appSettingsValues = sqliteTable("app_settings_values", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
   updatedAt: integer("updated_at").notNull(),
+});
+
+export const uiPreferenceDefaults = sqliteTable("ui_preference_defaults", {
+  key: text("key").primaryKey(),
+  valueJson: text("value_json").notNull(),
 });
 
 export const uiPreferences = sqliteTable("ui_preferences", {
@@ -787,6 +795,9 @@ export const installedPlugins = sqliteTable("plugins", {
   rootDir: text("root_dir").notNull(),
   version: text("version").notNull(),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  enabledFollowsDefault: integer("enabled_follows_default", { mode: "boolean" })
+    .notNull()
+    .default(false),
   removedAt: integer("removed_at"),
   installedAt: integer("installed_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
@@ -1024,7 +1035,9 @@ export const environments = sqliteTable(
       table.path,
     ),
     index("environments_host_path_lookup_idx").on(table.hostId, table.path),
-    uniqueIndex("environments_owner_thread_idx").on(table.ownerThreadId),
+    uniqueIndex("environments_owner_thread_idx")
+      .on(table.ownerThreadId)
+      .where(sql`${table.ownerThreadId} IS NOT NULL`),
     index("environments_claim_idx").on(table.hostId, table.claimPath),
     index("environments_project_idx").on(table.projectId),
     index("environments_status_idx").on(table.status),
@@ -1032,6 +1045,11 @@ export const environments = sqliteTable(
       table.environmentProviderId,
       table.environmentProviderInstanceKey,
     ),
+    index("environments_provider_lifecycle_idx")
+      .on(table.environmentProviderId)
+      .where(
+        sql`${table.status} <> 'destroyed' OR ${table.teardownStatus} IS NOT 'removed'`,
+      ),
   ],
 );
 
@@ -1124,6 +1142,9 @@ export const threads = sqliteTable(
       table.id,
     ),
     index("threads_archived_status_idx").on(table.archivedAt, table.status),
+    index("threads_deleted_cleanup_idx")
+      .on(table.deletedAt)
+      .where(sql`${table.deletedAt} IS NOT NULL`),
     index("threads_environment_archived_deleted_idx").on(
       table.environmentId,
       table.archivedAt,
@@ -1132,6 +1153,69 @@ export const threads = sqliteTable(
     index("threads_active_maintenance_idx")
       .on(table.status)
       .where(sql`${table.deletedAt} IS NULL`),
+  ],
+);
+
+export const evaAgentChats = sqliteTable(
+  "eva_agent_chats",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => evaAgents.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.agentId, table.ownerUserId] }),
+    index("eva_agent_chats_owner_idx").on(table.ownerUserId),
+    index("eva_agent_chats_thread_idx").on(table.threadId),
+  ],
+);
+
+export const evaAgentMemories = sqliteTable(
+  "eva_agent_memories",
+  {
+    id: text("id").primaryKey(),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => evaAgents.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    kind: text("kind")
+      .$type<"preference" | "correction" | "pattern" | "fact">()
+      .notNull(),
+    sourceThreadId: text("source_thread_id"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("eva_agent_memories_scope_updated_idx").on(
+      table.agentId,
+      table.ownerUserId,
+      table.updatedAt,
+    ),
+    index("eva_agent_memories_owner_idx").on(table.ownerUserId),
+    check(
+      "eva_agent_memories_kind_check",
+      sql`${table.kind} IN ('preference', 'correction', 'pattern', 'fact')`,
+    ),
+    check(
+      "eva_agent_memories_title_check",
+      sql`length(${table.title}) BETWEEN 1 AND 60`,
+    ),
+    check(
+      "eva_agent_memories_body_check",
+      sql`length(${table.body}) BETWEEN 1 AND 4000`,
+    ),
   ],
 );
 
@@ -1411,6 +1495,7 @@ export const threadPruningCursors = sqliteTable(
     step: integer("step").notNull().default(0),
     sequence: integer("sequence").notNull().default(0),
     upperSequence: integer("upper_sequence").notNull().default(0),
+    workRevision: integer("work_revision").notNull().default(0),
     cycle: integer("cycle").notNull().default(0),
     latestRootSequence: integer("latest_root_sequence").notNull().default(0),
     latestContextSequence: integer("latest_context_sequence")
@@ -1477,6 +1562,11 @@ export const promptHistoryEntries = sqliteTable(
     index("prompt_history_entries_project_scope_created_idx").on(
       table.projectId,
       table.scope,
+      table.createdAt,
+      table.requestSequence,
+      table.id,
+    ),
+    index("prompt_history_entries_created_idx").on(
       table.createdAt,
       table.requestSequence,
       table.id,
@@ -1553,6 +1643,17 @@ export const queuedThreadMessages = sqliteTable(
     // row stays waiting on whatever it was waiting on; this only says what went
     // wrong the last time the drain tried to send it.
     failureReason: text("failure_reason"),
+    // How many drain attempts in a row have failed, and when the next
+    // automatic one may run. Together they make a failure a bounded retry
+    // instead of a terminal state: the condition that failed a dispatch is
+    // usually the one a restart just created, so the row goes again on a
+    // widening delay and only stops when the budget is spent. `next_attempt_at`
+    // NULL beside a non-NULL `failure_reason` IS that spent budget — the row
+    // now waits for a person. A fresh, successful statement of the row's wait
+    // resets both, because the attempt that wrote it learned something newer
+    // than the failure did.
+    failureCount: integer("failure_count").notNull().default(0),
+    nextAttemptAt: integer("next_attempt_at"),
     payloadKind: text("payload_kind")
       .$type<QueuedMessagePayloadKind>()
       .notNull()
@@ -1571,6 +1672,7 @@ export const queuedThreadMessages = sqliteTable(
     retryReason: text("retry_reason"),
     claimedAt: integer("claimed_at"),
     claimToken: text("claim_token"),
+    editHeldUntil: integer("edit_held_until"),
     sortKey: text("sort_key").notNull(),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
@@ -1813,6 +1915,21 @@ export const projectAttachmentThreads = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.attachmentId, table.threadId] }),
     index("project_attachment_threads_thread_idx").on(table.threadId),
+  ],
+);
+
+export const threadPruningWork = sqliteTable(
+  "thread_pruning_work",
+  {
+    policy: text("policy").notNull(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull().default(1),
+  },
+  (table) => [
+    primaryKey({ columns: [table.policy, table.threadId] }),
+    index("thread_pruning_work_thread_idx").on(table.threadId),
   ],
 );
 

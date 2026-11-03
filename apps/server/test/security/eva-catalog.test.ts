@@ -42,17 +42,18 @@ describe("EVA built-in agent catalog", () => {
       "RR. HH.",
       "Admin",
     ]);
-    expect(EVA_DEFAULT_PROVIDER_ID).toBe("acp-cursor");
-    expect(EVA_DEFAULT_MODEL).toBe("grok-4.7");
+    expect(EVA_DEFAULT_PROVIDER_ID).toBe("codex");
+    expect(EVA_DEFAULT_MODEL).toBe("gpt-6.1-terra");
     expect(EVA_DEFAULT_REASONING_LEVEL).toBe("high");
     for (const agent of EVA_AGENT_CATALOG) {
+      expect(agent.status).toBe("live");
       expect(agent.instructions.length).toBeGreaterThan(0);
       expect(agent.defaultProviderId).toBe(
         agent.sourceProviderId ?? EVA_DEFAULT_PROVIDER_ID,
       );
       if (agent.sourceProviderId === "codex") {
-        expect(agent.defaultModel).toBe("gpt-5.6-luna");
-        expect(agent.defaultReasoningLevel).toBe("max");
+        expect(agent.defaultModel).toBe("gpt-6.1-terra");
+        expect(agent.defaultReasoningLevel).toBe("high");
       } else {
         expect(agent.defaultModel).toBe(EVA_DEFAULT_MODEL);
         expect(agent.defaultReasoningLevel).toBe(EVA_DEFAULT_REASONING_LEVEL);
@@ -92,8 +93,8 @@ describe("EVA built-in agent catalog", () => {
       sourceProviderId: "codex",
       providerIds: ["codex"],
       defaultProviderId: "codex",
-      defaultModel: "gpt-5.6-luna",
-      defaultReasoningLevel: "max",
+      defaultModel: "gpt-6.1-terra",
+      defaultReasoningLevel: "high",
     });
     expect(admin?.instructions).toContain("REPOSITORY-MAP.md");
     expect(admin?.instructions).toContain(

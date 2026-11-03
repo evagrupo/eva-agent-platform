@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   useEvaAgentMentionSearch: vi.fn(),
   useSidebarNavigation: vi.fn(),
   useThreadMentionCandidates: vi.fn(),
+  useThread: vi.fn(),
 }));
 
 vi.mock("./usePathSuggestions", () => ({
@@ -31,9 +32,11 @@ vi.mock("./queries/sidebar-navigation-query", () => ({
 
 vi.mock("./queries/thread-queries", () => ({
   useThreadMentionCandidates: mocks.useThreadMentionCandidates,
+  useThread: mocks.useThread,
 }));
 
 beforeEach(() => {
+  mocks.useThread.mockReturnValue({ data: undefined });
   mocks.usePathSuggestions.mockReturnValue({
     suggestions: [],
     isLoading: false,
@@ -114,5 +117,55 @@ describe("usePromptMentions thread contexts", () => {
       expect.objectContaining({ agentId: "orchestrator" }),
       expect.any(Object),
     );
+  });
+
+  it("suggests only agents in an EVA agent chat, from a bare @", () => {
+    mocks.useThread.mockReturnValue({
+      data: makeThread({ id: "thr_meta", agentId: "meta" }),
+    });
+    mocks.usePluginContributions.mockReturnValue({
+      data: {
+        mentionProviders: [
+          { pluginId: "bb-eva", id: "agent", label: "EVA", triggers: ["@"] },
+        ],
+      },
+    });
+    const { result } = renderHook(() =>
+      usePromptMentions("proj_1", {
+        environmentId: null,
+        currentThreadId: "thr_meta",
+      }),
+    );
+    act(() => result.current.setQuery("", "@"));
+
+    expect(result.current.agentsOnly).toBe(true);
+    expect(mocks.useEvaAgentMentionSearch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "" }),
+      { enabled: true },
+    );
+    expect(mocks.useThreadMentionCandidates).toHaveBeenLastCalledWith({
+      enabled: false,
+    });
+    expect(mocks.usePathSuggestions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: null }),
+    );
+  });
+
+  it("keeps every mention source in Admin development chats", () => {
+    mocks.useThread.mockReturnValue({
+      data: makeThread({ id: "thr_admin", agentId: "admin" }),
+    });
+    const { result } = renderHook(() =>
+      usePromptMentions("proj_1", {
+        environmentId: null,
+        currentThreadId: "thr_admin",
+      }),
+    );
+    act(() => result.current.setQuery("sidebar", "@"));
+
+    expect(result.current.agentsOnly).toBe(false);
+    expect(mocks.useThreadMentionCandidates).toHaveBeenLastCalledWith({
+      enabled: true,
+    });
   });
 });

@@ -646,6 +646,12 @@ export function resolveCoreRuntimeInstructions(args: {
         and(
           eq(authInstructions.scope, "user"),
           eq(authInstructions.userId, args.userId),
+          args.agentId === null
+            ? isNull(authInstructions.agentId)
+            : or(
+                isNull(authInstructions.agentId),
+                eq(authInstructions.agentId, args.agentId),
+              ),
         ),
         ...(args.agentId === null
           ? []
@@ -665,11 +671,14 @@ export function resolveCoreRuntimeInstructions(args: {
     ["user", 2],
     ["agent", 3],
   ]);
+  const rank = (row: (typeof rows)[number]): number =>
+    row.scope === "user" && row.agentId !== null
+      ? 4
+      : (order.get(row.scope) ?? 99);
   return rows
     .sort(
       (left, right) =>
-        (order.get(left.scope) ?? 99) - (order.get(right.scope) ?? 99) ||
-        left.id.localeCompare(right.id),
+        rank(left) - rank(right) || left.id.localeCompare(right.id),
     )
     .map((row) => row.content);
 }
@@ -1843,11 +1852,11 @@ export function createAccessManagementService(args: {
         invalid("Role instructions require only a role target");
       if (
         input.scope === "user" &&
-        (input.userId === undefined ||
-          input.role !== undefined ||
-          input.agentId !== undefined)
+        (input.userId === undefined || input.role !== undefined)
       )
-        invalid("User instructions require only a user target");
+        invalid(
+          "User instructions require a user target and accept only an optional agent",
+        );
       if (
         input.scope === "agent" &&
         (input.agentId === undefined ||

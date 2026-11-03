@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   installTestBuiltinPlugin,
   startTestServer,
@@ -15,6 +15,31 @@ describe("plugin loopback SDK under core auth", () => {
         throw new Error("keep-awake plugin API was not loaded");
       }
       await expect(api.sdk.threads.listRunning()).resolves.toEqual([]);
+      const states: string[] = [];
+      const changed = vi.fn();
+      const unsubscribeConnection = api.sdk.subscribe({
+        event: "realtime:connection",
+        callback: ({ state }) => states.push(state),
+      });
+      const unsubscribeSystem = api.sdk.subscribe({
+        event: "system:changed",
+        callback: changed,
+      });
+      try {
+        await vi.waitFor(() => expect(states).toContain("connected"));
+        server.hub.notifySystem(["plugins-changed"]);
+        await vi.waitFor(() =>
+          expect(changed).toHaveBeenCalledWith(
+            expect.objectContaining({
+              entity: "system",
+              changes: ["plugins-changed"],
+            }),
+          ),
+        );
+      } finally {
+        unsubscribeConnection();
+        unsubscribeSystem();
+      }
       const anonymous = await fetch(`${server.baseUrl}/api/v1/threads/running`);
       expect(anonymous.status).toBe(401);
     } finally {

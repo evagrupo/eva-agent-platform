@@ -8,6 +8,7 @@ import {
   authSessions,
   authUsers,
   createThread,
+  createPromptHistoryEntry,
   getThread,
   getPersonalProject,
   threads,
@@ -203,7 +204,138 @@ function insertAgentGrant(
 }
 
 describe("core auth foundation", () => {
-  it("allows Admin CLI thread inspection without granting management or cross-project access", async () => {
+  it("scopes prompt history before pagination and blocks user changes to global upgrade settings", async () => {
+    const harness = await startTestServer({ authRequired: true });
+    try {
+      await seedIdentity(harness, {
+        email: USER_A_EMAIL,
+        name: "User A",
+        password: USER_A_PASSWORD,
+        userId: "history-a",
+      });
+      await seedIdentity(harness, {
+        email: USER_B_EMAIL,
+        name: "User B",
+        password: USER_B_PASSWORD,
+        userId: "history-b",
+      });
+      harness.db
+        .update(authPolicies)
+        .set({
+          policyJson: JSON.stringify({
+            ...defaultUserPolicy,
+            allowedAgentIds: ["creative"],
+            capabilities: {
+              ...defaultUserPolicy.capabilities,
+              workspaceBootstrap: true,
+              settings: true,
+            },
+          }),
+        })
+        .where(eq(authPolicies.id, "user"))
+        .run();
+      const { threadA, threadB } = await seedOwnedThreads(harness, {
+        a: "history-a",
+        b: "history-b",
+      });
+      for (const [threadId, createdAt, text] of [
+        [threadA.id, 10, "Older owned prompt"],
+        [threadA.id, 20, "Newer owned prompt"],
+        [threadB.id, 30, "Private other-user prompt"],
+      ] as const) {
+        createPromptHistoryEntry(harness.db, {
+          projectId: threadA.projectId,
+          threadId,
+          createdAt,
+          requestSequence: createdAt,
+          scope: "thread",
+          input: textInput(text),
+        });
+      }
+      const cookie = await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD);
+      for (const [path, body] of [
+        ["/threads/ancestors", { threadIds: [threadB.id] }],
+        [
+          "/threads/plugin-metadata",
+          { pluginId: "thread-list", threadIds: [threadB.id] },
+        ],
+      ] as const) {
+        const response = await harness.app.request(`/api/v1${path}`, {
+          method: "POST",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        expect(response.status, path).toBe(403);
+      }
+
+      for (const path of ["/plugins", "/plugins/contributions"]) {
+        const response = await harness.app.request(`/api/v1${path}`, {
+          headers: { cookie },
+        });
+        expect(response.status, path).toBe(200);
+      }
+      const reload = await harness.app.request(
+        "/api/v1/plugins/thread-list/reload",
+        {
+          method: "POST",
+          headers: { cookie, "content-type": "application/json" },
+          body: "{}",
+        },
+      );
+      expect(reload.status).toBe(403);
+      const first = await harness.app.request(
+        "/api/v1/prompt-history?limit=1",
+        { headers: { cookie } },
+      );
+      expect(first.status).toBe(200);
+      const firstPage = await first.json();
+      expect(firstPage.entries).toEqual([
+        expect.objectContaining({
+          threadId: threadA.id,
+          input: textInput("Newer owned prompt"),
+        }),
+      ]);
+      expect(firstPage.nextCursor).toEqual(expect.any(String));
+      const second = await harness.app.request(
+        `/api/v1/prompt-history?limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+        { headers: { cookie } },
+      );
+      const secondPage = await second.json();
+      expect(secondPage.entries).toEqual([
+        expect.objectContaining({
+          threadId: threadA.id,
+          input: textInput("Older owned prompt"),
+        }),
+      ]);
+      expect(secondPage.nextCursor).toBeNull();
+      for (const [method, path, body] of [
+        ["PUT", "/system/providers/codex/enabled", { enabled: false }],
+        ["GET", "/system/ai-services", null],
+        [
+          "PUT",
+          "/system/ai-services/selection",
+          { task: "thread-title", selection: { mode: "off" } },
+        ],
+        ["POST", "/system/ai-services/test", { task: "thread-title" }],
+        [
+          "POST",
+          "/system/app-update/apply",
+          { confirmInterruptingThreads: false },
+        ],
+      ] as const) {
+        const response = await harness.app.request(`/api/v1${path}`, {
+          method,
+          headers: { cookie, "content-type": "application/json" },
+          ...(body === null ? {} : { body: JSON.stringify(body) }),
+        });
+        expect(response.status, `${method} ${path}`).toBe(403);
+      }
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("allows Admin CLI thread inspection without granting account or cross-project access", async () => {
     const harness = await startTestServer({ authRequired: true });
     try {
       await seedIdentity(harness, {
@@ -318,6 +450,147 @@ describe("core auth foundation", () => {
     }
   });
 
+  it("allows an administrator's Admin agent to install and manage plugins through scoped credentials", async () => {
+    const harness = await startTestServer({ authRequired: true });
+    try {
+      harness.pluginService.bindSdk({ baseUrl: harness.baseUrl });
+      await seedIdentity(harness, {
+        email: ADMIN_EMAIL,
+        name: "Plugin administrator",
+        password: ADMIN_PASSWORD,
+        role: "admin",
+        userId: "admin-plugin-manager",
+      });
+      const { project, threadA } = await seedOwnedThreads(harness, {
+        a: "admin-plugin-manager",
+        b: "admin-plugin-manager",
+      });
+      harness.db
+        .update(threads)
+        .set({ agentId: "admin" })
+        .where(eq(threads.id, threadA.id))
+        .run();
+      const token = harness.coreAuth.issueAgentCliToken({
+        userId: "admin-plugin-manager",
+        threadId: threadA.id,
+        projectId: project.id,
+        agentId: "admin",
+      });
+      expect(token).not.toBeNull();
+      const headers = {
+        "x-bb-agent-cli-token": token!,
+        "content-type": "application/json",
+      };
+      const install = await harness.app.request("/api/v1/plugins/install", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          source: "builtin:keep-awake",
+          selection: { kind: "root" },
+        }),
+      });
+      expect(install.status, await install.clone().text()).toBe(200);
+      expect(await install.json()).toMatchObject({
+        ok: true,
+        plugin: { id: "keep-awake", enabled: true },
+      });
+      for (const route of [
+        "/plugin-catalog",
+        "/plugin-catalog/search?q=keep-awake",
+        "/marketplaces",
+        "/plugins/install-jobs",
+        "/plugins/update-jobs",
+        "/plugins/updates",
+        "/plugins/safe-mode",
+        "/plugins/keep-awake/source",
+        "/plugins/keep-awake/logs",
+      ]) {
+        const response = await harness.app.request(`/api/v1${route}`, {
+          headers,
+        });
+        expect(response.status, route).toBe(200);
+      }
+      for (const [action, enabled] of [
+        ["disable", false],
+        ["enable", true],
+      ] as const) {
+        const response = await harness.app.request(
+          `/api/v1/plugins/keep-awake/${action}`,
+          { method: "POST", headers, body: "{}" },
+        );
+        expect(response.status, action).toBe(200);
+        expect(await response.json()).toMatchObject({
+          ok: true,
+          plugin: { enabled },
+        });
+      }
+      for (const [method, route, status] of [
+        ["POST", "/plugins/install", 422],
+        ["POST", "/plugin-catalog/install", 422],
+        ["GET", "/plugin-catalog/install-plan", 422],
+        ["PUT", "/plugins/keep-awake/settings", 400],
+        ["PUT", "/plugins/safe-mode", 400],
+        ["GET", "/plugins/install-jobs/missing-job", 404],
+        ["GET", "/plugins/update-jobs/missing-job", 404],
+        ["POST", "/plugins/install-jobs/missing-job/cancel", 404],
+        ["DELETE", "/plugins/keep-awake", 409],
+      ] as const) {
+        const response = await harness.app.request(`/api/v1${route}`, {
+          method,
+          headers,
+          ...(method === "GET" ? {} : { body: "{}" }),
+        });
+        expect(response.status, `${method} ${route}`).toBe(status);
+      }
+      for (const [method, route] of [
+        ["POST", "/plugins/keep-awake/token"],
+        ["POST", "/plugins/keep-awake/rpc/test"],
+        ["GET", "/plugins/keep-awake/http/test"],
+        ["POST", "/plugins/keep-awake/cli"],
+        ["GET", "/access/users"],
+        ["GET", "/settings"],
+      ] as const) {
+        const response = await harness.app.request(`/api/v1${route}`, {
+          method,
+          headers,
+          ...(method === "GET" ? {} : { body: "{}" }),
+        });
+        expect(response.status, `${method} ${route}`).toBe(403);
+      }
+      harness.db
+        .update(threads)
+        .set({ agentId: "creative" })
+        .where(eq(threads.id, threadA.id))
+        .run();
+      const specialistToken = harness.coreAuth.issueAgentCliToken({
+        userId: "admin-plugin-manager",
+        threadId: threadA.id,
+        projectId: project.id,
+        agentId: "creative",
+      });
+      expect(specialistToken).not.toBeNull();
+      const specialistHeaders = {
+        ...headers,
+        "x-bb-agent-cli-token": specialistToken!,
+      };
+      for (const [method, route] of [
+        ["GET", "/plugin-catalog/search?q=keep-awake"],
+        ["POST", "/plugins/install"],
+        ["POST", "/plugins/keep-awake/disable"],
+        ["PUT", "/plugins/keep-awake/settings"],
+      ] as const) {
+        const response = await harness.app.request(`/api/v1${route}`, {
+          method,
+          headers: specialistHeaders,
+          ...(method === "GET" ? {} : { body: "{}" }),
+        });
+        expect(response.status, `${method} ${route}`).toBe(403);
+      }
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("keeps Admin CLI reads within the user's current grants and ownership", async () => {
     const harness = await startTestServer({ authRequired: true });
     try {
@@ -360,6 +633,19 @@ describe("core auth foundation", () => {
       });
       expect(token).not.toBeNull();
       const headers = { "x-bb-agent-cli-token": token! };
+      for (const [method, route] of [
+        ["GET", "/plugin-catalog"],
+        ["POST", "/plugins/install"],
+        ["GET", "/plugins/install-jobs"],
+        ["POST", "/plugins/example/enable"],
+      ] as const) {
+        const response = await harness.app.request(`/api/v1${route}`, {
+          method,
+          headers: { ...headers, "content-type": "application/json" },
+          ...(method === "GET" ? {} : { body: "{}" }),
+        });
+        expect(response.status, `${method} ${route}`).toBe(403);
+      }
       expect(
         (
           await harness.app.request(`/api/v1/threads/${threadA.id}/output`, {
@@ -754,6 +1040,7 @@ describe("core auth foundation", () => {
         "/api/v1/access/bootstrap",
         "/api/v1/sidebar-bootstrap",
         "/api/v1/projects",
+        "/api/v1/plugins",
       ]) {
         expect(
           (await harness.app.request(path, { headers: { cookie } })).status,
@@ -761,7 +1048,6 @@ describe("core auth foundation", () => {
       }
       for (const path of [
         "/api/v1/plugin-catalog",
-        "/api/v1/plugins",
         "/api/v1/thread-sections",
       ]) {
         expect(
@@ -778,7 +1064,7 @@ describe("core auth foundation", () => {
     });
   });
 
-  it("requires plugin data capability for the registry and installed plugins", async () => {
+  it("requires plugin data capability outside the core sidebar", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
       await seedIdentity(harness, {
         email: USER_A_EMAIL,
@@ -788,7 +1074,7 @@ describe("core auth foundation", () => {
       });
       const cookie = await signIn(harness, USER_A_EMAIL, USER_A_PASSWORD);
       for (const path of [
-        "/api/v1/plugins",
+        "/api/v1/plugin-catalog",
         "/api/v1/skills-registry?page=0&perPage=1",
       ]) {
         expect(
@@ -1158,7 +1444,7 @@ describe("core auth foundation", () => {
                     id,
                     providerIds: expect.arrayContaining(providerIds),
                     defaultProviderId: "codex",
-                    defaultModel: "gpt-5.6-luna",
+                    defaultModel: "gpt-6.1-terra",
                   }),
                 ),
               ),
@@ -1181,6 +1467,21 @@ describe("core auth foundation", () => {
                 expect.objectContaining({ id: providerId }),
               ]),
             );
+            // Cursor runs only Composer and Grok models, whatever the policy.
+            if (providerId === "acp-cursor") {
+              expect(body.models).toEqual([]);
+              expect(() =>
+                assertExecutionAllowedForUser(harness.db, "admin-user", {
+                  agentId,
+                  providerId,
+                  model: "second-model",
+                  reasoningLevel: "high",
+                  permissionMode: "full",
+                  requireComplete: true,
+                }),
+              ).toThrow("is not available with this provider");
+              continue;
+            }
             expect(body.models.map((model) => model.model)).toEqual([
               "first-model",
               "second-model",

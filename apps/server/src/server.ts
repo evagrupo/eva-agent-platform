@@ -1,11 +1,21 @@
+import { createPluginUpdateJobs } from "./services/plugins/plugin-update-jobs.js";
+import { registerPluginUpdateJobRoutes } from "./routes/plugin-update-jobs.js";
 import { recheckEnvironmentProvisioning } from "./services/threads/thread-environment-providers.js";
-import { enrolledInstallerScript } from "./services/machines/manual-enrollment-command.js";
+import {
+  enrolledInstallerScript,
+  enrolledWindowsInstallerScript,
+  windowsInstallerFailureScript,
+} from "./services/machines/manual-enrollment-command.js";
+import { reconnectBootstrapForCredential } from "./services/machines/reconnect.js";
 import { getMachineEnrollmentService } from "./services/machines/machine-services.js";
 import { withManualMachineProvider } from "./services/machines/manual-provider.js";
 import { registerDesktopBrowserRoutes } from "./routes/desktop-browsers.js";
-import { INSTALL_MACHINE_SCRIPT_PATH } from "./install-machine-asset.js";
+import {
+  INSTALL_MACHINE_SCRIPT_PATH,
+  INSTALL_MACHINE_WINDOWS_SCRIPT_PATH,
+} from "./install-machine-asset.js";
 import { createNodeWebSocket } from "@hono/node-ws";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { extname, join, resolve } from "node:path";
@@ -16,7 +26,7 @@ import { terminalWebSocketQuerySchema } from "@bb/server-contract";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import type { ServerAppDeps } from "./types.js";
-import { ApiError, errorToResponse } from "./errors.js";
+import { ApiError, createServerErrorHandler } from "./errors.js";
 import { createCoreAuthService } from "./core-auth.js";
 import {
   CORE_AUTH_CONTEXT_KEY,
@@ -27,12 +37,19 @@ import {
   canReadThread,
   assertPluginDataAllowed,
   isPluginAllowedByPolicy,
+  isCoreCapabilityAllowed,
   runWithCoreAuthRequest,
   type CoreCapability,
 } from "./access-policy.js";
 import { registerEnvironmentRoutes } from "./routes/environments.js";
 import { registerAccessRoutes } from "./routes/access.js";
 import { registerEvaAgentRoutes } from "./routes/eva-agents.js";
+import { registerEvaAgentChatContinueRoutes } from "./routes/eva-agent-chat-continue.js";
+import {
+  AGENT_BROWSER_PATH,
+  registerAgentBrowserRoutes,
+} from "./routes/agent-browser.js";
+import { startEvaAgentChatWatchdog } from "./agents/eva-agent-chat-watchdog.js";
 import {
   createMiniAppService,
   registerMiniAppGateway,
@@ -49,6 +66,9 @@ import { registerThreadRoutes } from "./routes/threads/index.js";
 import { registerQueueRoutes } from "./routes/queue.js";
 import { registerPluginRoutes } from "./routes/plugins.js";
 import { registerPluginCatalogRoutes } from "./routes/plugin-catalog.js";
+import { registerPluginInstallJobRoutes } from "./routes/plugin-install-jobs.js";
+import { createPluginInstallJobs } from "./services/plugins/plugin-install-jobs.js";
+import { registerPromptHistoryRoutes } from "./routes/prompt-history.js";
 import { registerSkillsRegistryRoutes } from "./routes/skills-registry.js";
 import {
   createPluginService,
@@ -122,6 +142,7 @@ import { requestMatchesEntityTag } from "./services/hosts/daemon-file-response.j
 import {
   allowedAppOrigins,
   browserRequestProblem,
+  requestHostProblem,
 } from "./browser-request-guard.js";
 import {
   callPluginHostRpc,
@@ -132,6 +153,7 @@ import { ensureEvaAgentRegistry } from "./agents/eva-agent-registry.js";
 const PLUGIN_WIRE_HTTP_PATH = /^\/api\/v1\/plugins\/[^/]+\/http(?:\/|$)/u;
 import { rankAcceptedAssetEncodings } from "./asset-content-encoding.js";
 import { apiJsonCompression } from "./api-response-compression.js";
+import { APP_SURFACE_WEB, type AppSurface } from "@bb/config/app-surface";
 import type { ServerBindHost } from "@bb/config/server";
 import { registerServerMoveRoutes } from "./routes/server-move.js";
 import {
@@ -210,12 +232,58 @@ function allowsAnonymousCoreAuthPath(path: string): boolean {
   );
 }
 
+function allowsAdminPluginManagementRequest(
+  method: string,
+  path: string,
+): boolean {
+  switch (method) {
+    case "GET":
+      return (
+        /^\/plugin-catalog(?:\/(?:search|install-plan))?$/u.test(path) ||
+        path === "/marketplaces" ||
+        /^\/plugins\/(?:updates|safe-mode|(?:install|update)-jobs(?:\/[^/]+)?)$/u.test(
+          path,
+        ) ||
+        /^\/plugins\/[^/]+\/(?:logs|source|settings)$/u.test(path)
+      );
+    case "POST":
+      return (
+        path === "/plugin-catalog/install" ||
+        path === "/marketplaces" ||
+        path === "/marketplaces/refresh" ||
+        path === "/plugins/install" ||
+        path === "/plugins/reload" ||
+        path === "/plugins/updates/check" ||
+        path === "/plugins/cache/prune" ||
+        /^\/plugins\/[^/]+\/(?:enable|disable|update)$/u.test(path) ||
+        /^\/plugins\/install-jobs\/[^/]+\/cancel$/u.test(path)
+      );
+    case "PUT":
+      return (
+        path === "/plugins/safe-mode" ||
+        /^\/plugins\/[^/]+\/settings$/u.test(path)
+      );
+    case "DELETE":
+      return /^\/(?:plugins|marketplaces)\/[^/]+$/u.test(path);
+    default:
+      return false;
+  }
+}
+
 function allowsAgentCliRequest(
   method: string,
   path: string,
   agentId: string,
+  isAdministrator: boolean,
 ): boolean {
   const normalizedPath = normalizePublicApiPath(path);
+  if (
+    agentId === "admin" &&
+    isAdministrator &&
+    allowsAdminPluginManagementRequest(method.toUpperCase(), normalizedPath)
+  ) {
+    return true;
+  }
   if (method.toUpperCase() === "POST") {
     return normalizedPath === "/plugins/automations/cli";
   }
@@ -233,6 +301,7 @@ function allowsAgentCliRequest(
 }
 
 export interface ServerMoveAppOptions {
+  appSurface: AppSurface;
   bindHost: ServerBindHost | null;
   manualImportPending: boolean;
   pending: PendingServerMove | null;
@@ -244,6 +313,7 @@ interface CreateAppOptions {
   bbAppArtifactService?: BbAppArtifactService;
   serverMove?: ServerMoveAppOptions;
   slowApiRequestLogThresholdMs?: number;
+  performanceDiagnosticsEnabled?: () => boolean;
   staticDir?: string;
 }
 
@@ -265,7 +335,7 @@ const SLOW_API_REQUEST_LOG_THRESHOLD_MS = 1_000;
 const THREAD_EVENT_WAIT_PATH_PATTERN =
   /^\/api\/v1\/threads\/[^/]+\/events\/wait$/u;
 const PLUGIN_APP_ASSET_PATH_PATTERN =
-  /^\/api\/v1\/plugins\/[^/]+\/assets\/app\.(?:js|css)$/u;
+  /^\/api\/v1\/(?:plugins\/[^/]+\/assets|plugin-app-assets\/[a-f0-9]{16})\/app\.(?:js|css)$/u;
 const EVA_CONTENT_SECURITY_POLICY =
   "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: ws: wss:; worker-src 'self' blob:; frame-src 'self'";
 const PRECOMPRESSED_STATIC_FILES = [
@@ -521,7 +591,7 @@ export function createApp(
       db: deps.db,
       config: deps.config,
     });
-  const appDeps = { ...deps, coreAuth };
+  const appDeps = Object.assign(deps, { coreAuth });
   const miniAppService = createMiniAppService({
     config: deps.config,
     coreAuth,
@@ -532,16 +602,21 @@ export function createApp(
   app.use("*", async (context, next) => {
     await next();
     const headers = context.res.headers;
+    const isAgentBrowser = context.req.path.startsWith(`${AGENT_BROWSER_PATH}/`);
     headers.set("x-content-type-options", "nosniff");
-    headers.set("referrer-policy", "strict-origin-when-cross-origin");
+    headers.set(
+      "referrer-policy",
+      isAgentBrowser ? "no-referrer" : "strict-origin-when-cross-origin",
+    );
     headers.set(
       "permissions-policy",
       "camera=(), microphone=(), geolocation=()",
     );
-    headers.set("x-frame-options", "SAMEORIGIN");
+    headers.set("x-frame-options", isAgentBrowser ? "DENY" : "SAMEORIGIN");
     const contentType = headers.get("content-type") ?? "";
     if (
       !context.req.path.startsWith("/api/") &&
+      !isAgentBrowser &&
       contentType.includes("text/html")
     ) {
       headers.set("content-security-policy", EVA_CONTENT_SECURITY_POLICY);
@@ -567,6 +642,7 @@ export function createApp(
       serverEntryUrl: import.meta.url,
     });
   const serverMoveOptions: ServerMoveAppOptions = options?.serverMove ?? {
+    appSurface: APP_SURFACE_WEB,
     bindHost: null,
     manualImportPending: false,
     pending: null,
@@ -581,6 +657,13 @@ export function createApp(
   const pendingServerMove = serverMoveOptions.pending;
   let ready = false;
 
+  app.use("*", async (context, next) => {
+    const problem = requestHostProblem(context, deps);
+    if (problem !== null) {
+      throw new ApiError(problem.status, "forbidden_host", problem.error);
+    }
+    return next();
+  });
   app.use("*", async (context, next) => {
     captureTrustedRemoteAddress(context);
     return runWithTelemetryAppSurface(resolveRequestAppSurface(context), next);
@@ -618,7 +701,11 @@ export function createApp(
       await compressApiJson(context, next);
     });
   });
-  app.onError((error) => errorToResponse(error, deps.logger));
+  app.onError(createServerErrorHandler(deps.logger));
+  registerAgentBrowserRoutes(app, {
+    serverPort: deps.config.serverPort,
+    hostDaemonPort: deps.config.hostDaemonPort,
+  });
   app.get("/health", async (context) => {
     const serverMove = await readServerMoveHealth({
       dataDir: deps.config.dataDir,
@@ -664,6 +751,7 @@ export function createApp(
         context.req.method,
         context.req.path,
         authContext.agentCliScope.agentId,
+        authContext.role === "admin",
       )
     ) {
       return context.json(
@@ -687,20 +775,37 @@ export function createApp(
   app.get("/install.sh", async (context) => {
     const script = await readFile(INSTALL_MACHINE_SCRIPT_PATH, "utf8");
     const credential = context.req.header("X-BB-Enrollment");
-    const bootstrap =
+    let bootstrap =
       credential === undefined
         ? null
         : await getMachineEnrollmentService(deps).pendingBootstrapForCredential(
             credential,
           );
     if (credential !== undefined && bootstrap === null) {
+      try {
+        bootstrap = await reconnectBootstrapForCredential(deps, credential);
+      } catch (error) {
+        deps.logger.warn({ error }, "Could not refresh machine access");
+        return new Response(
+          "echo 'Could not refresh machine access. Run the command again, or generate a new one in bb.' >&2\nexit 1\n",
+          {
+            status: 503,
+            headers: {
+              "cache-control": "no-store",
+              "content-type": "text/x-shellscript; charset=utf-8",
+            },
+          },
+        );
+      }
+    }
+    if (credential !== undefined && bootstrap === null) {
       return new Response(
-        "Enrollment is expired or unavailable. Generate a new command in EVA.\n",
+        "echo 'This enrollment command has already been used, replaced, or expired. Generate a new command in EVA.' >&2\nexit 1\n",
         {
           status: 403,
           headers: {
             "cache-control": "no-store",
-            "content-type": "text/plain",
+            "content-type": "text/x-shellscript; charset=utf-8",
           },
         },
       );
@@ -715,6 +820,53 @@ export function createApp(
       },
     );
   });
+  app.get("/install.ps1", async (context) => {
+    const headers = {
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+    };
+    const credential = context.req.header("X-BB-Enrollment");
+    if (credential === undefined) {
+      return new Response(
+        windowsInstallerFailureScript(
+          "This installer needs an enrollment command. Generate one in bb under Settings, Machines.",
+        ),
+        { headers },
+      );
+    }
+    let bootstrap =
+      await getMachineEnrollmentService(deps).pendingBootstrapForCredential(
+        credential,
+      );
+    if (bootstrap === null) {
+      try {
+        bootstrap = await reconnectBootstrapForCredential(deps, credential);
+      } catch (error) {
+        deps.logger.warn({ error }, "Could not refresh machine access");
+        return new Response(
+          windowsInstallerFailureScript(
+            "Could not refresh machine access. Run the command again, or generate a new one in bb.",
+          ),
+          { headers },
+        );
+      }
+    }
+    if (bootstrap === null) {
+      return new Response(
+        windowsInstallerFailureScript(
+          "This enrollment command has already been used, replaced, or expired. Generate a new command in bb.",
+        ),
+        { headers },
+      );
+    }
+    return new Response(
+      enrolledWindowsInstallerScript(
+        await readFile(INSTALL_MACHINE_WINDOWS_SCRIPT_PATH, "utf8"),
+        bootstrap,
+      ),
+      { headers },
+    );
+  });
   app.get("/install/version", async (context) => {
     return context.json({
       version: await bbAppArtifactService.getVersion(),
@@ -722,35 +874,67 @@ export function createApp(
     });
   });
   app.get("/install/bb-app.tgz", async (context) => {
-    const artifact = await bbAppArtifactService.getArtifact();
-    const etag = `"sha256-${artifact.digest}"`;
-    const headers = {
-      "cache-control": "public, max-age=300",
-      "content-type": "application/gzip",
-      etag,
-      "x-bb-artifact-sha256": artifact.digest,
-    };
-    if (context.req.header("if-none-match") === etag) {
-      return new Response(null, { headers, status: 304 });
+    try {
+      const artifact = await bbAppArtifactService.getArtifact();
+      const etag = `"sha256-${artifact.digest}"`;
+      const headers = {
+        "cache-control": "public, max-age=300",
+        "content-type": "application/gzip",
+        etag,
+        "x-bb-artifact-sha256": artifact.digest,
+      };
+      if (context.req.header("if-none-match") === etag) {
+        return new Response(null, { headers, status: 304 });
+      }
+      const tarball = await readFile(artifact.path);
+      return new Response(tarball, {
+        headers: { ...headers, "content-length": String(artifact.size) },
+      });
+    } catch (error) {
+      const diagnosticId = randomUUID();
+      const code =
+        error instanceof Error && "code" in error ? error.code : undefined;
+      const reason =
+        code === "ENOENT"
+          ? "A required server package file or packaging tool is missing."
+          : code === "EACCES" || code === "EPERM"
+            ? "The server lacks permission to prepare or read the host package."
+            : code === "ENOSPC"
+              ? "The server ran out of disk space while preparing the host package."
+              : "The server could not build or read its host package.";
+      deps.logger.error(
+        { err: error, diagnosticId },
+        "Host package download failed",
+      );
+      return context.json(
+        {
+          code: "host_package_unavailable",
+          message: `${reason} Check the server logs for diagnostic ID ${diagnosticId}, then retry installation.`,
+          diagnosticId,
+        },
+        500,
+        { "cache-control": "no-store" },
+      );
     }
-    const tarball = await readFile(artifact.path);
-    return new Response(tarball, {
-      headers: { ...headers, "content-length": String(artifact.size) },
-    });
   });
   app.use("/api/v1/*", async (context, next) => {
     const startedAt = performance.now();
     await next();
     const durationMs = performance.now() - startedAt;
     const path = context.req.path;
+    const diagnosticsEnabled =
+      options?.performanceDiagnosticsEnabled?.() ?? false;
     if (
       shouldLogSlowApiRequest({
         durationMs,
         path,
-        thresholdMs: slowApiRequestLogThresholdMs,
+        thresholdMs: diagnosticsEnabled ? 100 : slowApiRequestLogThresholdMs,
       })
     ) {
-      deps.logger.debug(
+      const log = diagnosticsEnabled
+        ? deps.logger.info.bind(deps.logger)
+        : deps.logger.debug.bind(deps.logger);
+      log(
         {
           durationMs: roundDurationMs(durationMs),
           method: context.req.method,
@@ -760,12 +944,6 @@ export function createApp(
         "Slow API request",
       );
     }
-  });
-  app.use("/api/v1/development-only/*", async (_context, next) => {
-    if (!deps.config.isDevelopment) {
-      throw new ApiError(404, "not_found", "Not found");
-    }
-    return next();
   });
   app.use("/internal/*", async (context, next) => {
     const normalizedPath = normalizeInternalAuthPath(context.req.path);
@@ -872,6 +1050,7 @@ export function createApp(
   setPluginAgentContributions(pluginService);
   const serverMove = createServerMoveCoordinator(
     createDefaultServerMoveEnvironment({
+      appSurface: serverMoveOptions.appSurface,
       bindHost: serverMoveOptions.bindHost,
       deps,
       env: process.env,
@@ -915,6 +1094,16 @@ export function createApp(
   });
   publicApi.use("*", async (context, next) => {
     const normalizedPath = normalizePublicApiPath(context.req.path);
+    const coreSidebarRequest =
+      (isCoreCapabilityAllowed(context, "threadOwnRead") ||
+        isCoreCapabilityAllowed(context, "threadAllRead")) &&
+      ((context.req.method === "GET" &&
+        (normalizedPath === "/plugins" ||
+          normalizedPath === "/plugins/contributions" ||
+          normalizedPath.startsWith("/plugins/thread-list/assets/"))) ||
+        (context.req.method === "POST" &&
+          (normalizedPath === "/plugins/thread-list/rpc" ||
+            normalizedPath === "/plugins/thread-list/cli")));
     const requiredCapability = (() => {
       if (
         normalizedPath === "/plugin-catalog" ||
@@ -998,7 +1187,10 @@ export function createApp(
       }
       return null;
     })();
-    if (requiredCapability !== null) {
+    if (
+      requiredCapability !== null &&
+      !(coreSidebarRequest && requiredCapability === "plugins")
+    ) {
       assertCoreCapability(context, requiredCapability);
     }
     if (normalizedPath === "/sidebar-bootstrap") {
@@ -1010,7 +1202,7 @@ export function createApp(
       normalizedPath === "/skills-registry" ||
       normalizedPath.startsWith("/skills-registry/")
     ) {
-      assertPluginDataAllowed(context);
+      if (!coreSidebarRequest) assertPluginDataAllowed(context);
     }
     return next();
   });
@@ -1023,10 +1215,14 @@ export function createApp(
     notifyCatalogChanged: () => deps.hub.notifySystem(["plugins-changed"]),
     warn: (message) => deps.logger.warn(message),
   });
-  registerProjectRoutes(publicApi, appDeps);
   registerAccessRoutes(publicApi, appDeps, coreAuth, pluginService);
   registerEvaAgentRoutes(publicApi, appDeps);
+  registerEvaAgentChatContinueRoutes(publicApi, appDeps);
+  // Agent chats never go silent: a reply reminder or one automatic retry.
+  startEvaAgentChatWatchdog(appDeps);
   registerMiniAppRoutes(publicApi, miniAppService);
+  registerProjectRoutes(publicApi, appDeps);
+  registerPromptHistoryRoutes(publicApi, appDeps);
   registerThreadSectionRoutes(publicApi, appDeps);
   registerFileRoutes(publicApi, appDeps);
   registerHostRoutes(publicApi, appDeps, pluginService);
@@ -1037,8 +1233,27 @@ export function createApp(
   registerQueueRoutes(publicApi, appDeps);
   registerSystemRoutes(publicApi, appDeps, pluginService);
   registerUiPreferenceRoutes(publicApi, appDeps);
-  registerPluginCatalogRoutes(publicApi, pluginCatalogService);
-  registerPluginRoutes(publicApi, appDeps, pluginService, upgradeWebSocket);
+  const pluginInstallJobs = createPluginInstallJobs({
+    notifyChanged: () => deps.hub.notifySystem(["plugin-install-jobs-changed"]),
+  });
+  const pluginUpdateJobs = createPluginUpdateJobs({
+    notifyChanged: () => deps.hub.notifySystem(["plugin-update-jobs-changed"]),
+  });
+  registerPluginUpdateJobRoutes(publicApi, pluginUpdateJobs);
+  registerPluginInstallJobRoutes(publicApi, pluginInstallJobs);
+  registerPluginCatalogRoutes(
+    publicApi,
+    pluginCatalogService,
+    pluginInstallJobs,
+  );
+  registerPluginRoutes(
+    publicApi,
+    appDeps,
+    pluginService,
+    pluginInstallJobs,
+    pluginUpdateJobs,
+    upgradeWebSocket,
+  );
   registerSkillsRegistryRoutes(publicApi, appDeps);
   registerServerMoveRoutes(publicApi, appDeps, serverMove);
   app.route("/api/v1", publicApi);
@@ -1088,7 +1303,8 @@ export function createApp(
       const authContext = await coreAuth.resolveRequest(context.req.raw);
       if (
         authContext === null &&
-        (coreAuth.required || coreAuth.hasSessionCookie(context.req.raw))
+        (coreAuth.required || coreAuth.hasSessionCookie(context.req.raw)) &&
+        !requestHasPluginLoopbackAuth(context.req.raw, pluginLoopbackSecret)
       ) {
         throw new ApiError(401, "unauthorized", "Unauthorized");
       }
@@ -1175,19 +1391,21 @@ export function createApp(
         );
       }
       const query = terminalWebSocketQuerySchema.safeParse({
+        outputAcks: context.req.query("outputAcks"),
         sinceSeq: context.req.query("sinceSeq"),
       });
       if (!query.success) {
         throw new ApiError(
           400,
           "invalid_terminal_socket_query",
-          "Terminal websocket sinceSeq must be a non-negative integer",
+          "Terminal websocket sinceSeq must be a non-negative integer and outputAcks must be 0 or 1",
         );
       }
       return {
         onOpen: (_event, socket) =>
           onTerminalSocketOpen(deps, {
             authorize: authorizeTerminal,
+            outputAcks: query.data.outputAcks,
             socket,
             sinceSeq: query.data.sinceSeq,
             terminalId,

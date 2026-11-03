@@ -18,6 +18,7 @@ interface TerminalSocketOpenArgs {
   authorize?: (
     requirement: TerminalAccessRequirement,
   ) => "ok" | "unauthorized" | "forbidden";
+  outputAcks: boolean;
   socket: TerminalSocket;
   sinceSeq: number;
   terminalId: string;
@@ -94,6 +95,7 @@ export function onTerminalSocketOpen(
   }
   try {
     deps.terminalSessions.attachBrowserTerminal({
+      outputAcks: args.outputAcks,
       socket: args.socket,
       sinceSeq: args.sinceSeq,
       terminalId: args.terminalId,

@@ -11,6 +11,9 @@ A project maps to a code repository. All threads belong to a project.
 
   bb project list                         List ordinary projects
     --include-personal                    Also include the personal project
+  bb project discover                     Find recently used git repos
+    --machine <id-or-name>                Machine to scan (default: local)
+    --host <id-or-name>                   Alias for --machine
   bb project history <id>                 List prompt history
   bb project reorder <id>                 Reorder in the sidebar
     --after <id>                          Previous project, or omit for start
@@ -31,6 +34,13 @@ A project maps to a code repository. All threads belong to a project.
 
   bb project delete <id>                  Delete project and all threads
     --yes                                 Skip confirmation
+
+Global prompt history:
+
+  bb prompt-history list [--cursor <cursor>] [--limit <number>]
+
+  Lists accepted prompts across projects and threads newest first. Pass the
+  returned cursor to continue from the next page.
 
 Discovery:
 

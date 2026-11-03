@@ -39,6 +39,10 @@ import {
   useCoreAuth,
   type CoreCapabilities,
 } from "@/lib/core-auth";
+import {
+  EvaAdminUserChatsPanel,
+  type EvaAdminUserChatsResponse,
+} from "./EvaAdminUserChatsPanel";
 
 type Role = "admin" | "user";
 type Status = "active" | "revoked" | "disabled";
@@ -150,7 +154,6 @@ interface CatalogAgent {
   defaultPermissionMode: PermissionMode;
   reasoningLevels: ReasoningLevel[];
   permissionModes: PermissionMode[];
-  status: "draft";
 }
 
 interface CatalogProvider {
@@ -1034,6 +1037,7 @@ export function EvaAdminDashboardView() {
           instructions: "Instrucciones del servidor",
           invitations: "Invitaciones",
           catalog: "Catálogo EVA",
+          chats: "Chats de usuarios",
           audit: "Auditoría",
         }
       : {
@@ -1058,6 +1062,7 @@ export function EvaAdminDashboardView() {
           instructions: "Server instructions",
           invitations: "Invitations",
           catalog: "EVA catalog",
+          chats: "User chats",
           audit: "Audit trail",
         };
 
@@ -1506,7 +1511,12 @@ export function EvaAdminDashboardView() {
           instructionDraft.scope === "role"
             ? { role: instructionDraft.role }
             : instructionDraft.scope === "user"
-              ? { userId: instructionDraft.userId }
+              ? {
+                  userId: instructionDraft.userId,
+                  ...(instructionDraft.agentId === ""
+                    ? {}
+                    : { agentId: instructionDraft.agentId }),
+                }
               : instructionDraft.scope === "agent"
                 ? { agentId: instructionDraft.agentId }
                 : {};
@@ -1695,9 +1705,6 @@ export function EvaAdminDashboardView() {
                     <h3 className="font-medium">{agent.displayName}</h3>
                     <p className="text-xs text-muted-foreground">{agent.id}</p>
                   </div>
-                  <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
-                    {agent.status}
-                  </span>
                 </div>
                 <p className="mt-3 text-sm text-muted-foreground">
                   {agent.description}
@@ -3088,9 +3095,24 @@ export function EvaAdminDashboardView() {
         </Section>
 
         <Section
+          {...adminSectionProps("chats")}
+          title={copy.chats}
+          description="Review each user's EVA agent chats. Opening a chat shows the full conversation, including work details hidden from the user."
+        >
+          <EvaAdminUserChatsPanel
+            users={data.users}
+            loadChats={(userId) =>
+              requestJson<EvaAdminUserChatsResponse>(
+                `/access/users/${encodeURIComponent(userId)}/eva-chats`,
+              )
+            }
+          />
+        </Section>
+
+        <Section
           {...adminSectionProps("instructions")}
           title={copy.instructions}
-          description="Server instructions are hidden from users. Global, role, user, and agent entries apply by precedence to constrained users; administrators are excluded."
+          description="Server instructions are hidden from users. Global, role, user, agent, and user-for-one-agent entries apply in that order to constrained users; administrators are excluded."
         >
           <div className="space-y-2 text-sm">
             {data.instructions.map((instruction) => (
@@ -3101,6 +3123,9 @@ export function EvaAdminDashboardView() {
                 <div className="min-w-0">
                   <div className="font-medium">
                     {instruction.id} · {instruction.scope}{" "}
+                    {instruction.scope === "user" && instruction.agentId
+                      ? `· ${agents.find((agent) => agent.id === instruction.agentId)?.displayName ?? instruction.agentId} only `
+                      : ""}
                     {instruction.enabled ? "· enabled" : "· disabled"}
                   </div>
                   <p className="mt-1 max-w-3xl whitespace-pre-wrap text-muted-foreground">
@@ -3210,21 +3235,39 @@ export function EvaAdminDashboardView() {
                   <option value="admin">Administrator</option>
                 </SelectField>
               ) : instructionDraft.scope === "user" ? (
-                <SelectField
-                  id="admin-instruction-user"
-                  label="User"
-                  value={instructionDraft.userId}
-                  onChange={(userId) =>
-                    setInstructionDraft({ ...instructionDraft, userId })
-                  }
-                >
-                  <option value="">Select a user</option>
-                  {data.users.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.email}
-                    </option>
-                  ))}
-                </SelectField>
+                <>
+                  <SelectField
+                    id="admin-instruction-user"
+                    label="User"
+                    value={instructionDraft.userId}
+                    onChange={(userId) =>
+                      setInstructionDraft({ ...instructionDraft, userId })
+                    }
+                  >
+                    <option value="">Select a user</option>
+                    {data.users.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.email}
+                      </option>
+                    ))}
+                  </SelectField>
+                  <SelectField
+                    id="admin-instruction-user-agent"
+                    label="Agent (optional)"
+                    value={instructionDraft.agentId}
+                    disabled={editingInstructionId !== null}
+                    onChange={(agentId) =>
+                      setInstructionDraft({ ...instructionDraft, agentId })
+                    }
+                  >
+                    <option value="">All agents</option>
+                    {agents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.displayName}
+                      </option>
+                    ))}
+                  </SelectField>
+                </>
               ) : instructionDraft.scope === "agent" ? (
                 <SelectField
                   id="admin-instruction-agent"

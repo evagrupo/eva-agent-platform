@@ -71,6 +71,7 @@ afterEach(() => {
 
 describe("desktop theme synchronization", () => {
   it("keeps Electron on system while the resolved theme follows OS changes", async () => {
+    window.localStorage.setItem("bb.theme", "system");
     const colorScheme = installColorSchemeMediaQuery(true);
     const setThemeCalls: BbDesktopTheme[] = [];
     const desktopApi = createBbDesktopApi(desktopInfo);

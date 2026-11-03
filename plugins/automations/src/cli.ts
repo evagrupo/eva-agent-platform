@@ -23,7 +23,6 @@ import type {
   PermissionMode,
   ReasoningLevel,
   ResolvedCreateAutomationInput,
-  ServiceTier,
   UpdateAutomationInput,
 } from "./rpc-types.js";
 import {
@@ -41,7 +40,6 @@ import {
   automationScriptInterpreterSchema,
   permissionModeSchema,
   reasoningLevelSchema,
-  serviceTierSchema,
 } from "./rpc-types.js";
 import { interpreterForPath } from "./script-files.js";
 
@@ -132,9 +130,14 @@ const AGENT_OPTIONS = {
     description: "Reasoning level; new automations default to medium",
   },
   "service-tier": {
-    type: "enum",
-    values: [...serviceTierSchema.options, "none"],
-    description: "Service tier; none leaves the automation without one",
+    type: "string",
+    placeholder: "tier",
+    description:
+      "Service tier id the provider lists for the model, such as default or fast",
+  },
+  "clear-service-tier": {
+    type: "boolean",
+    description: "Leave the automation without a service tier",
   },
   "permission-mode": {
     type: "enum",
@@ -164,6 +167,28 @@ const AGENT_OPTIONS = {
     description: "Base branch for --new-environment worktree",
   },
 } as const;
+
+/** Create-only targets for EVA agent chats. */
+const AGENT_CHAT_OPTIONS = {
+  agent: {
+    type: "string",
+    placeholder: "agent-id",
+    description:
+      "Post each run into your chat with this EVA agent (for example meta)",
+  },
+  "new-thread": {
+    type: "boolean",
+    description:
+      "Start a new thread for each run, even when created from an EVA agent chat",
+  },
+} as const;
+
+/** EVA's development agent keeps one thread per task, not a single chat. */
+const EVA_DEVELOPMENT_AGENT_ID = "admin";
+
+const evaAgentThreadSchema = z
+  .object({ agentId: z.string().nullable().optional() })
+  .passthrough();
 
 const SCRIPT_OPTIONS = {
   script: {
@@ -222,7 +247,8 @@ interface AgentOptionValues {
   provider: string | undefined;
   model: string | undefined;
   reasoning: ReasoningLevel | undefined;
-  "service-tier": ServiceTier | "none" | undefined;
+  "service-tier": string | undefined;
+  "clear-service-tier": boolean | undefined;
   "permission-mode": PermissionMode | undefined;
   "target-thread": string | undefined;
   environment: string | undefined;
@@ -240,7 +266,55 @@ interface ScriptOptionValues {
   "working-directory": string | undefined;
 }
 
-type ExecutionOptionValues = AgentOptionValues & ScriptOptionValues;
+type ExecutionOptionValues = AgentOptionValues &
+  ScriptOptionValues & {
+    agent?: string | undefined;
+    "new-thread"?: boolean | undefined;
+  };
+
+/**
+ * Where an agent automation sends its runs. An explicit --agent targets that
+ * agent's chat; inside an EVA agent chat (other than the development agent)
+ * runs go to that same chat unless --new-thread or another target is given.
+ */
+async function resolveAgentChatTarget(
+  bb: Pick<BbPluginApi, "sdk">,
+  options: ExecutionOptionValues,
+  ctx: Pick<PluginCliContext, "threadId">,
+): Promise<{ agentId: string; targetThreadId?: string } | undefined> {
+  const explicitTarget =
+    options["target-thread"] !== undefined ||
+    options.environment !== undefined ||
+    options["new-environment"] !== undefined;
+  if (options.agent !== undefined) {
+    const agentId = requireOptionValue("agent", options.agent);
+    if (explicitTarget || options["new-thread"] === true) {
+      throw cliError(
+        "Cannot combine --agent with --target-thread, --environment, --new-environment, or --new-thread.",
+        "unexpected_argument",
+      );
+    }
+    return { agentId };
+  }
+  if (options["new-thread"] === true) {
+    if (options["target-thread"] !== undefined) {
+      throw cliError(
+        "Cannot combine --new-thread and --target-thread.",
+        "unexpected_argument",
+      );
+    }
+    return undefined;
+  }
+  if (explicitTarget || ctx.threadId === undefined) return undefined;
+  const thread = evaAgentThreadSchema.parse(
+    await bb.sdk.threads.get({ threadId: ctx.threadId }),
+  );
+  const agentId = thread.agentId ?? null;
+  if (agentId === null || agentId === EVA_DEVELOPMENT_AGENT_ID) {
+    return undefined;
+  }
+  return { agentId, targetThreadId: ctx.threadId };
+}
 
 type UpdateOptionValues = ExecutionOptionValues &
   ScheduleOptionValues & {
@@ -381,6 +455,12 @@ function parseScriptWorkingDirectory(
 }
 
 function validateAgentTargetOptions(options: AgentOptionValues): void {
+  if (options["clear-service-tier"] && options["service-tier"] !== undefined) {
+    throw cliError(
+      "Cannot combine --service-tier and --clear-service-tier.",
+      "unexpected_argument",
+    );
+  }
   const targetThread = options["target-thread"];
   const environment = options.environment;
   const newEnvironment = options["new-environment"];
@@ -595,6 +675,7 @@ async function buildExecution(
   bb: Pick<BbPluginApi, "sdk">,
   options: ExecutionOptionValues,
   ctx: Pick<PluginCliContext, "cwd" | "threadId">,
+  { forCreate = false }: { forCreate?: boolean } = {},
 ): Promise<BuiltExecution> {
   const prompt = options.prompt;
   const script = options.script;
@@ -635,6 +716,11 @@ async function buildExecution(
       );
     }
     validateAgentTargetOptions(options);
+    // Only a new automation defaults to the current agent chat; a complete
+    // execution replacement during an update keeps its explicit target.
+    const agentChatTarget = forCreate
+      ? await resolveAgentChatTarget(bb, options, ctx)
+      : undefined;
     const environment = await buildAgentEnvironment(bb, options);
     const serviceTier = options["service-tier"];
     return {
@@ -644,9 +730,7 @@ async function buildExecution(
         providerId: provider,
         model,
         reasoningLevel: options.reasoning ?? "medium",
-        ...(serviceTier === undefined || serviceTier === "none"
-          ? {}
-          : { serviceTier }),
+        ...(serviceTier === undefined ? {} : { serviceTier }),
         permissionMode: await resolvePermissionMode(
           bb,
           provider,
@@ -656,7 +740,10 @@ async function buildExecution(
         environment,
         ...(options["target-thread"]
           ? { targetThreadId: options["target-thread"] }
-          : {}),
+          : agentChatTarget?.targetThreadId
+            ? { targetThreadId: agentChatTarget.targetThreadId }
+            : {}),
+        ...(agentChatTarget ? { agentId: agentChatTarget.agentId } : {}),
       },
     };
   }
@@ -665,8 +752,11 @@ async function buildExecution(
     options.model !== undefined ||
     options.reasoning !== undefined ||
     options["service-tier"] !== undefined ||
+    options["clear-service-tier"] === true ||
     options["permission-mode"] !== undefined ||
     options["target-thread"] !== undefined ||
+    options.agent !== undefined ||
+    options["new-thread"] === true ||
     options.environment !== undefined ||
     options["new-environment"] !== undefined ||
     options["base-branch"] !== undefined
@@ -727,6 +817,7 @@ async function buildAgentExecutionUpdate(
     options.model,
     options.reasoning,
     options["service-tier"],
+    options["clear-service-tier"] || undefined,
     options["permission-mode"],
     options["target-thread"],
     options.environment,
@@ -750,8 +841,10 @@ async function buildAgentExecutionUpdate(
     update.reasoningLevel = options.reasoning;
   }
   const serviceTier = options["service-tier"];
-  if (serviceTier !== undefined) {
-    update.serviceTier = serviceTier === "none" ? null : serviceTier;
+  if (options["clear-service-tier"]) {
+    update.serviceTier = null;
+  } else if (serviceTier !== undefined) {
+    update.serviceTier = serviceTier;
   }
   if (options["permission-mode"] !== undefined) {
     update.permissionMode = options["permission-mode"];
@@ -1090,6 +1183,7 @@ export function registerAutomationCli(args: {
             },
             ...SCHEDULE_OPTIONS,
             ...AGENT_OPTIONS,
+            ...AGENT_CHAT_OPTIONS,
             ...SCRIPT_OPTIONS,
             json: JSON_OPTION,
           },
@@ -1105,6 +1199,7 @@ export function registerAutomationCli(args: {
                 bb,
                 input.options,
                 ctx,
+                { forCreate: true },
               );
               const request: ResolvedCreateAutomationInput = {
                 projectId,

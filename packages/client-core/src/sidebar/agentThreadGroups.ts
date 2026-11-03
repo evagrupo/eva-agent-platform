@@ -6,12 +6,14 @@ export interface AgentThreadGroupSource {
   id: string;
   displayName: string;
   icon?: string;
+  chatThreadId?: string | null;
 }
 
 export interface AgentThreadGroup {
   key: string;
   label: string;
   icon: string | null;
+  chatThreadId: string | null;
   threads: ThreadListEntry[];
 }
 
@@ -49,6 +51,7 @@ export function buildAgentThreadGroups(
       key: agent.id,
       label: agent.displayName,
       icon: agent.icon ?? null,
+      chatThreadId: agent.chatThreadId ?? null,
       threads: threadsByKey.get(agent.id) ?? [],
     });
     threadsByKey.delete(agent.id);
@@ -64,6 +67,7 @@ export function buildAgentThreadGroups(
       key: agentId,
       label: "Unknown agent",
       icon: null,
+      chatThreadId: null,
       threads: threadsByKey.get(agentId) ?? [],
     });
   }
@@ -76,6 +80,7 @@ export function buildAgentThreadGroups(
       key: NO_AGENT_GROUP_KEY,
       label: "Other threads",
       icon: null,
+      chatThreadId: null,
       threads: noAgentThreads,
     });
   }

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const collapsibleSidebarSectionIdSchema = z.enum(["pinned", "threads"]);
+
 const UI_PREFERENCE_STRING_MAX_LENGTH = 1_024;
 const UI_PREFERENCE_LIST_MAX_LENGTH = 10_000;
 
@@ -19,14 +21,8 @@ const sidebarChronologicalSortSchema = z.enum([
   "alpha",
   "none",
 ]);
-export type SidebarChronologicalSort = z.infer<
-  typeof sidebarChronologicalSortSchema
->;
 
 const sidebarThreadGroupingSchema = z.union([z.literal("auto"), z.boolean()]);
-export type SidebarThreadGrouping = z.infer<typeof sidebarThreadGroupingSchema>;
-
-const collapsibleSidebarSectionIdSchema = z.enum(["pinned", "threads"]);
 
 const uiPreferenceStringSchema = z
   .string()
@@ -35,8 +31,19 @@ const uiPreferenceStringSchema = z
 const uiPreferenceStringListSchema = z
   .array(uiPreferenceStringSchema)
   .max(UI_PREFERENCE_LIST_MAX_LENGTH);
+const sidebarHiddenGroupsSchema = z
+  .array(uiPreferenceStringSchema.regex(/^(project|section|machine):\S+$/))
+  .max(UI_PREFERENCE_LIST_MAX_LENGTH)
+  .transform((value) => [...new Set(value)]);
 
 export const UI_PREFERENCE_KEYS = [
+  "sidebar.collapsedSections",
+  "sidebar.collapsedProjects",
+  "sidebar.collapsedThreads",
+  "sidebar.collapsedEnvironments",
+  "sidebar.collapsedThreadSections",
+  "sidebar.collapsedMachines",
+
   "sidebar.organizationMode",
   "sidebar.threadGrouping.environment",
   "sidebar.chronologicalSort",
@@ -45,19 +52,14 @@ export const UI_PREFERENCE_KEYS = [
   "sidebar.manualSectionOrder",
   "sidebar.machineSectionOrder",
   "sidebar.agentSectionOrder",
-  "sidebar.collapsedSections",
-  "sidebar.collapsedProjects",
-  "sidebar.collapsedThreads",
-  "sidebar.collapsedEnvironments",
-  "sidebar.collapsedThreadSections",
-  "sidebar.collapsedMachines",
   "sidebar.collapsedAgents",
+  "sidebar.hiddenGroups",
   "sidebar.footerOrder",
   "sidebar.hiddenFooterItems",
   "sidebar.pluginPanelOrder",
   "sidebar.visiblePluginPanels",
-  "sidebar.navigationProvider",
   "sidebar.threadListProvider",
+  "infoPanel.collapsedSections",
 ] as const;
 export type UiPreferenceKey = (typeof UI_PREFERENCE_KEYS)[number];
 const uiPreferenceKeySchema = z.enum(UI_PREFERENCE_KEYS);
@@ -81,6 +83,39 @@ function defineUiPreference<Schema extends z.ZodTypeAny>(
 }
 
 export const uiPreferenceDefinitions = {
+  "sidebar.collapsedSections": defineUiPreference(
+    z
+      .array(collapsibleSidebarSectionIdSchema)
+      .max(UI_PREFERENCE_LIST_MAX_LENGTH),
+    [],
+    "Built-in sidebar sections that are collapsed.",
+  ),
+  "sidebar.collapsedProjects": defineUiPreference(
+    uiPreferenceStringListSchema,
+    [],
+    "Project ids whose sidebar rows are collapsed.",
+  ),
+  "sidebar.collapsedThreads": defineUiPreference(
+    uiPreferenceStringListSchema,
+    [],
+    "Thread ids whose child threads are collapsed in the sidebar.",
+  ),
+  "sidebar.collapsedEnvironments": defineUiPreference(
+    uiPreferenceStringListSchema,
+    [],
+    "Environment ids whose sidebar rows are collapsed.",
+  ),
+  "sidebar.collapsedThreadSections": defineUiPreference(
+    uiPreferenceStringListSchema,
+    [],
+    "Thread section ids that are collapsed in the sidebar.",
+  ),
+  "sidebar.collapsedMachines": defineUiPreference(
+    uiPreferenceStringListSchema,
+    [],
+    "Machine ids whose sidebar rows are collapsed.",
+  ),
+
   "sidebar.organizationMode": defineUiPreference(
     sidebarOrganizationModeSchema,
     "agent",
@@ -121,37 +156,10 @@ export const uiPreferenceDefinitions = {
     ["pinned", "agents", "threads"],
     "Top-level section order when the sidebar is organized by agent.",
   ),
-  "sidebar.collapsedSections": defineUiPreference(
-    z
-      .array(collapsibleSidebarSectionIdSchema)
-      .max(UI_PREFERENCE_LIST_MAX_LENGTH),
+  "sidebar.hiddenGroups": defineUiPreference(
+    sidebarHiddenGroupsSchema,
     [],
-    "Built-in sidebar sections that are collapsed.",
-  ),
-  "sidebar.collapsedProjects": defineUiPreference(
-    uiPreferenceStringListSchema,
-    [],
-    "Project ids whose sidebar rows are collapsed.",
-  ),
-  "sidebar.collapsedThreads": defineUiPreference(
-    uiPreferenceStringListSchema,
-    [],
-    "Thread ids whose child threads are collapsed in the sidebar.",
-  ),
-  "sidebar.collapsedEnvironments": defineUiPreference(
-    uiPreferenceStringListSchema,
-    [],
-    "Environment ids whose sidebar rows are collapsed.",
-  ),
-  "sidebar.collapsedThreadSections": defineUiPreference(
-    uiPreferenceStringListSchema,
-    [],
-    "Thread section ids that are collapsed in the sidebar.",
-  ),
-  "sidebar.collapsedMachines": defineUiPreference(
-    uiPreferenceStringListSchema,
-    [],
-    "Machine ids whose sidebar rows are collapsed.",
+    "Project, custom section, and machine groups moved into More, using project:<id>, section:<id>, or machine:<id>. Setting this list replaces the hidden groups across all sidebar organizations; reset shows every group.",
   ),
   "sidebar.collapsedAgents": defineUiPreference(
     uiPreferenceStringListSchema,
@@ -178,15 +186,17 @@ export const uiPreferenceDefinitions = {
     null,
     "Navigation entries shown in the sidebar navigation strip; null shows every entry.",
   ),
-  "sidebar.navigationProvider": defineUiPreference(
-    uiPreferenceStringSchema,
-    "__automatic__",
-    "Plugin that renders the sidebar navigation, or __automatic__ / __builtin__.",
-  ),
   "sidebar.threadListProvider": defineUiPreference(
-    uiPreferenceStringSchema,
+    uiPreferenceStringSchema.transform((value) =>
+      value === "__builtin__" ? "thread-list/thread-list" : value,
+    ),
     "__automatic__",
-    "Plugin that renders the sidebar thread list, or __automatic__ / __builtin__.",
+    "Plugin that renders the sidebar thread list, or __automatic__ for the first installed thread list plugin other than the bundled thread-list/thread-list, falling back to it. Legacy __builtin__ resolves to thread-list/thread-list.",
+  ),
+  "infoPanel.collapsedSections": defineUiPreference(
+    uiPreferenceStringListSchema,
+    [],
+    "Thread Info panel section ids that are collapsed, such as commits, uncommittedChanges, forks, or threadStorage.",
   ),
 } as const satisfies Record<UiPreferenceKey, UiPreferenceDefinition>;
 

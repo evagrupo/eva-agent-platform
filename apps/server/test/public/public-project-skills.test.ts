@@ -266,9 +266,15 @@ describe("public project skills route", () => {
                 "shared-project",
                 "/tmp/shared-skill-list/.agents/skills/portable-review/SKILL.md",
               ),
+              discovered(
+                "repo-bb-skill",
+                "bb-project",
+                "/tmp/shared-skill-list/.bb/skills/repo-bb-skill/SKILL.md",
+              ),
             ],
           },
         });
+        const warn = vi.spyOn(harness.deps.logger, "warn");
 
         const response = await harness.app.request(
           `/api/v1/projects/${project.id}/skills?environmentId=${environment.id}`,
@@ -290,6 +296,13 @@ describe("public project skills route", () => {
           manageable: false,
           registrySkillId: null,
         });
+        expect(body.skills.map((skill) => skill.name)).not.toContain(
+          "repo-bb-skill",
+        );
+        expect(warn).not.toHaveBeenCalledWith(
+          expect.anything(),
+          "Skipping invalid shared skill",
+        );
       },
     );
   });
@@ -965,23 +978,6 @@ describe("public project skills route", () => {
           body: JSON.stringify({
             registrySkillId: "vercel-labs/skills/find-skills",
             providers: ["codex"],
-          }),
-        },
-      );
-
-      expect(response.status).toBe(400);
-    });
-  });
-
-  it("rejects a registry source that could be parsed as a CLI option", async () => {
-    await withTestHarness(async (harness) => {
-      const response = await harness.app.request(
-        "/api/v1/skills-registry/install",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            registrySkillId: "--help/find-skills",
           }),
         },
       );

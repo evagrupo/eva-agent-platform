@@ -14,13 +14,26 @@ Agent mode flags:
 --provider <id>                Provider ID
 --model <model>                Model ID
 --reasoning <level>            none, low, medium, high, xhigh, ultracode, max, or ultra
---service-tier <tier>          default or fast (update also accepts none to clear)
+--service-tier <tier>          Literal tier id the provider lists, including none
+--clear-service-tier           Clear the tier; cannot combine with --service-tier
 --permission-mode <mode>       accept-edits, auto, or full
 --target-thread <id>           Reuse/re-prompt an existing thread
+--agent <agent-id>             Post each run into your chat with this EVA agent
+--new-thread                   Start a new thread for each run, even from an EVA agent chat
 --environment <id-or-path>     Existing environment ID or unmanaged workspace path
 --new-environment <kind>       Create a new environment (worktree)
 --base-branch <branch>         Base branch for new managed worktrees
 ```
+
+EVA agent chats: when you create an agent automation from inside an EVA
+agent's chat (any agent except the Admin development agent) and pass no
+`--target-thread`, `--environment`, `--new-environment`, or `--new-thread`,
+each run is posted into that same chat, so the user gets the result where
+they already talk to the agent. `--agent <id>` does the same for another
+agent's chat. Each run looks up the user's current chat with the agent, so it
+keeps working if that chat changes. Receiving runs does not stop a chat from
+creating automations; only threads an automation started on its own are
+blocked.
 
 When `--permission-mode` is omitted, the plugin chooses Full Access (`full`)
 when the provider supports it and otherwise uses Approve for me (`auto`).

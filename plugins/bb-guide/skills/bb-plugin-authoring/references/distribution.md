@@ -8,10 +8,11 @@ does not cover:
 1. **`bb plugin types`**, run in the plugin directory (or given its path),
    syncs that plugin's SDK surface to the running EVA app — no server needed. For a
    plugin that depends on the npm package it repins the exact
-   `@get-bb/plugin-sdk` devDependency to this EVA installation's SDK version and brings the
-   runtime-shimmed packages' type-only devDependencies (sonner, vaul, the
-   portal radix families, ...) to the versions this EVA installation ships — adding any an
-   app plugin is missing and moving one out of `dependencies` (run
+   `@get-bb/plugin-sdk` devDependency to this EVA's SDK version and brings the
+   declared runtime-shimmed packages' type-only devDependencies (sonner, vaul, the
+   portal radix families, ...) to the versions this EVA ships, moving them out
+   of `dependencies` when needed. Unused packages may be removed; neither
+   updates nor `--check` require undeclared shim packages (run
    `npm install` after); for an older plugin that still vendors `types/*.d.ts`
    it rewrites those declarations. Either way a cloned or older plugin can be
    thousands of lines behind. `--check` compares declared files and package

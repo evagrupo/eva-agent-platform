@@ -38,7 +38,6 @@ describe("createEvaAgentThread", () => {
     await expect(
       createEvaAgentThread({
         agentId: "crm",
-        agentName: "CRM & Call Center",
         request,
       }),
     ).resolves.toBe("thread-1");
@@ -64,7 +63,7 @@ describe("createEvaAgentThread", () => {
       input: request.input,
       origin: "plugin",
       originPluginId: "eva",
-      title: "CRM & Call Center — Count active users",
+      title: "Count active users",
     });
     expect(body).not.toHaveProperty("ownerUserId");
   });
@@ -86,7 +85,7 @@ describe("createEvaAgentThread", () => {
     );
 
     await expect(
-      createEvaAgentThread({ agentId: "crm", agentName: "CRM", request }),
+      createEvaAgentThread({ agentId: "crm", request }),
     ).rejects.toThrow("Execution not allowed");
   });
 });

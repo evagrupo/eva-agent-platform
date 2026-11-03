@@ -3,15 +3,17 @@ import {
   act,
   cleanup,
   fireEvent,
-  render,
   screen,
   waitFor,
 } from "@testing-library/react";
+import { renderWithCoreAuth as render } from "@/test/coreAuthTestHarness";
 import { Provider, createStore } from "jotai";
 import {
+  sidebarFooterCapacityAtom,
   sidebarFooterOrderAtom,
   sidebarFooterHiddenAtom,
 } from "@/components/sidebar/sidebarFooterPreferences";
+import { SidebarFooterCustomize } from "@/components/sidebar/SidebarFooterCustomize";
 import { SidebarFooterSettings } from "@/components/settings/SidebarFooterSettings";
 import type { ReactNode } from "react";
 import type {
@@ -21,7 +23,11 @@ import type {
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { TooltipProvider } from "@bb/shared-ui/tooltip";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SidebarMenu, SidebarProvider } from "@/components/ui/sidebar.js";
+import {
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarProvider,
+} from "@/components/ui/sidebar.js";
 import {
   resetPluginSlotStoreForTest,
   removePluginSlotRegistrations,
@@ -82,7 +88,13 @@ function renderWithProviders(ui: ReactNode, store = createStore()) {
   );
 }
 
-function FooterHarness() {
+function FooterHarness({
+  onCustomize = () => {},
+  children,
+}: {
+  onCustomize?: () => void;
+  children?: ReactNode;
+}) {
   const disclosure = usePluginSidebarFooterDisclosure();
   return (
     <>
@@ -92,9 +104,12 @@ function FooterHarness() {
       />
       <SidebarMenu>
         <PluginSidebarFooterItems
+          onCustomize={onCustomize}
           activeDisclosureKey={disclosure.activeKey}
           onDisclosureCommand={disclosure.handleCommand}
-        />
+        >
+          {children}
+        </PluginSidebarFooterItems>
       </SidebarMenu>
     </>
   );
@@ -119,7 +134,187 @@ afterEach(() => {
 });
 
 describe("PluginSidebarFooterItems", () => {
-  it("prefers branding.icon over the logo and contribution icon", () => {
+  it("keeps the account action visible while other icons move to More", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const width = this.id === "sidebar-footer-more" ? 32 : 128;
+        return new DOMRect(0, 0, width, 32);
+      },
+    );
+    setPluginSlotRegistrations(
+      "example",
+      collectPluginAppRegistrations(
+        definePluginApp((app) => {
+          for (const id of ["one", "two", "three"]) {
+            app.experimental_sidebarFooter.register({
+              kind: "action",
+              id,
+              label: `Action ${id}`,
+              icon: "Zap",
+              onActivate: vi.fn(),
+            });
+          }
+        }),
+      ),
+    );
+    const store = createStore();
+    store.set(sidebarFooterHiddenAtom, ["builtin:mobile", "builtin:theme"]);
+    renderWithProviders(
+      <FooterHarness>
+        <SidebarMenuItem>
+          <button type="button">Sign out</button>
+        </SidebarMenuItem>
+      </FooterHarness>,
+      store,
+    );
+
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Action two" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Action three" })).toBeNull();
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "More footer actions" }),
+      { button: 0, ctrlKey: false, pointerType: "mouse" },
+    );
+    expect(
+      await screen.findByRole("menuitem", { name: "Action three" }),
+    ).toBeDefined();
+  });
+
+  it("fills the footer to its measured capacity and keeps overflow in More when an icon is removed", () => {
+    setPluginSlotRegistrations(
+      "example",
+      collectPluginAppRegistrations(
+        definePluginApp((app) => {
+          for (const id of ["one", "two", "three", "four"]) {
+            app.experimental_sidebarFooter.register({
+              kind: "action",
+              id,
+              label: `Action ${id}`,
+              icon: "Zap",
+              onActivate: vi.fn(),
+            });
+          }
+        }),
+      ),
+    );
+    const store = createStore();
+    store.set(sidebarFooterHiddenAtom, ["plugin:unloaded/action"]);
+    store.set(sidebarFooterCapacityAtom, 5);
+    renderWithProviders(<SidebarFooterCustomize onDone={() => {}} />, store);
+    const footerIcons = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>("[data-footer-icon]"),
+        (element) => element.dataset.footerIcon,
+      );
+    expect(footerIcons()).toEqual([
+      "builtin:mobile",
+      "plugin:example/one",
+      "plugin:example/two",
+      "plugin:example/three",
+      "plugin:example/four",
+    ]);
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Remove Mobile apps from footer" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Add Toggle theme to footer" }),
+    ).toHaveProperty("disabled", true);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Action two from footer" }),
+    );
+    expect(store.get(sidebarFooterHiddenAtom)).toEqual([
+      "plugin:unloaded/action",
+      "builtin:theme",
+      "plugin:example/two",
+    ]);
+    expect(footerIcons()).toEqual([
+      "builtin:mobile",
+      "plugin:example/one",
+      "plugin:example/three",
+      "plugin:example/four",
+    ]);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add Action two to footer" }),
+    );
+    expect(footerIcons()).toEqual([
+      "builtin:mobile",
+      "plugin:example/one",
+      "plugin:example/three",
+      "plugin:example/four",
+      "plugin:example/two",
+    ]);
+    expect(
+      screen.getByRole("button", { name: "Add Toggle theme to footer" }),
+    ).toHaveProperty("disabled", true);
+
+    act(() => store.set(sidebarFooterCapacityAtom, 6));
+    expect(footerIcons()).toHaveLength(5);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add Toggle theme to footer" }),
+    );
+    expect(footerIcons()).toEqual([
+      "builtin:mobile",
+      "plugin:example/one",
+      "plugin:example/three",
+      "plugin:example/four",
+      "plugin:example/two",
+      "builtin:theme",
+    ]);
+    expect(store.get(sidebarFooterHiddenAtom)).toEqual([
+      "plugin:unloaded/action",
+    ]);
+  });
+
+  it("hides the whole footer from More and shows it again", async () => {
+    setPluginSlotRegistrations(
+      "example",
+      collectPluginAppRegistrations(
+        definePluginApp((app) => {
+          app.experimental_sidebarFooter.register({
+            kind: "action",
+            id: "action",
+            label: "Run action",
+            icon: "Zap",
+            onActivate: vi.fn(),
+          });
+        }),
+      ),
+    );
+    const store = createStore();
+    store.set(sidebarFooterHiddenAtom, ["plugin:unloaded/action"]);
+    renderWithProviders(<FooterHarness />, store);
+    const openMore = () =>
+      fireEvent.pointerDown(
+        screen.getByRole("button", { name: "More footer actions" }),
+        { button: 0, ctrlKey: false, pointerType: "mouse" },
+      );
+    openMore();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Hide footer" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Run action" })).toBeNull(),
+    );
+    expect(store.get(sidebarFooterHiddenAtom)).toEqual([
+      "plugin:unloaded/action",
+      "builtin:mobile",
+      "plugin:example/action",
+      "builtin:theme",
+    ]);
+    openMore();
+    expect(
+      await screen.findByRole("menuitem", { name: "Run action" }),
+    ).toBeDefined();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show footer" }));
+    await screen.findByRole("button", { name: "Run action" });
+    expect(store.get(sidebarFooterHiddenAtom)).toEqual([
+      "plugin:unloaded/action",
+    ]);
+  });
+
+  it("prefers the footer action icon over plugin branding", () => {
     setPluginLogoUrls(
       new Map([
         [
@@ -154,8 +349,8 @@ describe("PluginSidebarFooterItems", () => {
     expect(screen.getByRole("button", { name: "Remote" }).dataset.testid).toBe(
       "plugin-sidebar-footer-action-remote-open",
     );
-    expect(document.querySelector('[data-icon="FileText"]')).not.toBeNull();
-    expect(document.querySelector('[data-icon="Smartphone"]')).toBeNull();
+    expect(document.querySelector('[data-icon="FileText"]')).toBeNull();
+    expect(document.querySelector('[data-icon="Smartphone"]')).not.toBeNull();
     expect(document.querySelector("img")).toBeNull();
   });
 
@@ -435,18 +630,29 @@ describe("PluginSidebarFooterItems", () => {
       collectPluginAppRegistrations(definition),
     );
     const store = createStore();
+    const onCustomize = vi.fn();
     renderWithProviders(
       <>
-        <FooterHarness />
+        <FooterHarness onCustomize={onCustomize} />
         <SidebarFooterSettings />
       </>,
       store,
     );
     expect(
-      screen.queryByRole("button", { name: "More footer actions" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "More footer actions" }),
+    ).toBeDefined();
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "More footer actions" }),
+      { button: 0, ctrlKey: false, pointerType: "mouse" },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Customize footer" }),
+    );
+    await waitFor(() => expect(onCustomize).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText("Current path").textContent).toBe("/");
     fireEvent.click(screen.getByRole("button", { name: "Provider usage" }));
     expect(screen.getByText("Usage detail")).toBeDefined();
+    act(() => store.set(sidebarFooterCapacityAtom, 3));
     fireEvent.contextMenu(
       screen.getByRole("button", { name: "Provider usage" }),
     );
@@ -455,11 +661,14 @@ describe("PluginSidebarFooterItems", () => {
       { button: 2, pointerType: "mouse" },
     );
     expect(screen.getByLabelText("Current path").textContent).toBe("/");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Hide" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Hide from footer" }),
+    );
     await waitFor(() => expect(screen.queryByText("Usage detail")).toBeNull());
     expect(store.get(sidebarFooterHiddenAtom)).toEqual([
       "plugin:usage-plugin/usage",
     ]);
+    act(() => store.set(sidebarFooterCapacityAtom, null));
     expect(screen.queryByRole("button", { name: "Provider usage" })).toBeNull();
     fireEvent.pointerDown(
       screen.getByRole("button", { name: "More footer actions" }),
@@ -480,8 +689,8 @@ describe("PluginSidebarFooterItems", () => {
       screen.getByRole("button", { name: "Provider usage" }),
     ).toBeDefined();
     expect(
-      screen.queryByRole("button", { name: "More footer actions" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "More footer actions" }),
+    ).toBeDefined();
   });
 
   it("keeps hidden actions callable and preserves preferences across plugin reloads", async () => {
@@ -515,8 +724,8 @@ describe("PluginSidebarFooterItems", () => {
     expect(run).toHaveBeenCalledTimes(1);
     act(() => removePluginSlotRegistrations("example"));
     expect(
-      screen.queryByRole("button", { name: "More footer actions" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "More footer actions" }),
+    ).toBeDefined();
     act(() =>
       setPluginSlotRegistrations(
         "new-plugin",
@@ -564,14 +773,16 @@ describe("PluginSidebarFooterItems", () => {
     const store = createStore();
     store.set(sidebarFooterOrderAtom, [
       "plugin:example/action",
-      "builtin:settings",
+      "builtin:theme",
+      "builtin:mobile",
     ]);
     const view = renderWithProviders(
       <SidebarMenu>
         <PluginSidebarFooterItems
+          onCustomize={vi.fn()}
           activeDisclosureKey={null}
           onDisclosureCommand={vi.fn()}
-          builtInActions={[{ id: "settings", onActivate: run }]}
+          builtInActions={[{ id: "theme", onActivate: run }]}
         />
       </SidebarMenu>,
       store,
@@ -580,10 +791,10 @@ describe("PluginSidebarFooterItems", () => {
       [...view.container.querySelectorAll("[data-footer-item]")].map((item) =>
         item.getAttribute("data-footer-item"),
       ),
-    ).toEqual(["plugin:example/action", "builtin:settings"]);
+    ).toEqual(["plugin:example/action", "builtin:theme"]);
     act(() =>
       store.set(sidebarFooterHiddenAtom, [
-        "builtin:settings",
+        "builtin:theme",
         "plugin:example/action",
       ]),
     );
@@ -594,7 +805,9 @@ describe("PluginSidebarFooterItems", () => {
       screen.getByRole("button", { name: "More footer actions" }),
       { button: 0, ctrlKey: false, pointerType: "mouse" },
     );
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Settings" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Toggle theme" }),
+    );
     expect(run).toHaveBeenCalledTimes(1);
   });
 });

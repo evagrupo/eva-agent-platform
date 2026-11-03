@@ -19,6 +19,13 @@ user-installed plugins come from `bb plugin install` or the official store.
 Plugin state lives under `<bb-data-dir>/plugins/<id>/` (per-plugin SQLite file,
 secrets, logs).
 
+The builtin Prompt Library plugin is disabled by default. Enable it with
+`bb plugin enable bb--prompt-library` or Settings → Plugins. Open **+ → Prompts…**
+or press **Ctrl+R** in a composer to search, preview, star, and insert prompts.
+`bb prompts search [query...] [--project ID | --thread ID] [--json]` searches
+history; `bb prompts list [--json]`, `bb prompts star <text...> [--json]`, and
+`bb prompts unstar <id> [--json]` manage starred text and mentions. History restores text, mentions, and attachments into an empty composer. Inserting never sends a message.
+
 The builtin Custom instructions plugin adds a multiline editor under Settings
 → Custom instructions. Saved text is persisted on this EVA host and included in
 agent task instructions; blank text contributes nothing.
@@ -65,7 +72,9 @@ added or enabled accounts are available without a plugin reload. With an
 enabled account whose secret file remains readable and valid, the plugin
 contributes its provider-specific server route and a distinct secret token to
 Claude Code or Codex sessions on every host. Claude Code also receives
-`ENABLE_TOOL_SEARCH=true` so tool search stays on through the hub. Codex
+`ENABLE_TOOL_SEARCH=true` so tool search stays on through the hub, and
+`_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1` so Opus keeps its native 1M
+context window instead of the 200k fallback for custom base URLs. Codex
 receives `CODEX_OPENAI_BASE_URL` and the secret `CODEX_POOL_AUTH_TOKEN`; its
 app server uses those values without editing `~/.codex/config.toml`.
 Codex image generation and editing use the same authenticated pool route.
@@ -99,6 +108,19 @@ conversations can advance. A model-family limit detours only requests for that
 family without moving the session's main pin or the provider cursor. The cursor
 and session pins survive hub restarts. Session pins expire after 30 idle minutes,
 and the pool retains the 4,096 most recently used pins.
+
+Claude accounts can fall back to enabled extra usage after subscription windows
+reach the switch threshold. Accounts below the threshold take precedence, even
+for conversations pinned to an extra-usage fallback, and exhausted accounts are
+rechecked before spending extra usage. `bb pool status` and `account list` show
+an Extra usage column; JSON exposes `extraUsage` with status, observation time,
+and source. The pool does not enable extra usage or change Claude spending limits.
+
+Codex accounts use the same fallback policy when credit availability is reported.
+Spending-control and explicit credit-depletion restrictions still block routing;
+account/status JSON exposes them under `usageRestriction`. Both providers show
+an “Extra usage available” pill when allowance is reported available. The pill
+does not indicate current billing activity.
 
 Use the up/down arrows in Account Pooler settings, or
 `bb pool account reorder <claude|codex> <id>...`, to set the complete order for
@@ -140,7 +162,10 @@ Codex and Claude Code turns after structured provider overloads and subscription
 window limits. A pending retry is a queued row on the thread, so a server
 restart does not lose it, and that row — on the queue card above the composer,
 with its reason, its time and its own Cancel — is the only place the wait is
-narrated. Inspect it with `bb provider-retry status`. See
+narrated. Inspect it with `bb provider-retry status`; use
+`bb provider-retry explain <thread-id>` for the last scheduling or skip decision.
+Pooled rate limits use Account Pooler’s availability even without provider quota
+events. See
 `bb guide providers` for the eligibility rules. The plugin only reacts to a
 failed turn — it never blocks a send. Prior output or tool activity does not
 block recovery. Its `maximumWait` setting defaults to `6 hours`; choose
@@ -225,6 +250,18 @@ vault to remove that folder. Use `--workspace-host <id>` when a standalone
 CLI's working directory is not on the server machine. Direct `write`, `mkdir`,
 `move`, and `remove` remain only as deprecated compatibility commands.
 
+Docs can also propose revisions without overwriting the saved document:
+
+  bb docs proposal <path> [--vault <id>] [--json]
+  bb docs propose <path> --file <candidate.md> --expected-sha256 <hash> --version <none|N> [--vault <id>] [--json]
+  bb docs proposal-update <path> --content <markdown> --version <N> [--vault <id>] [--json]
+  bb docs accept|reject|undo|redo <path> --version <N> [--vault <id>] [--json]
+
+Read the current file and proposal before proposing. Use `none` only when no
+proposal exists; otherwise pass its current version. Markdown Docs cards are
+editable in the timeline and can open in a tab. Pending proposals show a live
+diff for the user to accept, reject, edit, or request further changes.
+
 The Tasks plugin is an opt-in official plugin bundled with the app:
 `bb plugin install tasks`. It adds a task tracker, agent delegation,
 and the `bb tasks` command. Common agent operations are:
@@ -295,6 +332,16 @@ added/updated/unchanged counts.
                                  Installing a local path for an id that is
                                  already installed from another local path
                                  moves it there and keeps its settings
+                                 Installs run one at a time as server jobs
+                                 that continue if the CLI or app disconnects;
+                                 a repeat request joins the active job.
+                                 --no-wait starts the job and prints its id
+  bb plugin install-jobs         List queued, running, and recently finished
+                                 installs (--json for the jobs)
+  bb plugin cancel-install <job> Cancel an install: a queued job is dropped;
+                                 a running job stops its download or build
+                                 and installs nothing, unless it already
+                                 started registering, which then finishes
   bb plugin outdated             Check installed plugins for compatible
                                  updates (table; --json for raw results).
                                  Columns: installed, latest compatible,
@@ -315,6 +362,15 @@ added/updated/unchanged counts.
                                  tag, engine ranges, install time, and recent
                                  activation history
   bb plugin enable|disable <id>  Load or unload an installed plugin
+  bb plugin safe-mode [on|off]   Show or change safe mode. `on` stops every
+                                 plugin you installed (official store plugins
+                                 included) without changing its enabled
+                                 setting; plugins included with bb keep
+                                 running. `off` restarts the ones that were
+                                 enabled and exits 1 if any fail to start.
+                                 Installs and updates of stopped plugins are
+                                 refused until it is off. Also in the command
+                                 palette
   bb plugin reload [id]          Re-run factories against current sources.
                                  Exits 1 when a plugin does not come up on
                                  them (previous instance kept, or degraded
@@ -330,6 +386,15 @@ added/updated/unchanged counts.
                                  secrets, and schedules (managed git:/npm:
                                  files deleted; local path sources stay on
                                  disk; builtin removals are remembered)
+  bb plugin prune [--dry-run]    Delete cached git:/npm: plugin versions no
+                                 installed plugin uses (left by earlier bb
+                                 releases, rolled-back updates, or
+                                 interrupted operations) and leftover cache
+                                 directories, and print what was freed.
+                                 Updates and removals already delete what
+                                 they replace. Never touches a running
+                                 version or a local path source. Also in the
+                                 command palette
   bb plugin new <name>           Scaffold a todo-list plugin (server.ts,
                                  app.tsx with a sidebar page, a `bb <id>` CLI
                                  command, and a skill) and install its npm
@@ -468,6 +533,13 @@ them itself rather than repeating a publisher's claim.
 EVA Core entries use the same counts. EVA finds each count in the EVA
 Community `stats.json` file by the plugin id.
 
+The store, getbb.app, and the Installs column of `bb plugin search` turn
+each count into the same badge. Plugins that ship installed with bb show
+"Built in". A count of 25 or more shows as is. Below 25, a plugin published
+in the last 30 days shows "New", and an older one shows its real count.
+`bb plugin search --json` returns the raw `installs` and
+`installedByDefault` fields.
+
 Third-party marketplaces
 
 Anyone can host a marketplace manifest. Add one with its https manifest URL,
@@ -566,7 +638,9 @@ version tags such as `v1` and `v1.2.3` are always the literal tag.
 
 `bb plugin search <query>` matches an id, name, description, category, or tag.
 It searches bb-official and each other registered marketplace. The output has a
-Category column. Status shows installed, compatible, or requires a newer EVA release.
+Category column. Status shows installed, compatible, requires newer EVA, or
+`id in use by <source>` when another installed plugin, such as a local `path:`
+checkout, already uses the entry's id.
 Install a bundled plugin by its bare name. Direct
 HTTP(S) Git repository URLs, `path:`, `npm:`, `git:`, and `builtin:`
 sources—and path-like syntax—continue to bypass official-plugin resolution.
@@ -621,12 +695,14 @@ Keep the SDK in exact devDependencies: the builder supplies and bundles its
 small host runtime, so managed installs and remote workers do not resolve an
 SDK package at runtime. That covers the bare `@get-bb/plugin-sdk` import. An
 SDK subpath (`@get-bb/plugin-sdk/host`, `/provider-bridge`,
-`/provider-bridge/acp`, `/ai-services`) imported from server or host code is
+`/provider-bridge/acp`) imported from server or host code is
 bundled from the plugin's own installed SDK, so a plugin that imports one
 needs the SDK as a real dependency; the build names the missing install
 rather than shipping an import bb cannot serve.
-Path installs always load server.ts from source, so `bb plugin dev`/reload see
-edits immediately.
+Path installs compile server.ts into a versioned bb-owned cache and load the
+result with native ESM. The cache follows source, SDK, bb, and Node versions,
+so `bb plugin dev`/reload sees edits immediately without running the source
+transformer on the server event loop.
 
 `bb plugin dev` is the edit loop: it requires the directory to already be
 installed as a plugin (`bb plugin install .` first), ignores dist/,
@@ -640,14 +716,12 @@ Frontend entries (app.tsx) default-export `definePluginApp` from
 `@get-bb/plugin-sdk/app` and register UI slots: homepageSection (root compose),
 settingsSection (per-plugin settings page below the host-rendered settings
 form; no props in V1, optional host-rendered title),
-navPanel (own sidebar entry + /plugins/<id>/<path>/* route; the remainder
-arrives as the component's subPath prop for panel-internal deep links; the
-host always renders the shared plugin title bar and the component owns a
-zero-padding full-bleed body, including its scrolling; optional
-experimental_sidebarAccessory mounts a presentational live-value component at
-the trailing edge of the sidebar row on wide viewports, bounded to one short
-line, replaced visually by the host options button on hover/focus, and omitted
-on compact viewports),
+navPanel (own navigation rail destination + /plugins/<id>/<path>/* route; the
+remainder arrives as the component's subPath prop for panel-internal deep
+links; the host always renders the shared plugin title bar and the component
+owns a zero-padding full-bleed body, including its scrolling; the optional
+experimental_sidebarAccessory field is accepted, but no host surface mounts it
+because the rail is icon-only),
 threadPanelAction
 (a thread-only entry in an existing thread's right-panel new-tab Actions list;
 it is never offered on root compose, and its run() can
@@ -673,12 +747,17 @@ useBbNavigate (including openUrl(url), which applies the current
 client's in-app/external-browser preference, plus
 experimental_openFilePreview({ target, location }) and
 experimental_openFileExternally({ target, location }) for explicit live
-workspace/host/thread-storage files), useComposer
-(read/replace/update/clear scoped composer text,
-apply a class-based text effect, lock input, quote selections, insert mention
-pills, and focus the composer), and useComposerView (reactive bound scope,
-layout, draft, and run state). Plain-text edits preserve attachments and
-reconcile only inline mentions overlapped by the edit. Define RPC methods with `defineRpcContract`
+workspace/host/thread-storage files, and experimental_openTerminal({
+terminalId }), which shows a terminal created with useSdk().terminals.create
+in the current surface's terminal panel), and useComposer (one stable handle for
+the bound composer: read its text, mentions, reactive picker selection, scope, layout, run and submit
+state, and why submitting is blocked; replace/update/clear text; insert text
+and mentions at the cursor or end; apply a class-based text effect, lock input,
+quote selections, submit exactly as Enter would, and focus the composer),
+and useComposers (a handle for every composer on screen, so a panel can write
+into the one the user picks).
+Plain-text edits preserve attachments and reconcile only inline mentions
+overlapped by the edit. Define RPC methods with `defineRpcContract`
 and Standard Schema-compatible input/output validators (Zod works directly),
 register via `bb.rpc.register(contract, handlers)`, then use a type-only
 backend contract import with `useRpc<typeof contract>()` for exact frontend
@@ -723,7 +802,7 @@ class-variance-authority libraries are runtime-shimmed (never bundled). Shimmed
 does not mean undeclared: tsc resolves their declarations through node_modules,
 so each shimmed package a plugin imports is a type-only devDependency at the
 host's version — the scaffold declares all of them and `bb plugin types`
-repins them; never list one in dependencies, which would bundle a second copy —
+repins declared packages; unused packages may be removed. Never list one in dependencies, which would bundle a second copy —
 though source and diffs should go through the host's own
 experimental_SourceCode / experimental_Diff components rather than
 @pierre/diffs directly, so bb owns patch normalization, syntax
@@ -739,6 +818,9 @@ release packages with their declared production dependencies). A crashing slot c
 touching the rest of the app. Installed plugins and their declared settings
 (same data as `bb plugin config`) appear under both Settings → Installed plugins
 and Plugins → Installed plugins. Both locations manage the same installed plugins.
+On a plugin's detail page, the settings button beside the enable switch opens
+its settings in place; Plugin details returns to the page. A local plugin's
+Source section opens or copies its path.
 
 Plugin CLI commands: a plugin can register one top-level subcommand (for
 example `bb github …`). Unknown `bb` commands are looked up against installed
@@ -832,8 +914,9 @@ without updating them. Run `bb plugin migrate` to receive current SDK types and
 before adding `bb.host` so the `/host` and `/testing/host` declaration subpaths
 are available; migration shows every change and asks first.
 The SDK surface grows every release, so `bb plugin types` syncs a plugin to
-the running EVA server by repinning the SDK devDependency and the shimmed packages'
-type-only devDependencies. It exits with migration instructions for a plugin
+the running EVA by repinning the SDK devDependency and the declared shimmed packages'
+type-only devDependencies. Unused, undeclared shim packages are optional for both
+updates and `--check`; declare packages your source imports. It exits with migration instructions for a plugin
 that still vendors types/. Run it in a cloned or older package-layout plugin,
 and `bb plugin types --check` in CI. Need a symbol the types don't explain?
 Clone the repo: https://github.com/get-bb/bb. The API in
@@ -881,10 +964,9 @@ reload/disable/shutdown).
 Frontend entries register React slots (homepageSection, settingsSection,
 navPanel, threadPanelAction, experimental_newThreadPanelAction, fileOpener,
 messageDirective) and composer
-customizations via `app.composer.customize({ actions, plusMenu, banners,
-richText })`; action/banner components use `useComposer()` and
-`useComposerView()`, while the host renders plus-menu rows and editor
-decorations. The deprecated pre-1.0 `slots.composerAccessory` footer API was
+customizations via `app.composer.customize({ actions, plusMenu, sendMenu,
+banners, richText })`; action/banner components use `useComposer()`, while the
+host renders plus-menu and send-menu rows and editor decorations. The deprecated pre-1.0 `slots.composerAccessory` footer API was
 removed; migrate controls to actions or the plus menu and larger content to
 banners. Register all frontend surfaces via
 definePluginApp, use the hooks
@@ -926,3 +1008,9 @@ Modal image debugging: `bb modal image build [--json]` prepares the saved image;
 `bb plugin rpc list [plugin-id] [--method <exact-name>] [--json]` lists discoverable methods from running plugins, optionally restricted to one plugin. `bb plugin rpc inspect <plugin-id> [method] [--json]` dumps registration and method descriptions plus input/output JSON Schemas. Copy the relevant schema into your consumer and call the existing plugin RPC endpoint. Discovery is opt-in advertising, not access control; method names may carry versions such as `provider-usage.v1.listResources`.
 
 `bb plugin rpc call <plugin-id> <method> [--input-file <json-path>] [--json]` invokes a method using server-side schema validation. Omitting the input file sends JSON null. Input files avoid putting sensitive values in command arguments.
+
+### Background updates
+
+`bb plugin update <id> --yes` starts a server job and waits by polling, so the activation stability check does not hold one HTTP request open. Add `--no-wait` to return immediately. Use `bb plugin update-jobs [job-id] --json` for progress and results, including automatic rollback. Queued/running updates continue after the CLI or app disconnects. Finished jobs remain for ten minutes; jobs do not survive server restarts. Running updates cannot be cancelled midway through activation.
+
+SDK: `plugins.applyUpdate({ pluginId })` waits; `plugins.experimental_startUpdate({ pluginId })` returns the job. Inspect with `plugins.experimental_updateJobs.list()` or `.get({ jobId })`. Raw HTTP callers opt in with `Prefer: respond-async`; legacy callers still receive the completed result.

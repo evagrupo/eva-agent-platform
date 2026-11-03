@@ -199,7 +199,7 @@ describe("ServerMoveOverlay", () => {
     expect(overlay.className).toContain("fixed");
     expect(overlay.className).toContain("inset-0");
     expect(stepStatus(overlay, "Stopping running work")).toBe("done");
-    expect(stepStatus(overlay, "Updating bb on desk")).toBe("skipped");
+    expect(stepStatus(overlay, "Updating EVA on desk")).toBe("skipped");
     expect(stepStatus(overlay, "Exporting server data")).toBe("running");
     expect(stepStatus(overlay, "Sending data to desk")).toBe("pending");
     expect(stepStatus(overlay, "Starting the new server")).toBe("pending");
@@ -542,10 +542,10 @@ describe("ServerMoveOverlay", () => {
         new BbHttpError({
           status: 410,
           code: "server_moved",
-          message: "This bb server moved to desk",
+          message: "This EVA server moved to desk",
           body: {
             code: "server_moved",
-            message: "This bb server moved to desk",
+            message: "This EVA server moved to desk",
             details: {
               serverUrl: "https://desk.tailnet.example",
               toHostName: "desk",

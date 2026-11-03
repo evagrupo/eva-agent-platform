@@ -7,7 +7,7 @@ import {
 } from "@bb/shared-ui/language";
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar.js";
 import { setPreferredTheme, usePreferredTheme } from "@/hooks/useTheme";
-import { SIDEBAR_FOOTER_ACTION_CLASS } from "./sidebarRowClasses";
+import { SIDEBAR_FOOTER_ACTION_CLASS } from "@bb/shared-ui/sidebar-row-classes";
 
 function subscribeLanguage(listener: () => void): () => void {
   window.addEventListener(LANGUAGE_EVENT, listener);

@@ -79,7 +79,7 @@ describe("PATCH /threads/:id execution override", () => {
     { id: "codex", model: "gpt-5.6-sol" },
     { id: "claude-code", model: "claude-opus-4-8" },
     { id: "pi", model: "openai/gpt-5.4" },
-    { id: "acp-cursor", model: "gpt-5.3-codex" },
+    { id: "acp-cursor", model: "composer-2.5" },
   ]) {
     it(`persists a catalog-scoped model + reasoning override for ${provider.id}`, async () => {
       await withTestHarness(async (harness) => {

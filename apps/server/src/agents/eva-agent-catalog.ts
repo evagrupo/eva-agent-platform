@@ -1,13 +1,14 @@
 import type { PermissionMode, ReasoningLevel } from "@bb/domain";
 import type { CorePolicy } from "../access-policy.js";
 
-export const EVA_DEFAULT_PROVIDER_ID = "acp-cursor" as const;
-export const EVA_DEFAULT_MODEL = "grok-4.7" as const;
+// Every EVA agent defaults to Codex GPT-6.1 Terra with high reasoning.
+export const EVA_DEFAULT_PROVIDER_ID = "codex" as const;
+export const EVA_DEFAULT_MODEL = "gpt-6.1-terra" as const;
 export const EVA_DEFAULT_REASONING_LEVEL = "high" as const;
 export const EVA_DEFAULT_PERMISSION_MODE = "full" as const;
 
-const EVA_CODEX_DEFAULT_MODEL = "gpt-5.6-luna" as const;
-const EVA_CODEX_DEFAULT_REASONING_LEVEL = "max" as const;
+const EVA_CODEX_DEFAULT_MODEL = EVA_DEFAULT_MODEL;
+const EVA_CODEX_DEFAULT_REASONING_LEVEL = EVA_DEFAULT_REASONING_LEVEL;
 
 export const EVA_REGISTERED_PROVIDER_IDS = [
   "codex",
@@ -22,7 +23,7 @@ export interface EvaAgentCatalogEntry {
   description: string;
   icon: string;
   sortOrder: number;
-  status: "draft" | "shadow" | "live";
+  status: "live";
   sourceProviderId: string | null;
   providerIds: readonly string[];
   defaultProviderId: string | null;
@@ -66,7 +67,7 @@ function sourceAgent(args: {
   const pinnedToCodex = defaultProviderId === "codex";
   return {
     ...args,
-    status: "draft",
+    status: "live",
     sourceProviderId,
     providerIds: sourceProviderId
       ? [sourceProviderId]
@@ -182,7 +183,7 @@ export const EVA_AGENT_CATALOG: readonly EvaAgentCatalogEntry[] = [
     icon: "Users",
     sortOrder: 11,
     instructions:
-      "Observa productividad, carga y capacidad del equipo para detectar riesgos y proponer análisis. Límite estricto: opera solo en shadow, nunca propongas disciplina, despidos, compensación ni decisiones individuales sobre personas.",
+      "Observa productividad, carga y capacidad del equipo para detectar riesgos y proponer análisis. Límite estricto: nunca propongas disciplina, despidos, compensación ni decisiones individuales sobre personas.",
   }),
   sourceAgent({
     id: "admin",

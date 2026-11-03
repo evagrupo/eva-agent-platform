@@ -218,6 +218,7 @@ function seedThreadWithEarlyHeadState(
 }
 
 const baseOptions = {
+  includeClearedContextHistory: false,
   includeDiagnosticOperations: false,
   includeNestedRows: true,
   maxInlineOutputChars: null,
@@ -315,9 +316,9 @@ describe("timeline head state under a budgeted window", () => {
       },
     ]);
     const after = buildThreadTimelineWithProfile(db, thread, options).response;
-    expect(after.timelinePage.olderRowsSourceSeqEnd).toBeGreaterThan(
-      before.maxSeq,
-    );
+    expect(
+      after.timelinePage.olderRowUpdates?.map((row) => row.sourceSeqEnd),
+    ).toContain(before.maxSeq + 1);
     expect(after.pendingTodos).toEqual(before.pendingTodos);
     expect(after.goal).toEqual(before.goal);
     db.$client.close();

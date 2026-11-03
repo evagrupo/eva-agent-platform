@@ -14,7 +14,7 @@ describe("seeded EVA agents", () => {
       tagline: "Implementa y mantiene la plataforma EVA",
       icon: "Wrench",
       provider: "codex",
-      model: "gpt-5.6-luna",
+      model: "gpt-6.1-terra",
       sort_order: 12,
     });
     expect(admin?.instructions).toContain("apps/server");

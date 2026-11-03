@@ -37,6 +37,7 @@ import {
 import type { CallerExecutionInputSource } from "@bb/domain";
 import { THREAD_EVENT_LIST_PAGE_SIZE } from "../common.js";
 import {
+  timelineConversationRowSchema,
   timelineDeltaSchema,
   timelineRowSchema,
   timelineWorkflowWorkRowSchema,
@@ -107,6 +108,7 @@ export const createThreadRequestSchema = z
     environment: createThreadEnvironmentArgsSchema,
     parentThreadId: z.string().min(1).optional(),
     sectionId: z.string().min(1).nullable().optional(),
+    pinned: z.boolean().optional(),
     sourceThreadId: z.string().min(1).optional(),
     sourceSeqEnd: z.number().int().nonnegative().optional(),
     startedOnBehalfOf: startedOnBehalfOfSchema.nullable().default(null),
@@ -383,6 +385,13 @@ export type UpdateQueuedMessageRequest = z.infer<
   typeof updateQueuedMessageRequestSchema
 >;
 
+export const queuedMessageEditHoldResponseSchema = z.object({
+  leaseMs: z.number().int().positive(),
+});
+export type QueuedMessageEditHoldResponse = z.infer<
+  typeof queuedMessageEditHoldResponseSchema
+>;
+
 export const sendQueuedMessageRequestSchema = z.object({
   mode: sendQueuedMessageModeSchema,
 });
@@ -484,7 +493,17 @@ export const threadSearchResponseSchema = z
 export type ThreadSearchResponse = z.infer<typeof threadSearchResponseSchema>;
 
 export const threadResponseSchema = threadWithRuntimeSchema.extend({
+  ownerName: z.string().nullable().optional(),
   activeBackgroundAgentCount: z.number().int().nonnegative(),
+  /**
+   * Whether `POST /threads/:id/restore-environment` would build this thread a
+   * replacement workspace right now. True only for a live, settled thread whose
+   * environment was destroyed while the provider that created it is still here
+   * and restores environments, and the machine it stood on is still here — so a
+   * surface can offer the action instead of discovering the refusal by making
+   * the call.
+   */
+  canRestoreEnvironment: z.boolean(),
   canSpawnChild: z.boolean(),
   // How many messages are waiting on this thread's queue right now — waiting on
   // the clock, on the running turn, on provisioning, on an interaction, or on
@@ -521,6 +540,57 @@ export const threadPluginMetadataQuerySchema = z
 export type ThreadPluginMetadataQuery = z.infer<
   typeof threadPluginMetadataQuerySchema
 >;
+export const PLUGIN_THREAD_METADATA_LIST_MAX_IDS = 200;
+
+export const pluginThreadMetadataListRequestSchema = z
+  .object({
+    pluginId: pluginIdSchema,
+    threadIds: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(PLUGIN_THREAD_METADATA_LIST_MAX_IDS),
+  })
+  .strict();
+export type PluginThreadMetadataListRequest = z.infer<
+  typeof pluginThreadMetadataListRequestSchema
+>;
+export const pluginThreadMetadataListResponseSchema = z
+  .object({
+    threads: z.array(
+      z
+        .object({ threadId: z.string(), metadata: pluginMetadataSchema })
+        .strict(),
+    ),
+  })
+  .strict();
+export type PluginThreadMetadataListResponse = z.infer<
+  typeof pluginThreadMetadataListResponseSchema
+>;
+export const THREAD_ANCESTORS_LIST_MAX_IDS = 200;
+
+export const threadAncestorsListRequestSchema = z
+  .object({
+    threadIds: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(THREAD_ANCESTORS_LIST_MAX_IDS),
+  })
+  .strict();
+export type ThreadAncestorsListRequest = z.infer<
+  typeof threadAncestorsListRequestSchema
+>;
+export const threadAncestorsListResponseSchema = z
+  .object({
+    threads: z.array(
+      z
+        .object({ threadId: z.string(), ancestorIds: z.array(z.string()) })
+        .strict(),
+    ),
+  })
+  .strict();
+export type ThreadAncestorsListResponse = z.infer<
+  typeof threadAncestorsListResponseSchema
+>;
 export const updateThreadPluginMetadataRequestSchema = z
   .object({
     pluginId: pluginIdSchema,
@@ -551,6 +621,7 @@ export type UpdateThreadPluginMetadataRequest = z.infer<
 export const threadWithIncludesResponseSchema = threadResponseSchema.extend({
   environment: environmentSchema.nullable().optional(),
   host: hostSchema.nullable().optional(),
+  environmentHostName: z.string().nullable().optional(),
 });
 export type ThreadWithIncludesResponse = z.infer<
   typeof threadWithIncludesResponseSchema
@@ -604,6 +675,7 @@ export type ThreadQueuedMessageListResponse = z.infer<
 
 export const threadChildSummaryResponseSchema = z.object({
   nonDeletedChildCount: z.number().int().nonnegative(),
+  unarchivedDescendantCount: z.number().int().nonnegative(),
 });
 export type ThreadChildSummaryResponse = z.infer<
   typeof threadChildSummaryResponseSchema
@@ -756,6 +828,7 @@ export type ThreadArchiveAllResponse = z.infer<
 export const threadListQuerySchema = z.object({
   projectId: z.string().min(1).optional(),
   environmentId: z.string().min(1).optional(),
+  hostId: z.string().min(1).optional(),
   parentThreadId: z.string().min(1).optional(),
   sourceThreadId: z.string().min(1).optional(),
   archived: z.enum(["true", "false"]).optional(),
@@ -879,6 +952,7 @@ export const timelinePageMetadataSchema = z
     olderCursor: timelinePaginationCursorSchema.nullable(),
     historySnapshot: z.string().optional(),
     olderRowsSourceSeqEnd: z.number().int().nonnegative().nullable().optional(),
+    olderRowUpdates: z.array(timelineRowSchema).optional(),
     contentPage: z
       .object({
         anchorSeq: z.number().int().nonnegative(),
@@ -898,6 +972,7 @@ export const threadTimelineQuerySchema = z
     beforeAnchorId: z.string().min(1),
     summaryOnly: z.enum(["true", "false"]),
     afterSequence: z.string().regex(/^\d+$/),
+    deferContent: z.enum(["true", "false"]),
   })
   .partial()
   .superRefine((query, context) => {
@@ -918,6 +993,8 @@ export type ThreadTimelineQuery = z.infer<typeof threadTimelineQuerySchema>;
 
 export const timelineTurnSummaryDetailsQuerySchema = z.object({
   beforeCursor: z.string().min(1).optional(),
+  deferContent: z.enum(["true", "false"]).optional(),
+  itemId: z.string().min(1).optional(),
   turnId: z.string().min(1),
   sourceSeqStart: z.string().regex(/^\d+$/),
   sourceSeqEnd: z.string().regex(/^\d+$/),
@@ -957,6 +1034,31 @@ export const threadEventWaitQuerySchema = z.object({
 });
 export type ThreadEventWaitQuery = z.infer<typeof threadEventWaitQuerySchema>;
 
+export const THREAD_MESSAGE_CONTEXT_LIMIT = 20;
+
+const threadMessageContextCountSchema = z
+  .string()
+  .regex(/^\d+$/)
+  .refine(
+    (value) => Number(value) <= THREAD_MESSAGE_CONTEXT_LIMIT,
+    `Message context cannot exceed ${THREAD_MESSAGE_CONTEXT_LIMIT}`,
+  );
+
+export const threadMessageQuerySchema = z
+  .object({
+    before: threadMessageContextCountSchema,
+    after: threadMessageContextCountSchema,
+  })
+  .partial();
+export type ThreadMessageQuery = z.infer<typeof threadMessageQuerySchema>;
+
+export const threadMessageResponseSchema = z.object({
+  message: timelineConversationRowSchema,
+  before: z.array(timelineConversationRowSchema),
+  after: z.array(timelineConversationRowSchema),
+});
+export type ThreadMessageResponse = z.infer<typeof threadMessageResponseSchema>;
+
 export const threadStorageFilesQuerySchema = z
   .object({
     query: z.string().min(1).max(FILE_LIST_QUERY_MAX_LENGTH),
@@ -976,13 +1078,6 @@ export type ThreadStoragePathsQuery = z.infer<
   typeof threadStoragePathsQuerySchema
 >;
 
-export const threadStorageContentQuerySchema = z.object({
-  path: z.string().min(1),
-});
-export type ThreadStorageContentQuery = z.infer<
-  typeof threadStorageContentQuerySchema
->;
-
 export const threadStorageLocationResponseSchema = z
   .object({
     hostId: z.string().min(1),
@@ -992,18 +1087,6 @@ export const threadStorageLocationResponseSchema = z
 export type ThreadStorageLocationResponse = z.infer<
   typeof threadStorageLocationResponseSchema
 >;
-
-export const threadHostFileContentQuerySchema = z.object({
-  path: z.string().min(1),
-});
-export type ThreadHostFileContentQuery = z.infer<
-  typeof threadHostFileContentQuerySchema
->;
-
-export const threadFilesRawQuerySchema = z.object({
-  path: z.string().min(1),
-});
-export type ThreadFilesRawQuery = z.infer<typeof threadFilesRawQuerySchema>;
 
 export const timelineTurnSummaryDetailsResponseSchema = z.object({
   olderCursor: z.string().nullable().optional(),
@@ -1055,6 +1138,15 @@ export const threadConversationOutlineItemSchema = z
   .strict();
 export type ThreadConversationOutlineItem = z.infer<
   typeof threadConversationOutlineItemSchema
+>;
+
+export const threadConversationOutlineQuerySchema = z
+  .object({
+    role: z.enum(["user", "assistant"]),
+  })
+  .partial();
+export type ThreadConversationOutlineQuery = z.infer<
+  typeof threadConversationOutlineQuerySchema
 >;
 
 export const threadConversationOutlineResponseSchema = z

@@ -44,9 +44,9 @@ describe("AppErrorBoundary", () => {
       </AppErrorBoundary>,
     );
 
-    expect(container.textContent).toContain("bb hit an error and stopped");
-    expect(container.querySelector("button")?.textContent).toBe("Reload bb");
-    expect(container.textContent).toContain("render exploded");
+    expect(container.textContent).toContain("EVA hit an error and stopped");
+    expect(container.querySelector("button")?.textContent).toBe("Reload EVA");
+    expect(container.textContent).not.toContain("render exploded");
     dispose();
   });
 
@@ -72,7 +72,7 @@ describe("AppErrorBoundary", () => {
       </AppErrorBoundary>,
     );
 
-    expect(container.textContent).toContain("bb hit an error and stopped");
+    expect(container.textContent).toContain("EVA hit an error and stopped");
     dispose();
   });
 });

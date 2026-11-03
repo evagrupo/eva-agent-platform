@@ -18,7 +18,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const OFFICIAL = {
   name: "bb-community",
-  displayName: "BB Community",
+  displayName: "EVA Community",
   description: null,
   official: true,
   sourceKind: "https",
@@ -84,7 +84,7 @@ describe("MarketplacesSettingsSection", () => {
     const { wrapper } = createQueryClientTestHarness();
     render(<MarketplacesSettingsSection />, { wrapper });
 
-    fireEvent.change(screen.getByLabelText("Marketplace source"), {
+    fireEvent.change(screen.getByLabelText("Catalog source"), {
       target: { value: " https://acme.test/marketplace.json " },
     });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
@@ -109,7 +109,7 @@ describe("MarketplacesSettingsSection", () => {
     const { wrapper } = createQueryClientTestHarness();
     render(<MarketplacesSettingsSection />, { wrapper });
 
-    fireEvent.change(screen.getByLabelText("Marketplace source"), {
+    fireEvent.change(screen.getByLabelText("Catalog source"), {
       target: { value: "path:/missing-marketplace" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
@@ -117,7 +117,7 @@ describe("MarketplacesSettingsSection", () => {
     await vi.waitFor(() => {
       expect(getNotifications()).toEqual([
         expect.objectContaining({
-          title: "Adding the marketplace failed",
+          title: "Adding the catalog failed",
           description: "marketplace directory does not exist",
         }),
       ]);
@@ -130,7 +130,7 @@ describe("MarketplacesSettingsSection", () => {
     render(<MarketplacesSettingsSection />, { wrapper });
 
     await screen.findByText("Acme Plugins");
-    expect(screen.queryByRole("button", { name: "Remove BB Official" })).toBe(
+    expect(screen.queryByRole("button", { name: "Remove EVA Official" })).toBe(
       null,
     );
     expect(

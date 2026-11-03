@@ -43,29 +43,33 @@ function buildCatalogModel(entry: ClaudeCodeCatalogEntry): AvailableModel {
   };
 }
 
+function buildReasoningEfforts(modelInfo: ModelInfo): ModelReasoningEffort[] {
+  const efforts: readonly ModelReasoningEffort[] = modelInfo
+    .supportedEffortLevels?.length
+    ? modelInfo.supportedEffortLevels.flatMap((level) => {
+        switch (level) {
+          case "low":
+            return [LOW_REASONING_EFFORT];
+          case "medium":
+            return [MEDIUM_REASONING_EFFORT];
+          case "high":
+            return [HIGH_REASONING_EFFORT];
+          case "xhigh":
+            return [XHIGH_REASONING_EFFORT, ULTRACODE_REASONING_EFFORT];
+          case "max":
+            return [MAX_REASONING_EFFORT];
+        }
+      })
+    : [LOW_REASONING_EFFORT];
+  return efforts.map((effort) => ({ ...effort }));
+}
+
 function buildModel(
   modelInfo: ModelInfo,
   model: string,
   displayName: string,
 ): AvailableModel {
-  const supportedReasoningEfforts = cloneReasoningEfforts(
-    modelInfo.supportedEffortLevels?.length
-      ? modelInfo.supportedEffortLevels.flatMap((level) => {
-          switch (level) {
-            case "low":
-              return [LOW_REASONING_EFFORT];
-            case "medium":
-              return [MEDIUM_REASONING_EFFORT];
-            case "high":
-              return [HIGH_REASONING_EFFORT];
-            case "xhigh":
-              return [XHIGH_REASONING_EFFORT, ULTRACODE_REASONING_EFFORT];
-            case "max":
-              return [MAX_REASONING_EFFORT];
-          }
-        })
-      : [LOW_REASONING_EFFORT],
-  );
+  const supportedReasoningEfforts = buildReasoningEfforts(modelInfo);
   const supportedLevels = supportedReasoningEfforts.map(
     (effort) => effort.reasoningEffort,
   );
@@ -97,41 +101,41 @@ export function buildClaudeCodeModels(
     discoveredModels.find((modelInfo) => modelInfo.value === "default")
       ?.resolvedModel ?? null;
   const models: AvailableModel[] = [];
-  for (const discovered of [
-    ...discoveredModels.filter((model) => model.value !== "default"),
-    ...discoveredModels.filter((model) => model.value === "default"),
+  for (const modelInfo of [
+    ...discoveredModels.filter((candidate) => candidate.value !== "default"),
+    ...discoveredModels.filter((candidate) => candidate.value === "default"),
   ]) {
-    const resolvedModel = discovered.resolvedModel ?? discovered.value;
-    if (models.some((model) => model.model === resolvedModel)) {
+    const model = modelInfo.resolvedModel ?? modelInfo.value;
+    if (models.some((candidate) => candidate.model === model)) {
       continue;
     }
     models.push(
       buildModel(
-        discovered,
-        resolvedModel,
-        deriveClaudeModelDisplayName(resolvedModel) ?? discovered.displayName,
+        modelInfo,
+        model,
+        deriveClaudeModelDisplayName(model) ?? modelInfo.displayName,
       ),
     );
   }
   const selectedOnlyModels = CLAUDE_CODE_LEGACY_CATALOG.filter(
     (entry) => !models.some((model) => model.model === entry.model),
   ).map(buildCatalogModel);
-  for (const discovered of discoveredModels) {
-    const alias = discovered.value;
+  for (const modelInfo of discoveredModels) {
+    const alias = modelInfo.value;
     if (
       alias === "default" ||
-      models.some((model) => model.model === alias) ||
-      selectedOnlyModels.some((model) => model.model === alias)
+      models.some((candidate) => candidate.model === alias) ||
+      selectedOnlyModels.some((candidate) => candidate.model === alias)
     ) {
       continue;
     }
     selectedOnlyModels.push(
-      buildModel(discovered, alias, `${discovered.displayName} alias`),
+      buildModel(modelInfo, alias, `${modelInfo.displayName} alias`),
     );
   }
   const resolvedDefault =
     defaultModel !== null &&
-    models.some((model) => model.model === defaultModel)
+    models.some((candidate) => candidate.model === defaultModel)
       ? defaultModel
       : models[0]?.model;
   return {

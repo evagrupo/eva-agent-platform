@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useEffect, useState } from "react";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type {
   PluginComposerApi,
@@ -30,11 +30,60 @@ const {
   ThreadChat,
   useBbNavigate,
   useComposer,
+  useComposers,
   useComposerView,
   useRealtime,
   useRealtimeConnectionState,
   useRpc,
+  useSdk,
+  experimental_copyToClipboard,
 } = await import("../../app.js");
+
+function SdkProbe() {
+  const sdk = useSdk();
+  const [sectionId, setSectionId] = useState<string | null>(null);
+  const [queuedId, setQueuedId] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  return (
+    <div>
+      <button
+        onClick={() => {
+          void sdk.threadSections
+            .create({ name: "Later" })
+            .then((section) => setSectionId(section.id));
+        }}
+      >
+        Create section
+      </button>
+      <button
+        onClick={() => {
+          try {
+            void sdk.threads.pin({ threadId: "thr_1" });
+          } catch (error) {
+            setFailure(error instanceof Error ? error.message : String(error));
+          }
+        }}
+      >
+        Pin without a fake
+      </button>
+      <button
+        onClick={() => {
+          void sdk.threads.queuedMessages
+            .create({
+              threadId: "thr_1",
+              input: [{ type: "text", text: "hi", mentions: [] }],
+            })
+            .then((queued) => setQueuedId(queued.id));
+        }}
+      >
+        Queue nested
+      </button>
+      {sectionId ? <output>created {sectionId}</output> : null}
+      {queuedId ? <output>queued {queuedId}</output> : null}
+      {failure ? <output>{failure}</output> : null}
+    </div>
+  );
+}
 
 type TestTaskTarget = {
   kind: "task";
@@ -121,7 +170,7 @@ afterEach(() => {
 describe("experimental_ProviderModelPicker test runtime", () => {
   it("applies all execution edits as one controlled value", () => {
     const onChange = vi.fn();
-    const picker = render(
+    const view = () => (
       <ProviderModelPicker
         value={{
           providerId: "codex",
@@ -132,12 +181,14 @@ describe("experimental_ProviderModelPicker test runtime", () => {
         onChange={onChange}
         routing={{ kind: "host", hostId: "host-test" }}
         align="end"
-      />,
+      />
     );
+    const picker = render(view());
 
     fireEvent.change(picker.getByRole("textbox", { name: "Provider ID" }), {
       target: { value: "claude-code" },
     });
+    picker.rerender(view());
     fireEvent.change(picker.getByRole("textbox", { name: "Model" }), {
       target: { value: "claude-opus-4-7" },
     });
@@ -326,9 +377,8 @@ let capturedComposerVisualSetters: Pick<
   PluginComposerApi,
   "setTextEffect" | "setInputLock"
 > | null = null;
-let capturedComposerSetSelection:
-  | PluginComposerApi["experimental_setSelection"]
-  | null = null;
+let capturedComposerSetSelection: PluginComposerApi["setSelection"] | null =
+  null;
 
 function InlineVis({
   attributes,
@@ -346,12 +396,13 @@ function InlineVis({
 
 function ComposerProbe() {
   const composer = useComposer();
+  const listed = useComposers();
   const view = useComposerView();
   capturedComposerVisualSetters = {
     setTextEffect: composer.setTextEffect,
     setInputLock: composer.setInputLock,
   };
-  capturedComposerSetSelection = composer.experimental_setSelection;
+  capturedComposerSetSelection = composer.setSelection;
   return (
     <div>
       <span data-testid="composer-scope">{composer.scope.kind}</span>
@@ -359,6 +410,15 @@ function ComposerProbe() {
         {JSON.stringify(composer.scope)}
       </span>
       <span data-testid="composer-text">{composer.text}</span>
+      <span data-testid="composer-selection">
+        {JSON.stringify(composer.selection)}
+      </span>
+      <span data-testid="listed-composer-selection">
+        {JSON.stringify(listed[0]?.selection)}
+      </span>
+      <span data-testid="composer-listed">
+        {String(listed.length === 1 && listed[0] === composer)}
+      </span>
       <span data-testid="composer-view-text">{view.draft.text}</span>
       <span data-testid="composer-attachment-count">
         {view.draft.attachmentCount}
@@ -466,6 +526,10 @@ const app = await loadPluginApp(
 );
 
 describe("loadPluginApp", () => {
+  beforeEach(() => {
+    messageActionRuns.length = 0;
+  });
+
   it("captures and validates app overlay registrations", async () => {
     function Overlay() {
       return <div>overlay</div>;
@@ -496,46 +560,6 @@ describe("loadPluginApp", () => {
         }),
       ),
     ).rejects.toThrow('slots.experimental_appOverlay: duplicate id "office"');
-  });
-
-  it("captures and validates sidebar navigation registrations", async () => {
-    const captured = await loadPluginApp(
-      definePluginApp((builder) => {
-        builder.slots.experimental_sidebarNavigation({
-          id: "compact",
-          title: "Compact navigation",
-          description: "Groups the sidebar destinations.",
-          component: () => null,
-        });
-      }),
-    );
-
-    expect(captured.experimentalSidebarNavigations).toEqual([
-      {
-        id: "compact",
-        title: "Compact navigation",
-        description: "Groups the sidebar destinations.",
-        component: expect.any(Function),
-      },
-    ]);
-    await expect(
-      loadPluginApp(
-        definePluginApp((builder) => {
-          builder.slots.experimental_sidebarNavigation({
-            id: "compact",
-            title: "One",
-            component: () => null,
-          });
-          builder.slots.experimental_sidebarNavigation({
-            id: "compact",
-            title: "Two",
-            component: () => null,
-          });
-        }),
-      ),
-    ).rejects.toThrow(
-      'slots.experimental_sidebarNavigation: duplicate id "compact"',
-    );
   });
 
   it("captures and validates New thread panel action registrations", async () => {
@@ -630,6 +654,54 @@ describe("loadPluginApp", () => {
       "second:dispose",
       "first:dispose",
     ]);
+  });
+
+  it("routes clipboard writes to the content scripts or slot that mounted last", async () => {
+    const captured = await loadPluginApp(
+      definePluginApp((builder) => {
+        builder.contentScripts.register({
+          id: "copier",
+          async mount() {
+            await experimental_copyToClipboard({
+              text: "plain",
+              html: "<b>rich</b>",
+            });
+          },
+        });
+        builder.slots.navPanel({
+          id: "panel",
+          title: "Panel",
+          icon: "Folder",
+          path: "panel",
+          component: () => <p>panel</p>,
+        });
+      }),
+    );
+
+    const mounted = await mountPluginContentScripts(captured, {
+      pluginId: "demo",
+      experimental_copyToClipboard: async () => false,
+    });
+    expect(mounted.inspection.experimental_clipboardWrites).toEqual([
+      { text: "plain", html: "<b>rich</b>" },
+    ]);
+    await expect(
+      experimental_copyToClipboard({ text: "later" }),
+    ).resolves.toBe(false);
+
+    const slot = renderSlot(captured.navPanels[0]!, { subPath: "" });
+    await expect(
+      experimental_copyToClipboard({ text: "from a command" }),
+    ).resolves.toBe(true);
+
+    expect(mounted.inspection.experimental_clipboardWrites).toEqual([
+      { text: "plain", html: "<b>rich</b>" },
+      { text: "later" },
+    ]);
+    expect(slot.inspection.experimental_clipboardWrites).toEqual([
+      { text: "from a command" },
+    ]);
+    await mounted.lifecycle.dispose();
   });
 
   it("models current-host thread-row statuses, validation, and lifecycle cleanup", async () => {
@@ -1338,9 +1410,11 @@ describe("loadPluginApp", () => {
         role: "assistant",
         text: "An answer.",
         sourceSeqEnd: 12,
+        experimental_messageSeq: 12,
       },
       selectedText: "answer",
       openPanel,
+      composer: null,
     });
     expect(messageActionRuns).toHaveLength(1);
     expect(messageActionRuns[0]).toMatchObject({
@@ -1362,7 +1436,6 @@ describe("loadPluginApp", () => {
   });
 
   it("renders leadingContent and drives messageActions through the stub", () => {
-    messageActionRuns.length = 0;
     const chatPanel = app.navPanels.find((panel) => panel.id === "chat")!;
     const slot = renderSlot(chatPanel, { subPath: "thr_42" });
     expect(
@@ -1379,6 +1452,7 @@ describe("loadPluginApp", () => {
         role: "assistant",
         text: "test message text",
         sourceSeqEnd: 1,
+        experimental_messageSeq: 1,
       },
     ]);
   });
@@ -1405,6 +1479,51 @@ describe("typed rpc test runtime", () => {
 });
 
 describe("renderSlot", () => {
+  it("serves useSdk() from per-area fakes, records calls, and throws for a missing method", async () => {
+    const slot = renderSlot(
+      { component: SdkProbe },
+      {},
+      {
+        sdk: {
+          threadSections: {
+            create: async ({ name }) => ({
+              id: "sec_1",
+              name,
+              createdAt: 1,
+              updatedAt: 1,
+            }),
+          },
+          threads: {
+            queuedMessages: {
+              create: async () => ({ id: "qm_9" }) as never,
+            },
+          },
+        },
+      },
+    );
+    fireEvent.click(slot.getByRole("button", { name: "Create section" }));
+    await slot.findByText("created sec_1");
+    fireEvent.click(slot.getByRole("button", { name: "Pin without a fake" }));
+    await slot.findByText(
+      'no sdk fake for "threads.pin" — add it to renderSlot options.sdk',
+    );
+    fireEvent.click(slot.getByRole("button", { name: "Queue nested" }));
+    await slot.findByText("queued qm_9");
+    expect(slot.inspection.sdkCalls).toEqual([
+      { method: "threadSections.create", args: [{ name: "Later" }] },
+      { method: "threads.pin", args: [{ threadId: "thr_1" }] },
+      {
+        method: "threads.queuedMessages.create",
+        args: [
+          {
+            threadId: "thr_1",
+            input: [{ type: "text", text: "hi", mentions: [] }],
+          },
+        ],
+      },
+    ]);
+  });
+
   it("records URL intents from links and imperative navigation through one host boundary", () => {
     const slot = renderSlot(
       { component: UrlNavigationProbe },
@@ -1624,6 +1743,7 @@ describe("renderSlot", () => {
 
     expect(thread.getByTestId("composer-scope").textContent).toBe("thread");
     expect(thread.getByTestId("composer-text").textContent).toBe("seed");
+    expect(thread.getByTestId("composer-listed").textContent).toBe("true");
     fireEvent.click(thread.getByText("replace"));
     fireEvent.click(thread.getByText("update"));
     fireEvent.click(thread.getByText("update"));
@@ -1641,27 +1761,6 @@ describe("renderSlot", () => {
     );
   });
 
-  it("exposes an explicit side-chat composer scope", () => {
-    const sideChatScope = {
-      kind: "side-chat",
-      projectId: "proj_1",
-      parentThreadId: "thr_parent",
-      tabId: "side-chat:one",
-      childThreadId: null,
-    } satisfies PluginComposerScope;
-    const slot = renderSlot(
-      app.composerCustomizations[0]!.actions![0]!,
-      {},
-      { composer: { text: "side-chat draft", scope: sideChatScope } },
-    );
-
-    expect(
-      JSON.parse(
-        slot.getByTestId("composer-scope-details").textContent ?? "{}",
-      ),
-    ).toEqual(sideChatScope);
-  });
-
   it("drives host-originated composer text and scope changes", async () => {
     const initialScope = {
       kind: "queued-message",
@@ -1669,11 +1768,8 @@ describe("renderSlot", () => {
       queuedMessageId: "qmsg_1",
     } satisfies PluginComposerScope;
     const nextScope = {
-      kind: "side-chat",
-      projectId: "proj_1",
-      parentThreadId: "thr_parent",
-      tabId: "side-chat:one",
-      childThreadId: null,
+      kind: "thread",
+      threadId: "thr_2",
     } satisfies PluginComposerScope;
     const slot = renderSlot(
       app.composerCustomizations[0]!.actions![0]!,
@@ -1750,7 +1846,7 @@ describe("renderSlot", () => {
     expect(slot.composer.focusCount).toBe(3);
   });
 
-  it("records accepted selections and echoes back what the scope has pickers for", async () => {
+  it("merges picker changes into reactive selection snapshots for both composer hooks", async () => {
     const threadSlot = renderSlot(
       app.composerCustomizations[0]!.actions![0]!,
       {},
@@ -1758,6 +1854,7 @@ describe("renderSlot", () => {
     );
     const setSelection = capturedComposerSetSelection;
     if (setSelection === null) throw new Error("setSelection not captured");
+    expect(threadSlot.getByTestId("composer-selection").textContent).toBe("{}");
 
     await expect(
       setSelection({
@@ -1775,6 +1872,22 @@ describe("renderSlot", () => {
     expect(threadSlot.composer.selections).toEqual([
       { providerId: "codex", model: "gpt-5", reasoningLevel: "high" },
     ]);
+    expect(threadSlot.getByTestId("composer-selection").textContent).toBe(
+      JSON.stringify({
+        providerId: "codex",
+        model: "gpt-5",
+        reasoningLevel: "high",
+      }),
+    );
+    await expect(setSelection({ permissionMode: "full" })).resolves.toEqual({
+      providerId: "codex",
+      model: "gpt-5",
+      reasoningLevel: "high",
+      permissionMode: "full",
+    });
+    expect(
+      threadSlot.getByTestId("listed-composer-selection").textContent,
+    ).toBe(threadSlot.getByTestId("composer-selection").textContent);
     threadSlot.unmount();
 
     const newThreadSlot = renderSlot(
@@ -1788,28 +1901,32 @@ describe("renderSlot", () => {
     expect(newThreadSlot.composer.selections).toEqual([
       { projectId: "proj_2", model: "gpt-5" },
     ]);
+    expect(newThreadSlot.getByTestId("composer-selection").textContent).toBe(
+      JSON.stringify({ projectId: "proj_2", model: "gpt-5" }),
+    );
     newThreadSlot.unmount();
 
-    const sideChatSlot = renderSlot(
+    const queuedSlot = renderSlot(
       app.composerCustomizations[0]!.actions![0]!,
       {},
       {
         composer: {
           scope: {
-            kind: "side-chat",
-            projectId: "proj_1",
-            parentThreadId: "thr_1",
-            tabId: "tab_1",
-            childThreadId: null,
+            kind: "queued-message",
+            threadId: "thr_1",
+            queuedMessageId: "qmsg_1",
           },
         },
       },
     );
+    expect(queuedSlot.getByTestId("composer-selection").textContent).toBe(
+      "null",
+    );
     await expect(
       capturedComposerSetSelection!({ model: "gpt-5" }),
     ).rejects.toThrow(/no pickers/);
-    expect(sideChatSlot.composer.selections).toEqual([]);
-    sideChatSlot.unmount();
+    expect(queuedSlot.composer.selections).toEqual([]);
+    queuedSlot.unmount();
   });
 
   it("invalidates visual-state setters through both unmount controls", () => {
@@ -1864,5 +1981,158 @@ describe("renderSlot", () => {
     expect(slot.composer.textEffectCalls).toEqual([
       { className: "cleanup-effect" },
     ]);
+  });
+});
+
+it("reacts to attachment-only updates and atomic replacement through the public composer hook", () => {
+  const attachment = {
+    type: "localFile",
+    path: "attachments/spec.txt",
+    name: "spec.txt",
+    sizeBytes: 12,
+  } as const;
+  function DraftActionsProbe() {
+    const composer = useComposer();
+    return (
+      <>
+        <output>
+          {composer.text}:{composer.attachmentCount}:{String(composer.isEmpty)}
+        </output>
+        <button
+          onClick={() =>
+            composer.replace((current) => ({
+              ...current,
+              attachments: current.attachments.some(
+                (item) => item.path === attachment.path,
+              )
+                ? current.attachments
+                : [...current.attachments, attachment],
+            }))
+          }
+        >
+          Attach file
+        </button>
+        <button
+          onClick={() =>
+            composer.replace({
+              text: "prefill",
+              mentions: [],
+            })
+          }
+        >
+          Prefill
+        </button>
+        <button
+          onClick={() =>
+            composer.replace({
+              text: "",
+              mentions: [],
+              attachments: [],
+            })
+          }
+        >
+          Replace all
+        </button>
+      </>
+    );
+  }
+  const slot = renderSlot({ component: DraftActionsProbe }, {});
+  expect(slot.getByRole("status").textContent).toBe(":0:true");
+  fireEvent.click(slot.getByRole("button", { name: "Attach file" }));
+  expect(slot.getByRole("status").textContent).toBe(":1:false");
+  fireEvent.click(slot.getByRole("button", { name: "Attach file" }));
+  expect(slot.getByRole("status").textContent).toBe(":1:false");
+  fireEvent.click(slot.getByRole("button", { name: "Prefill" }));
+  expect(slot.getByRole("status").textContent).toBe("prefill:1:false");
+  fireEvent.click(slot.getByRole("button", { name: "Replace all" }));
+  expect(slot.getByRole("status").textContent).toBe(":0:true");
+});
+
+describe("thread actions menu fake", () => {
+  const thread = {
+    id: "thr_menu",
+    projectId: "proj_menu",
+    parentThreadId: null,
+    archivedAt: null,
+    pinnedAt: null,
+    sectionId: null,
+    isUnread: false,
+    status: "idle" as const,
+    environment: null,
+  };
+
+  it("rejects a trigger that drops the props and ref it receives", async () => {
+    const { experimental_ThreadActionsMenu: ThreadActionsMenu } =
+      await import("../../app.js");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    function Probe() {
+      return (
+        <ThreadActionsMenu
+          thread={thread}
+          trigger={() => <button type="button">Thread actions</button>}
+        />
+      );
+    }
+    expect(() => renderSlot({ component: Probe }, {})).toThrow(
+      /must spread the props and ref/,
+    );
+    error.mockRestore();
+  });
+
+  it("rejects a trigger that replaces the host's className", async () => {
+    const { experimental_ThreadActionsMenu: ThreadActionsMenu } =
+      await import("../../app.js");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    function Probe() {
+      return (
+        <ThreadActionsMenu
+          thread={thread}
+          trigger={(props) => (
+            <button {...props} type="button" className="mine">
+              Thread actions
+            </button>
+          )}
+        />
+      );
+    }
+    expect(() => renderSlot({ component: Probe }, {})).toThrow(
+      /replaced the host's className/,
+    );
+    error.mockRestore();
+  });
+
+  it("opens from a trigger that spreads its props", async () => {
+    const { experimental_ThreadActionsMenu: ThreadActionsMenu } =
+      await import("../../app.js");
+    const run = vi.fn(async () => {});
+    function Probe() {
+      return (
+        <ThreadActionsMenu
+          thread={thread}
+          trigger={(props) => (
+            <button {...props} type="button">
+              Thread actions
+            </button>
+          )}
+        />
+      );
+    }
+    const slot = renderSlot(
+      { component: Probe },
+      {},
+      {
+        threadActions: () => [
+          {
+            key: "bb--core/pin",
+            pluginId: "bb--core",
+            group: "2_organize",
+            action: { label: "Pin", icon: "Pin", run },
+          },
+        ],
+      },
+    );
+    fireEvent.click(slot.getByRole("button", { name: "Thread actions" }));
+    fireEvent.click(slot.getByRole("menuitem", { name: "Pin" }));
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

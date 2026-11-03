@@ -419,7 +419,7 @@ describe("access management", () => {
             headers: { cookie: userCookie },
           })
         ).status,
-      ).toBe(403);
+      ).toBe(200);
     });
   });
 

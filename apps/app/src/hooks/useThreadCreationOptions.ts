@@ -12,6 +12,7 @@ import type {
   ProviderComposerAction,
   ProviderInfo,
   ProviderModelCatalogScope,
+  ProviderOptionDescriptor,
   ReasoningLevel,
   ServiceTier,
 } from "@bb/domain";
@@ -41,11 +42,13 @@ import {
 } from "@/lib/core-auth";
 import { useRootComposeReuseEnvironment } from "@/lib/root-compose-selection";
 import { getProviderIconInfo } from "@/lib/provider-icon";
-import { fastServiceTierLabel } from "@/lib/reasoning-labels";
 import {
+  DEFAULT_SERVICE_TIER,
   modelPermits,
   permissionModeRank,
   providerModelCatalogDependsOnWorkspace,
+  reconcileServiceTier,
+  resolveServiceTierOptions,
 } from "@bb/domain";
 import { selectPrimaryHost, useHosts } from "./queries/host-queries";
 import {
@@ -82,12 +85,13 @@ import {
   resolveModelReasoningLevel,
 } from "./thread-creation-options/model-catalog-selection";
 
-export { formatModelLabel, resolvePermissionModeSelection };
+export { formatModelLabel };
 
 const EMPTY_PROVIDERS: ProviderInfo[] = [];
 const EMPTY_COMPOSER_ACTIONS: ProviderComposerAction[] = [];
 const EMPTY_AGENTS: CoreAuthAgent[] = [];
 const EMPTY_AGENT_TUPLES: CoreAuthAgentExecutionTuple[] = [];
+const EMPTY_SERVICE_TIER_OPTIONS: readonly ProviderOptionDescriptor[] = [];
 
 const DEFAULT_SUPPORTED_PERMISSION_MODES: readonly PermissionMode[] = ["full"];
 
@@ -152,7 +156,7 @@ interface UseThreadCreationOptionsResult<TExecutionInputSources> {
   permissionModeIsVerified: boolean;
   supportsServiceTier: boolean;
   serviceTierSupportByProvider: Record<string, boolean>;
-  serviceTierFastLabel: string;
+  serviceTierOptions: readonly ProviderOptionDescriptor[];
   executionInputSources: TExecutionInputSources;
 }
 
@@ -475,17 +479,40 @@ export function useThreadCreationOptions(
     selectedProviderIdBeforeReadyFallback,
   );
   const executionOptionsQueryEnabled = enabled;
+  const routingSelectionKey = JSON.stringify([
+    scope,
+    resetKey,
+    environmentId,
+    rawEnvironmentSelectionValue,
+    selectedProviderIdBeforeReadyFallback,
+  ]);
+  const [catalogRouting, setCatalogRouting] = useState(() => ({
+    selectionKey: routingSelectionKey,
+    routing: resolveThreadCreationProviderRouting({
+      environmentId,
+      environmentHostId,
+      environmentSelectionValue: rawEnvironmentSelectionValue,
+      modelCatalogScope: knownModelCatalogScope,
+      scope,
+    }),
+  }));
+  let defaultCatalogRouting = catalogRouting.routing;
+  if (catalogRouting.selectionKey !== routingSelectionKey) {
+    defaultCatalogRouting = resolveThreadCreationProviderRouting({
+      environmentId,
+      environmentHostId,
+      environmentSelectionValue: rawEnvironmentSelectionValue,
+      modelCatalogScope: knownModelCatalogScope,
+      scope,
+    });
+    setCatalogRouting({
+      selectionKey: routingSelectionKey,
+      routing: defaultCatalogRouting,
+    });
+  }
   const executionOptionsRouting = resolveProviderRouting
     ? resolveProviderRouting(rawEnvironmentSelectionValue)
-    : resolveThreadCreationProviderRouting({
-        environmentId,
-        environmentHostId,
-        environmentSelectionValue: rawEnvironmentSelectionValue,
-        ...(knownModelCatalogScope === undefined
-          ? {}
-          : { modelCatalogScope: knownModelCatalogScope }),
-        scope,
-      });
+    : defaultCatalogRouting;
   const selectedAgentProviderIds = selectedAgent?.providerIds;
   const unassignedProviderIds = useMemo(
     () => new Set(agentOptions.flatMap((agent) => agent.providerIds)),
@@ -669,8 +696,11 @@ export function useThreadCreationOptions(
   const selectedProviderComposerActions =
     selectedProviderInfo?.composerActions ?? EMPTY_COMPOSER_ACTIONS;
 
+  const allowFastServiceTier =
+    systemConfig.data?.generalSettings?.allowFastServiceTier ?? true;
   const supportsServiceTier =
-    activeProviderCapabilities?.supportsServiceTier ?? false;
+    allowFastServiceTier &&
+    (activeProviderCapabilities?.supportsServiceTier ?? false);
   const permissionModes: readonly PermissionMode[] =
     activeProviderCapabilities?.permissionModes ??
     DEFAULT_SUPPORTED_PERMISSION_MODES;
@@ -702,11 +732,10 @@ export function useThreadCreationOptions(
     const supportByProvider: Record<string, boolean> = {};
     for (const provider of providers) {
       supportByProvider[provider.id] =
-        provider.capabilities.supportsServiceTier;
+        allowFastServiceTier && provider.capabilities.supportsServiceTier;
     }
     return supportByProvider;
-  }, [providers]);
-  const serviceTierFastLabel = fastServiceTierLabel(selectedProviderInfo);
+  }, [allowFastServiceTier, providers]);
 
   const {
     selectedModel,
@@ -737,10 +766,31 @@ export function useThreadCreationOptions(
       selectedProviderInfo,
     ],
   );
-  const serviceTier = useMemo(
-    () => (supportsServiceTier ? rawServiceTier : undefined),
-    [rawServiceTier, supportsServiceTier],
+  const serviceTierOptions = useMemo(
+    () =>
+      allowFastServiceTier
+        ? resolveServiceTierOptions({
+            provider: selectedProviderInfo,
+            model: activeModel,
+          })
+        : EMPTY_SERVICE_TIER_OPTIONS,
+    [activeModel, allowFastServiceTier, selectedProviderInfo],
   );
+  const serviceTier = useMemo(() => {
+    if (!activeProviderCapabilities?.supportsServiceTier) {
+      return undefined;
+    }
+    if (serviceTierOptions.length === 0) {
+      return DEFAULT_SERVICE_TIER;
+    }
+    return rawServiceTier === undefined
+      ? undefined
+      : reconcileServiceTier(rawServiceTier, serviceTierOptions);
+  }, [
+    activeProviderCapabilities?.supportsServiceTier,
+    rawServiceTier,
+    serviceTierOptions,
+  ]);
 
   const policyPermissionModes = useMemo<readonly PermissionMode[]>(() => {
     if (fixedPermissionMode !== null) return [fixedPermissionMode];
@@ -1186,7 +1236,7 @@ export function useThreadCreationOptions(
     permissionModeIsVerified,
     supportsServiceTier,
     serviceTierSupportByProvider,
-    serviceTierFastLabel,
+    serviceTierOptions,
     executionInputSources,
   };
 }

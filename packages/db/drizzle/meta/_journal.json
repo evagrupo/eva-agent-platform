@@ -974,6 +974,139 @@
       "when": 1790161514276,
       "tag": "0138_lush_payback",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "6",
+      "when": 1790161515276,
+      "tag": "0139_thread_image_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "6",
+      "when": 1790161516276,
+      "tag": "0140_burly_jazinda",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "6",
+      "when": 1790161517276,
+      "tag": "0141_sidebar_installation_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "6",
+      "when": 1790161518276,
+      "tag": "0142_busy_synch",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "6",
+      "when": 1790230932025,
+      "tag": "0143_environment_retention_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "6",
+      "when": 1790322211064,
+      "tag": "0144_thread_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "6",
+      "when": 1790613729994,
+      "tag": "0145_remove_thread_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "6",
+      "when": 1790738477751,
+      "tag": "0146_preserve_pane_focus_bindings",
+      "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "6",
+      "when": 1790794077074,
+      "tag": "0147_rename_provider_usage_plugin_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "6",
+      "when": 1790889888606,
+      "tag": "0148_plugin_enabled_follows_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "6",
+      "when": 1790900209592,
+      "tag": "0149_stiff_prism",
+      "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "6",
+      "when": 1791399370294,
+      "tag": "0150_thread_pruning_work",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "6",
+      "when": 1791402653913,
+      "tag": "0151_idle_lifecycle_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "6",
+      "when": 1791411660016,
+      "tag": "0152_stamp_onboarding_existing_installs",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "6",
+      "when": 1791414564985,
+      "tag": "0153_moaning_vector",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "6",
+      "when": 1792077077253,
+      "tag": "0154_eva_agent_sidebar_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "6",
+      "when": 1793630405546,
+      "tag": "0155_living_energizer",
+      "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "6",
+      "when": 1793725509252,
+      "tag": "0156_robust_skrulls",
+      "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "6",
+      "when": 1793735773161,
+      "tag": "0157_eva_agent_memories",
+      "breakpoints": true
     }
   ]
 }

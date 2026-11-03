@@ -65,7 +65,8 @@ import {
   throwSenderThreadInvalid,
   throwThreadNotWritable,
 } from "../lib/lifecycle-api-errors.js";
-import { validatePromptAttachmentReferences } from "../projects/attachments.js";
+import { resolvePromptAttachmentReferences } from "../projects/attachments.js";
+import { threadTargetHostId } from "./dispatch-attempt.js";
 import {
   resolvePluginMentionContextInputs,
   type PluginMentionAuthorization,
@@ -80,6 +81,7 @@ import {
   type PromptWithGroups,
 } from "./deferred-first-turn-context.js";
 import type { TelemetryEvent } from "../system/telemetry.js";
+import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
 
 type SendThreadMessageMode = SendMessageRequest["mode"];
 type TextPromptInput = Extract<PromptInput, { type: "text" }>;
@@ -420,6 +422,7 @@ function appendAndQueueSendThreadMessageInTransaction({
   let activeThread: Thread | null = null;
   const request = db.transaction(
     (tx) => {
+      assertThreadHostAcceptsWork(tx, thread);
       beforeAppendInTransaction?.({ tx });
       const appended =
         appendPreparedClientTurnRequestedEventWithNotificationInTransaction(
@@ -519,19 +522,17 @@ async function sendThreadMessageWithoutContextClear(
           })
         : payload.input;
   const ownerUserId = getThread(deps.db, thread.id)?.ownerUserId ?? null;
-  if (thread.agentId !== null) {
-    ({ input, inputGroups } = await appendPluginMentionContext(
-      {
-        input,
-        ...(inputGroups !== undefined ? { inputGroups } : {}),
-      },
-      {
-        db: deps.db,
-        ownerUserId,
-        agentId: thread.agentId,
-      },
-    ));
-  }
+  ({ input, inputGroups } = await appendPluginMentionContext(
+    {
+      input,
+      ...(inputGroups !== undefined ? { inputGroups } : {}),
+    },
+    {
+      db: deps.db,
+      ownerUserId,
+      ...(thread.agentId === null ? {} : { agentId: thread.agentId }),
+    },
+  ));
   const deferredFirstTurnContext = resolveDeferredFirstTurnContext(
     deps.db,
     thread.id,
@@ -551,12 +552,20 @@ async function sendThreadMessageWithoutContextClear(
       });
     }
   };
-  await validatePromptAttachmentReferences({
+  const resolvedInput = await resolvePromptAttachmentReferences({
     db: deps.db,
     dataDir: deps.config.dataDir,
     input,
     projectId: thread.projectId,
+    hostId: threadTargetHostId(deps, thread),
   });
+  const resolvedByInput = new Map(
+    input.map((item, index) => [item, resolvedInput[index]!]),
+  );
+  input = resolvedInput;
+  inputGroups = inputGroups?.map((group) =>
+    group.map((item) => resolvedByInput.get(item) ?? item),
+  );
   // Agent-originated CLI sends still appear as normal turn requests in the
   // timeline, while initiator lets policy distinguish the source. A retry is
   // `system` whatever the original was: nobody asked for it a second time, and

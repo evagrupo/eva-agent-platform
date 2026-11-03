@@ -1,4 +1,8 @@
-import { WebSocket as NodeWsWebSocket, type RawData } from "ws";
+import {
+  WebSocket as NodeWsWebSocket,
+  type ClientOptions,
+  type RawData,
+} from "ws";
 import {
   createRealtimeSocketAdapter,
   wrapStandardWebsocket,
@@ -18,8 +22,11 @@ function decodeWsMessageData(data: RawData): string {
   return Buffer.from(new Uint8Array(data)).toString("utf8");
 }
 
-export function wrapNodeWsWebsocket(url: string): BbRealtimeSocket {
-  const socket = new NodeWsWebSocket(url);
+export function wrapNodeWsWebsocket(
+  url: string,
+  options?: ClientOptions,
+): BbRealtimeSocket {
+  const socket = new NodeWsWebSocket(url, options);
   const adapter = createRealtimeSocketAdapter(socket);
   socket.on("open", () => adapter.onopen?.());
   socket.on("message", (data) =>

@@ -33,9 +33,9 @@ function catalogEntry(
     source: `npm:${pluginId}`,
     repositoryUrl: null,
     marketplace: "bb-community",
-    marketplaceDisplayName: "BB Community",
+    marketplaceDisplayName: "EVA Community",
     publisherKey: "bb-community",
-    publisherLabel: "BB Community",
+    publisherLabel: "EVA Community",
     official: true,
     author: {
       name: "Pat Lee",
@@ -43,6 +43,8 @@ function catalogEntry(
       url: "https://github.com/patlee",
     },
     installed: false,
+    conflictingInstallSource: null,
+    installedByDefault: false,
     installs: 10,
     compatible: true,
     incompatibleReason: null,
@@ -218,12 +220,10 @@ describe("PluginAuthorPage", () => {
       "Open Alpha details",
     ]);
     const sort = screen.getByRole("button", {
-      name: "Sort: Most installed, descending",
+      name: "Sort: Installs, descending",
     });
     fireEvent.pointerDown(sort);
-    fireEvent.click(
-      screen.getByRole("menuitemradio", { name: "Most installed" }),
-    );
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Installs" }));
     expect(cardOrder()).toEqual([
       "Open Beta details",
       "Open Gamma details",

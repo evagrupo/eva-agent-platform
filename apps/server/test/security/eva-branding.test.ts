@@ -38,7 +38,6 @@ const productFiles = [
   "../../../../packages/templates/src/templates/bb-guide-plugins.md",
   "../../../../packages/templates/src/templates/bb-guide-providers.md",
   "../../../../packages/templates/src/templates/bb-guide-threads.md",
-  "../../../../packages/templates/src/templates/standard-agent-append-instructions.md",
 ];
 
 const upstreamProductPattern =

@@ -204,7 +204,7 @@ describe("PluginPermissionModePicker", () => {
     expect(onChange).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Change provider" }));
-    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith("auto"));
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith("full"));
 
     fireEvent.click(screen.getByRole("button", { name: "Change environment" }));
     await waitFor(() =>

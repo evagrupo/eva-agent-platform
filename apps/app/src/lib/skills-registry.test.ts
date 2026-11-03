@@ -1,5 +1,4 @@
 import type { SkillSummary } from "@bb/server-contract";
-import { RESOURCE_GRID_PAGE_SIZE } from "@bb/shared-ui/resource-pagination";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildRegistrySkillReferencePrompt,
@@ -9,7 +8,6 @@ import {
   fetchRegistrySkills,
   formatInstallCount,
   formatRegistrySource,
-  REGISTRY_PAGE_SIZE,
   registryRepositoryKey,
   resolveInstalledRegistrySkill,
 } from "./skills-registry";
@@ -148,7 +146,7 @@ describe("registry skill formatting", () => {
   it("builds an editable prompt that preserves source identity without copying it", () => {
     expect(buildRegistrySkillReferencePrompt(registrySkill)).toBe(
       [
-        "Create a new, distinct bb skill using the skills.sh entry below as a reference.",
+        "Create a new, distinct EVA skill using the skills.sh entry below as a reference.",
         "",
         'Reference name: "Useful skill"',
         'Reference skill ID: "owner/repo/useful-skill"',
@@ -188,9 +186,5 @@ describe("registry skill formatting", () => {
     expect(formatInstallCount(999)).toBe("999");
     expect(formatInstallCount(1_000)).toBe("1.0K");
     expect(formatInstallCount(1_250_000)).toBe("1.3M");
-  });
-
-  it("uses the shared resource grid page size", () => {
-    expect(REGISTRY_PAGE_SIZE).toBe(RESOURCE_GRID_PAGE_SIZE);
   });
 });

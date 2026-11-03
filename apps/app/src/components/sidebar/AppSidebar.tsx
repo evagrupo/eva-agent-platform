@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { flushSync } from "react-dom";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { Icon } from "@bb/shared-ui/icon";
 import { THREAD_JUMP_APP_COMMAND_IDS } from "@bb/domain";
@@ -6,15 +13,16 @@ import { useNavigate } from "react-router-dom";
 import { OverflowFade } from "@/components/ui/overflow-fade.js";
 import {
   Sidebar,
+  SidebarCollapsibleBody,
   SidebarContent,
   SidebarFooter,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuButton,
   useCloseMobileSidebar,
   useSidebar,
 } from "@/components/ui/sidebar.js";
-import { ProjectList } from "./ProjectList";
+import { ThreadActionSurfaceVisibility } from "@/lib/thread-actions/thread-action-registry";
 import { PluginThreadList } from "./PluginThreadList";
 import { useThreadListReplacement } from "./threadListProvider";
 import {
@@ -25,9 +33,11 @@ import {
 import { SidebarPluginAttentionGlyph } from "./SidebarPluginAttentionGlyph";
 import { SidebarUpdatesBadge } from "./SidebarUpdatesBadge";
 import { SidebarResizeHandle, SidebarTopReserveRow } from "./SidebarChrome";
-import { SIDEBAR_FOOTER_ACTION_CLASS } from "./sidebarRowClasses";
+import { SIDEBAR_FOOTER_ACTION_CLASS } from "@bb/shared-ui/sidebar-row-classes";
 import { getRootComposeRoutePath, getThreadRoutePath } from "@/lib/route-paths";
-import { usePaneContentSplitDrag } from "./usePaneContentSplitDrag";
+import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
+import { setPreferredTheme, usePreferredTheme } from "@/hooks/useTheme";
+import { AppearanceFooterControls } from "./AppearanceFooterControls";
 import {
   EMPTY_SIDEBAR_THREAD_SHORTCUT_KEYS,
   getSidebarThreadNavigationTargets,
@@ -38,44 +48,49 @@ import {
 } from "./sidebarThreadShortcuts";
 import {
   useAppCommandHandler,
-  useAppCommandShortcut,
   useAppCommandShortcuts,
   useIsAppCommandModifierHeld,
   useIndexedAppCommandHandlers,
 } from "@/components/commands/AppCommandProvider";
 import { useRouteState } from "@/hooks/useRouteState";
-import { SidebarNavigationRegion } from "./SidebarNavigationRegion";
-import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
-import { setPreferredTheme, usePreferredTheme } from "@/hooks/useTheme";
-import { AppearanceFooterControls } from "./AppearanceFooterControls";
-
-const NEW_THREAD_PANE_CONTENT = { kind: "new-thread" } as const;
+import { SidebarNavigationModelProvider } from "./SidebarNavigationModel";
+import { SIDEBAR_FOOTER_MORE_ID } from "./sidebarFooterPreferences";
+import { LazySidebarFooterCustomize } from "./LazySidebarFooterCustomize";
+import { type NavRailCustomizeState } from "./AppNavRail";
 
 interface AppSidebarProps {
   onResizeMouseDown: (event: React.MouseEvent<HTMLDivElement>) => void;
   isResizing: boolean;
-  settingsRoutePath: string;
-  mobileHosted?: { hidden: boolean };
+  isBodyHidden: boolean;
+  renderRail: (customize: NavRailCustomizeState) => ReactNode;
+  alternateBody: ReactNode;
 }
 
 export function AppSidebar({
   onResizeMouseDown,
   isResizing,
-  settingsRoutePath,
-  mobileHosted,
+  isBodyHidden,
+  renderRail,
+  alternateBody,
 }: AppSidebarProps) {
   const coreAuth = useCoreAuth();
+  const resolvedTheme = usePreferredTheme();
+  const sidebarFooterAllowed = canUseCoreCapability(coreAuth, "sidebarFooter");
+  const threadReadAllowed =
+    canUseCoreCapability(coreAuth, "threadOwnRead") ||
+    canUseCoreCapability(coreAuth, "threadAllRead");
+  const threadWriteAllowed =
+    canUseCoreCapability(coreAuth, "threadOwnWrite") ||
+    canUseCoreCapability(coreAuth, "threadAllWrite");
   const threadListReplacement = useThreadListReplacement();
   const { threadId: activeThreadId } = useRouteState();
   const navigate = useNavigate();
-  const newThreadSplit = usePaneContentSplitDrag({
-    content: NEW_THREAD_PANE_CONTENT,
-    enabled: true,
-    label: "New thread",
-  });
   const closeOnMobile = useCloseMobileSidebar();
-  const { isCompactViewport, openMobile } = useSidebar();
-  const [compactCustomizeMode, setCompactCustomizeMode] = useState(false);
+  const { isCompactViewport, open, openMobile } = useSidebar();
+  const isThreadListVisible =
+    !isBodyHidden && (isCompactViewport ? openMobile : open);
+  const [isFooterCustomizing, setFooterCustomizing] = useState(false);
+  const [isNavigationCustomizing, setNavigationCustomizing] = useState(false);
   const [threadShortcutKeysById, setThreadShortcutKeysById] = useState<
     ReadonlyMap<string, SidebarThreadShortcutPresentation>
   >(EMPTY_SIDEBAR_THREAD_SHORTCUT_KEYS);
@@ -87,18 +102,7 @@ export function AppSidebar({
     THREAD_JUMP_APP_COMMAND_IDS,
   );
   const isAppCommandModifierHeld = useIsAppCommandModifierHeld();
-  const settingsShortcut = useAppCommandShortcut("settings.open");
-  const resolvedTheme = usePreferredTheme();
   const pluginSidebarFooter = usePluginSidebarFooterDisclosure();
-  const sidebarFooterAllowed = canUseCoreCapability(coreAuth, "sidebarFooter");
-  const signOutAvailable = coreAuth?.authenticated === true;
-  const settingsAllowed = canUseCoreCapability(coreAuth, "settings");
-  const threadReadAllowed =
-    canUseCoreCapability(coreAuth, "threadOwnRead") ||
-    canUseCoreCapability(coreAuth, "threadAllRead");
-  const threadWriteAllowed =
-    canUseCoreCapability(coreAuth, "threadOwnWrite") ||
-    canUseCoreCapability(coreAuth, "threadAllWrite");
 
   const handleNewChat = useCallback(() => {
     closeOnMobile();
@@ -170,28 +174,24 @@ export function AppSidebar({
     [activeThreadId, closeOnMobile, navigate],
   );
 
-  const isHiddenHostedBody = mobileHosted?.hidden === true;
-  const isCompactCustomizeModeActive =
-    isCompactViewport && compactCustomizeMode;
   useEffect(() => {
-    if (!isCompactViewport || !openMobile || isHiddenHostedBody) {
-      setCompactCustomizeMode(false);
-    }
-  }, [isCompactViewport, isHiddenHostedBody, openMobile]);
+    if (!isCompactViewport) return;
+    if (!openMobile || isBodyHidden) setFooterCustomizing(false);
+    if (!openMobile) setNavigationCustomizing(false);
+  }, [isBodyHidden, isCompactViewport, openMobile]);
   const activateVisibleThreadShortcut = useCallback(
-    (index: number) =>
-      isHiddenHostedBody ? false : activateThreadShortcut(index),
-    [activateThreadShortcut, isHiddenHostedBody],
+    (index: number) => (isBodyHidden ? false : activateThreadShortcut(index)),
+    [activateThreadShortcut, isBodyHidden],
   );
   useIndexedAppCommandHandlers(
     THREAD_JUMP_APP_COMMAND_IDS,
     activateVisibleThreadShortcut,
   );
   useAppCommandHandler("thread.previous", () =>
-    isHiddenHostedBody ? false : activateAdjacentThread(-1),
+    isBodyHidden ? false : activateAdjacentThread(-1),
   );
   useAppCommandHandler("thread.next", () =>
-    isHiddenHostedBody ? false : activateAdjacentThread(1),
+    isBodyHidden ? false : activateAdjacentThread(1),
   );
 
   useEffect(() => {
@@ -202,129 +202,112 @@ export function AppSidebar({
     hideThreadShortcuts();
   }, [hideThreadShortcuts, isAppCommandModifierHeld, showThreadShortcuts]);
 
-  const originalThreadList = (
-    <ProjectList
-      onProjectSelect={closeOnMobile}
-    />
-  );
+  const signOutItem =
+    coreAuth?.authenticated === true ? (
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          aria-label="Sign out"
+          tooltip={{ children: "Sign out", hidden: false, side: "top" }}
+          className={SIDEBAR_FOOTER_ACTION_CLASS}
+          data-testid="sidebar-footer-sign-out"
+          onClick={() => {
+            closeOnMobile();
+            void coreAuth.signOut();
+          }}
+        >
+          <Icon name="LogOut" aria-hidden="true" />
+          <span className="sr-only">Sign out</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    ) : null;
 
   const body = (
     <>
       <SidebarTopReserveRow testId="app-sidebar-top-reserve-row" />
-      <SidebarNavigationRegion
-        compactCustomizeMode={isCompactCustomizeModeActive}
-        onCompactCustomizeModeChange={setCompactCustomizeMode}
-        onNavigate={closeOnMobile}
-        splitEnabled
-        newThreadSplit={newThreadSplit}
-        onNewChat={threadWriteAllowed ? handleNewChat : undefined}
-        onSearchThreads={threadReadAllowed ? closeOnMobile : undefined}
-      />
-      <div
-        aria-hidden="true"
-        className={cn(
-          "mx-2 my-2 shrink-0 border-t border-sidebar-border/25",
-          isCompactCustomizeModeActive && "hidden",
-        )}
-        data-testid="app-sidebar-navigation-divider"
-      />
       {threadReadAllowed ? (
-        <SidebarContent
-          className={cn(isCompactCustomizeModeActive && "hidden")}
-          aria-hidden={isCompactCustomizeModeActive ? true : undefined}
-          inert={isCompactCustomizeModeActive ? true : undefined}
-        >
-          <PluginThreadList
-            replacement={threadListReplacement}
-            original={originalThreadList}
-            searchQuery=""
-            onNavigate={closeOnMobile}
-          />
+        <SidebarContent>
+          <ThreadActionSurfaceVisibility visible={isThreadListVisible}>
+            <PluginThreadList
+              replacement={threadListReplacement}
+              onNavigate={closeOnMobile}
+            />
+          </ThreadActionSurfaceVisibility>
         </SidebarContent>
       ) : null}
-      {sidebarFooterAllowed || signOutAvailable ? (
-        <SidebarFooter className="relative">
-          <OverflowFade placement="above" tone="sidebar" size="sm" />
-          {sidebarFooterAllowed ? (
+      <SidebarFooter className="relative">
+        <OverflowFade placement="above" tone="sidebar" size="sm" />
+        {sidebarFooterAllowed ? (
+          isFooterCustomizing ? (
+            <div className="max-h-[50svh] overflow-y-auto">
+              <LazySidebarFooterCustomize
+                onDone={() => {
+                  flushSync(() => setFooterCustomizing(false));
+                  document.getElementById(SIDEBAR_FOOTER_MORE_ID)?.focus();
+                }}
+              />
+            </div>
+          ) : (
             <PluginSidebarFooterDisclosure
               item={pluginSidebarFooter.activeItem}
               onDismiss={pluginSidebarFooter.dismiss}
             />
-          ) : null}
-          <SidebarMenu className="flex-row flex-wrap-reverse items-center gap-1">
-            {sidebarFooterAllowed ? (
+          )
+        ) : null}
+        <SidebarMenu
+          className={cn(
+            "flex-row items-center gap-1",
+            sidebarFooterAllowed && isFooterCustomizing && "hidden",
+          )}
+        >
+          {sidebarFooterAllowed ? (
+            <>
               <PluginSidebarFooterItems
+                onCustomize={() => {
+                  pluginSidebarFooter.dismiss();
+                  setNavigationCustomizing(false);
+                  setFooterCustomizing(true);
+                }}
                 activeDisclosureKey={pluginSidebarFooter.activeKey}
                 onDisclosureCommand={pluginSidebarFooter.handleCommand}
                 onNavigate={closeOnMobile}
                 builtInActions={[
-                  ...(settingsAllowed
-                    ? [
-                        {
-                          id: "settings" as const,
-                          href: settingsRoutePath,
-                          ariaLabel: settingsShortcut
-                            ? `Settings (${settingsShortcut.label})`
-                            : "Settings",
-                          ariaKeyShortcuts: settingsShortcut?.ariaKeyshortcuts,
-                          onActivate: () => {
-                            closeOnMobile();
-                            void navigate(settingsRoutePath);
-                          },
-                        },
-                      ]
-                    : []),
                   {
-                    id: "theme" as const,
+                    id: "mobile",
+                    href: "/settings/mobile",
+                    onActivate: () => {
+                      closeOnMobile();
+                      void navigate("/settings/mobile");
+                    },
+                  },
+                  {
+                    id: "theme",
                     ariaLabel:
                       resolvedTheme === "dark"
                         ? "Switch to light mode"
                         : "Switch to dark mode",
-                    onActivate: () => {
+                    onActivate: () =>
                       setPreferredTheme(
                         resolvedTheme === "dark" ? "light" : "dark",
-                      );
-                    },
+                      ),
                   },
                 ]}
+              >
+                {signOutItem}
+              </PluginSidebarFooterItems>
+              <SidebarPluginAttentionGlyph
+                className={SIDEBAR_FOOTER_ACTION_CLASS}
+                onNavigate={closeOnMobile}
               />
-            ) : (
+              <SidebarUpdatesBadge onNavigate={closeOnMobile} />
+            </>
+          ) : (
+            <>
               <AppearanceFooterControls />
-            )}
-            <li aria-hidden="true" className="min-w-0 flex-1" />
-            {sidebarFooterAllowed ? (
-              <>
-                <SidebarPluginAttentionGlyph
-                  className={SIDEBAR_FOOTER_ACTION_CLASS}
-                  onNavigate={closeOnMobile}
-                />
-                <SidebarUpdatesBadge onNavigate={closeOnMobile} />
-              </>
-            ) : null}
-            {signOutAvailable ? (
-              <SidebarMenuItem className="min-w-0">
-                <SidebarMenuButton
-                  aria-label="Sign out"
-                  tooltip={{ children: "Sign out", hidden: false, side: "top" }}
-                  className={SIDEBAR_FOOTER_ACTION_CLASS}
-                  data-testid="sidebar-footer-sign-out"
-                  onClick={() => {
-                    closeOnMobile();
-                    void coreAuth?.signOut();
-                  }}
-                >
-                  <Icon
-                    name="LogOut"
-                    className="size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span className="sr-only">Sign out</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ) : null}
-          </SidebarMenu>
-        </SidebarFooter>
-      ) : null}
+              {signOutItem}
+            </>
+          )}
+        </SidebarMenu>
+      </SidebarFooter>
       <SidebarResizeHandle
         testId="app-sidebar-resize-handle"
         isResizing={isResizing}
@@ -335,18 +318,31 @@ export function AppSidebar({
 
   return (
     <SidebarThreadShortcutKeysContext.Provider value={threadShortcutKeysById}>
-      {mobileHosted ? (
-        <div
-          ref={sidebarRef}
-          data-testid="app-sidebar-body"
-          hidden={mobileHosted.hidden}
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          {body}
-        </div>
-      ) : (
-        <Sidebar ref={sidebarRef}>{body}</Sidebar>
-      )}
+      <SidebarNavigationModelProvider
+        onNavigate={closeOnMobile}
+        onNewChat={threadWriteAllowed ? handleNewChat : undefined}
+        onSearchThreads={threadReadAllowed ? closeOnMobile : undefined}
+        splitEnabled
+      >
+        <Sidebar ref={sidebarRef}>
+          <div className="flex min-h-0 flex-1">
+            {renderRail({
+              isOpen: isNavigationCustomizing,
+              onOpenChange: setNavigationCustomizing,
+            })}
+            <SidebarCollapsibleBody data-testid="nav-rail-sidebar-body">
+              <div
+                data-testid="app-sidebar-body"
+                hidden={isBodyHidden}
+                className="flex min-h-0 min-w-0 flex-1 flex-col"
+              >
+                {body}
+              </div>
+              {alternateBody}
+            </SidebarCollapsibleBody>
+          </div>
+        </Sidebar>
+      </SidebarNavigationModelProvider>
     </SidebarThreadShortcutKeysContext.Provider>
   );
 }

@@ -52,7 +52,6 @@ interface EvaUpdateOptions extends JsonOutputOptions {
   name?: string;
   description?: string;
   icon?: string;
-  status?: "draft" | "shadow" | "live";
   instructions?: string;
   provider?: string;
   model?: string;
@@ -85,6 +84,22 @@ export function registerEvaCommands(
     .description("List and coordinate EVA agents");
 
   eva
+    .command("report <thread-id> <name>")
+    .description("Read a Markdown report from an agent chat")
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      action(
+        async (threadId: string, name: string, options: EvaListOptions) => {
+          const result = await createCliBbSdk(getUrl()).evaAgents.report({
+            threadId,
+            name,
+          });
+          if (!outputJson(options, result)) console.log(result.content);
+        },
+      ),
+    );
+
+  eva
     .command("list")
     .description("List EVA agents available under the current policy")
     .option("--json", "Print machine-readable JSON output")
@@ -95,14 +110,13 @@ export function registerEvaCommands(
         console.log(
           renderBorderlessTable(
             {
-              head: ["ID", "NAME", "STATUS", "SKILLS", "WEEK"],
-              colWidths: [24, 28, 12, 10, 10],
+              head: ["ID", "NAME", "SKILLS", "WEEK"],
+              colWidths: [24, 28, 10, 10],
               trimTrailingWhitespace: true,
             },
             result.agents.map((agent) => [
               agent.id,
               agent.displayName,
-              agent.status,
               String(agent.skills.length),
               String(agent.weeklyConversationCount),
             ]),
@@ -122,7 +136,6 @@ export function registerEvaCommands(
         });
         if (outputJson(options, result)) return;
         console.log(`${result.agent.displayName} (${result.agent.id})`);
-        console.log(`Status: ${result.agent.status}`);
         console.log(`Mandate: ${result.agent.description}`);
         console.log(`Workspace: ${result.agent.workspace.relativePath}`);
         console.log(`Skills: ${result.agent.skills.length}`);
@@ -171,28 +184,39 @@ export function registerEvaCommands(
     .description("Show safe Git sync status for an EVA workspace")
     .option("--json", "Print machine-readable JSON output")
     .action(
-      action(async (agentId: string, options: EvaWorkspaceSyncStatusOptions) => {
-        const result = await createCliBbSdk(getUrl()).evaAgents.workspaceSync({
-          agentId,
-        });
-        if (outputJson(options, result)) return;
-        const status = result.status;
-        console.log(`Workspace: ${status.workspacePath}`);
-        console.log(`Repository: ${status.repositoryInitialized ? "initialized" : "not initialized"}`);
-        console.log(`Remote: ${status.configured ? "configured" : "not configured"}`);
-        console.log(`Branch: ${status.branch}`);
-        console.log(`State: ${status.state}`);
-        console.log(`Working tree: ${status.workingTree}`);
-        console.log(`Last operation: ${status.lastOperation} (${status.lastResult})`);
-        if (status.changes.length > 0) {
-          console.log("Changes:");
-          for (const change of status.changes) console.log(`  ${change.code} ${change.path}`);
-        }
-        if (status.blockedFiles.length > 0) {
-          console.log("Blocked files:");
-          for (const file of status.blockedFiles) console.log(`  ${file}`);
-        }
-      }),
+      action(
+        async (agentId: string, options: EvaWorkspaceSyncStatusOptions) => {
+          const result = await createCliBbSdk(getUrl()).evaAgents.workspaceSync(
+            {
+              agentId,
+            },
+          );
+          if (outputJson(options, result)) return;
+          const status = result.status;
+          console.log(`Workspace: ${status.workspacePath}`);
+          console.log(
+            `Repository: ${status.repositoryInitialized ? "initialized" : "not initialized"}`,
+          );
+          console.log(
+            `Remote: ${status.configured ? "configured" : "not configured"}`,
+          );
+          console.log(`Branch: ${status.branch}`);
+          console.log(`State: ${status.state}`);
+          console.log(`Working tree: ${status.workingTree}`);
+          console.log(
+            `Last operation: ${status.lastOperation} (${status.lastResult})`,
+          );
+          if (status.changes.length > 0) {
+            console.log("Changes:");
+            for (const change of status.changes)
+              console.log(`  ${change.code} ${change.path}`);
+          }
+          if (status.blockedFiles.length > 0) {
+            console.log("Blocked files:");
+            for (const file of status.blockedFiles) console.log(`  ${file}`);
+          }
+        },
+      ),
     );
 
   sync
@@ -203,16 +227,22 @@ export function registerEvaCommands(
     .option("--disabled", "Store the remote without enabling synchronization")
     .option("--json", "Print machine-readable JSON output")
     .action(
-      action(async (agentId: string, options: EvaWorkspaceSyncConfigureOptions) => {
-        const result = await createCliBbSdk(getUrl()).evaAgents.configureWorkspaceSync({
-          agentId,
-          remoteUrl: options.remote,
-          branch: options.branch,
-          enabled: !options.disabled,
-        });
-        if (outputJson(options, result)) return;
-        console.log(`Configured workspace sync for ${agentId} on ${result.status.branch}`);
-      }),
+      action(
+        async (agentId: string, options: EvaWorkspaceSyncConfigureOptions) => {
+          const result = await createCliBbSdk(
+            getUrl(),
+          ).evaAgents.configureWorkspaceSync({
+            agentId,
+            remoteUrl: options.remote,
+            branch: options.branch,
+            enabled: !options.disabled,
+          });
+          if (outputJson(options, result)) return;
+          console.log(
+            `Configured workspace sync for ${agentId} on ${result.status.branch}`,
+          );
+        },
+      ),
     );
 
   sync
@@ -220,64 +250,101 @@ export function registerEvaCommands(
     .description("Initialize a workspace Git repository without deleting files")
     .option("--json", "Print machine-readable JSON output")
     .action(
-      action(async (agentId: string, options: EvaWorkspaceSyncStatusOptions) => {
-        const result = await createCliBbSdk(getUrl()).evaAgents.initializeWorkspaceSync({
-          agentId,
-        });
-        if (outputJson(options, result)) return;
-        console.log(`Initialized workspace repository for ${agentId}`);
-      }),
+      action(
+        async (agentId: string, options: EvaWorkspaceSyncStatusOptions) => {
+          const result = await createCliBbSdk(
+            getUrl(),
+          ).evaAgents.initializeWorkspaceSync({
+            agentId,
+          });
+          if (outputJson(options, result)) return;
+          console.log(`Initialized workspace repository for ${agentId}`);
+        },
+      ),
     );
 
   sync
     .command("commit <agent-id> <message>")
     .description("Commit allowed workspace files after reviewing status")
-    .requiredOption("--fingerprint <hash>", "Fingerprint from a fresh sync status")
+    .requiredOption(
+      "--fingerprint <hash>",
+      "Fingerprint from a fresh sync status",
+    )
     .option("--json", "Print machine-readable JSON output")
     .action(
-      action(async (agentId: string, message: string, options: EvaWorkspaceSyncCommitOptions) => {
-        const result = await createCliBbSdk(getUrl()).evaAgents.commitWorkspaceSync({
-          agentId,
-          message,
-          expectedFingerprint: options.fingerprint,
-        });
-        if (outputJson(options, result)) return;
-        console.log(`Committed workspace changes for ${agentId}`);
-      }),
+      action(
+        async (
+          agentId: string,
+          message: string,
+          options: EvaWorkspaceSyncCommitOptions,
+        ) => {
+          const result = await createCliBbSdk(
+            getUrl(),
+          ).evaAgents.commitWorkspaceSync({
+            agentId,
+            message,
+            expectedFingerprint: options.fingerprint,
+          });
+          if (outputJson(options, result)) return;
+          console.log(`Committed workspace changes for ${agentId}`);
+        },
+      ),
     );
 
   sync
     .command("pull <agent-id>")
     .description("Fast-forward restore a workspace after explicit confirmation")
-    .requiredOption("--fingerprint <hash>", "Fingerprint from a fresh sync status")
+    .requiredOption(
+      "--fingerprint <hash>",
+      "Fingerprint from a fresh sync status",
+    )
     .option("--allow-nonempty", "Confirm the workspace is safe to restore into")
     .option("--json", "Print machine-readable JSON output")
     .action(
-      action(async (agentId: string, options: EvaWorkspaceSyncPreconditionOptions) => {
-        const result = await createCliBbSdk(getUrl()).evaAgents.pullWorkspaceSync({
-          agentId,
-          expectedFingerprint: options.fingerprint,
-          allowNonEmpty: options.allowNonempty === true,
-        });
-        if (outputJson(options, result)) return;
-        console.log(`Restored workspace for ${agentId} with fast-forward-only semantics`);
-      }),
+      action(
+        async (
+          agentId: string,
+          options: EvaWorkspaceSyncPreconditionOptions,
+        ) => {
+          const result = await createCliBbSdk(
+            getUrl(),
+          ).evaAgents.pullWorkspaceSync({
+            agentId,
+            expectedFingerprint: options.fingerprint,
+            allowNonEmpty: options.allowNonempty === true,
+          });
+          if (outputJson(options, result)) return;
+          console.log(
+            `Restored workspace for ${agentId} with fast-forward-only semantics`,
+          );
+        },
+      ),
     );
 
   sync
     .command("push <agent-id>")
     .description("Push the selected branch without force")
-    .requiredOption("--fingerprint <hash>", "Fingerprint from a fresh sync status")
+    .requiredOption(
+      "--fingerprint <hash>",
+      "Fingerprint from a fresh sync status",
+    )
     .option("--json", "Print machine-readable JSON output")
     .action(
-      action(async (agentId: string, options: EvaWorkspaceSyncPreconditionOptions) => {
-        const result = await createCliBbSdk(getUrl()).evaAgents.pushWorkspaceSync({
-          agentId,
-          expectedFingerprint: options.fingerprint,
-        });
-        if (outputJson(options, result)) return;
-        console.log(`Pushed workspace branch for ${agentId}`);
-      }),
+      action(
+        async (
+          agentId: string,
+          options: EvaWorkspaceSyncPreconditionOptions,
+        ) => {
+          const result = await createCliBbSdk(
+            getUrl(),
+          ).evaAgents.pushWorkspaceSync({
+            agentId,
+            expectedFingerprint: options.fingerprint,
+          });
+          if (outputJson(options, result)) return;
+          console.log(`Pushed workspace branch for ${agentId}`);
+        },
+      ),
     );
 
   eva
@@ -322,7 +389,6 @@ export function registerEvaCommands(
     .option("--name <name>", "Display name")
     .option("--description <text>", "Agent mandate")
     .option("--icon <name>", "Icon name")
-    .option("--status <status>", "draft, shadow, or live")
     .option("--instructions <text>", "Operating boundary")
     .option("--provider <id>", "Registered provider ID")
     .option("--model <id>", "Default model")
@@ -338,7 +404,6 @@ export function registerEvaCommands(
             ? {}
             : { description: options.description }),
           ...(options.icon === undefined ? {} : { icon: options.icon }),
-          ...(options.status === undefined ? {} : { status: options.status }),
           ...(options.instructions === undefined
             ? {}
             : { instructions: options.instructions }),

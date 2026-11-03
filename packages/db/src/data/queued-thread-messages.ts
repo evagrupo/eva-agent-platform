@@ -51,7 +51,7 @@ import {
   createQueuedThreadMessageId,
 } from "../ids.js";
 import { createOrderKeyAfter, createOrderKeyBetween } from "./order-keys.js";
-import { queryInSqliteVariableBatches } from "./events.js";
+import { queryInSqliteVariableBatches } from "./sqlite-variable-batches.js";
 
 export interface CreateQueuedThreadMessageInput {
   threadId: string;
@@ -216,10 +216,29 @@ export type SetQueuedThreadMessageGroupBoundaryResult =
   | ReorderQueuedThreadMessageClaimed;
 
 export type UpdateQueuedThreadMessageResult =
-  | { kind: "updated"; queuedMessage: QueuedThreadMessageRow }
+  | {
+      kind: "updated";
+      queuedMessage: QueuedThreadMessageRow;
+      releasedEditHold: boolean;
+    }
   | { kind: "not_found" }
   | { kind: "claimed" }
   | { kind: "stale" };
+
+export interface QueuedThreadMessageEditHoldArgs {
+  id: string;
+  threadId: string;
+}
+
+export interface HoldQueuedThreadMessageForEditArgs
+  extends QueuedThreadMessageEditHoldArgs {
+  heldUntil: number;
+}
+
+export type HoldQueuedThreadMessageForEditResult =
+  | { kind: "held" }
+  | { kind: "not_found" }
+  | { kind: "claimed" };
 
 export type ReleaseQueuedMessageClaimArgs =
   ClaimedQueuedThreadMessageMutationArgs;
@@ -357,6 +376,15 @@ function queuedMessageGroupingEnvelopeMatches(
 
 function isQueuedThreadMessageClaimed(row: QueuedThreadMessageRow): boolean {
   return row.claimedAt !== null || row.claimToken !== null;
+}
+
+function isQueuedThreadMessageGroupEditHeld(
+  rows: readonly QueuedThreadMessageRow[],
+  now: number,
+): boolean {
+  return rows.some(
+    (row) => row.editHeldUntil !== null && row.editHeldUntil > now,
+  );
 }
 
 function requireClaimedQueuedThreadMessage(
@@ -646,6 +674,7 @@ export function createQueuedThreadMessageInTransaction(
       groupWithNext: false,
       claimedAt: null,
       claimToken: null,
+      editHeldUntil: null,
       sortKey,
       createdAt: now,
       updatedAt: now,
@@ -694,6 +723,7 @@ export function updateQueuedThreadMessage(
         .update(queuedThreadMessages)
         .set({
           content: JSON.stringify(input.content),
+          editHeldUntil: null,
           updatedAt: Math.max(Date.now(), existing.updatedAt + 1),
         })
         .where(eq(queuedThreadMessages.id, input.id))
@@ -702,7 +732,11 @@ export function updateQueuedThreadMessage(
       if (!queuedMessage) {
         return { kind: "not_found" };
       }
-      return { kind: "updated", queuedMessage };
+      return {
+        kind: "updated",
+        queuedMessage,
+        releasedEditHold: existing.editHeldUntil !== null,
+      };
     },
     { behavior: "immediate" },
   );
@@ -711,6 +745,48 @@ export function updateQueuedThreadMessage(
     notifier.notifyThread(input.threadId, ["queue-changed"]);
   }
   return result;
+}
+
+export function holdQueuedThreadMessageForEdit(
+  db: DbConnection,
+  args: HoldQueuedThreadMessageForEditArgs,
+): HoldQueuedThreadMessageForEditResult {
+  return db.transaction(
+    (tx): HoldQueuedThreadMessageForEditResult => {
+      const existing = getQueuedThreadMessage(tx, args.id);
+      if (!existing || existing.threadId !== args.threadId) {
+        return { kind: "not_found" };
+      }
+      if (isQueuedThreadMessageClaimed(existing)) {
+        return { kind: "claimed" };
+      }
+      tx.update(queuedThreadMessages)
+        .set({ editHeldUntil: args.heldUntil })
+        .where(eq(queuedThreadMessages.id, args.id))
+        .run();
+      return { kind: "held" };
+    },
+    { behavior: "immediate" },
+  );
+}
+
+export function releaseQueuedThreadMessageEditHold(
+  db: DbConnection,
+  args: QueuedThreadMessageEditHoldArgs,
+): boolean {
+  return (
+    db
+      .update(queuedThreadMessages)
+      .set({ editHeldUntil: null })
+      .where(
+        and(
+          eq(queuedThreadMessages.id, args.id),
+          eq(queuedThreadMessages.threadId, args.threadId),
+          isNotNull(queuedThreadMessages.editHeldUntil),
+        ),
+      )
+      .run().changes > 0
+  );
 }
 
 export function getQueuedThreadMessage(db: DbQueryConnection, id: string) {
@@ -723,7 +799,7 @@ export function getQueuedThreadMessage(db: DbQueryConnection, id: string) {
   );
 }
 
-export function hasQueuedThreadMessages(
+export function hasClaimedQueuedThreadMessages(
   db: DbQueryConnection,
   threadId: string,
 ): boolean {
@@ -731,10 +807,56 @@ export function hasQueuedThreadMessages(
     db
       .select({ id: queuedThreadMessages.id })
       .from(queuedThreadMessages)
-      .where(eq(queuedThreadMessages.threadId, threadId))
+      .where(
+        and(
+          eq(queuedThreadMessages.threadId, threadId),
+          isNotNull(queuedThreadMessages.claimedAt),
+        ),
+      )
       .limit(1)
       .get() !== undefined
   );
+}
+
+export function deleteQueuedRetriesForThreadEventSuffixInTransaction(
+  db: DbTransaction,
+  args: {
+    cutoffSequence: number;
+    oldMaxSequence: number;
+    threadId: string;
+  },
+): number {
+  const retries = db
+    .select()
+    .from(queuedThreadMessages)
+    .where(
+      and(
+        eq(queuedThreadMessages.threadId, args.threadId),
+        eq(queuedThreadMessages.payloadKind, "retry"),
+        exists(
+          db
+            .select({ sequence: events.sequence })
+            .from(events)
+            .where(
+              and(
+                eq(events.threadId, args.threadId),
+                eq(events.type, "client/turn/requested"),
+                sql`${events.sequence} >= ${args.cutoffSequence}`,
+                sql`${events.sequence} <= ${args.oldMaxSequence}`,
+                sql`json_extract(${events.data}, '$.requestId') = ${queuedThreadMessages.retryOfTurnRequestId}`,
+              ),
+            ),
+        ),
+      ),
+    )
+    .all();
+  for (const retry of retries) {
+    clearPreviousQueuedMessageGroupEdgeInTransaction(db, retry);
+    db.delete(queuedThreadMessages)
+      .where(eq(queuedThreadMessages.id, retry.id))
+      .run();
+  }
+  return retries.length;
 }
 
 function manuallyStoppedQueuePauseQuery(
@@ -865,53 +987,6 @@ export function listIdleThreadsWithQueuedMessages(
     .all();
 }
 
-export function claimQueuedThreadMessage(
-  db: DbConnection,
-  notifier: DbNotifier,
-  id: string,
-): ClaimedQueuedThreadMessageRow | null {
-  const claimedQueuedMessage = db.transaction(
-    (tx) => {
-      const existing = tx
-        .select()
-        .from(queuedThreadMessages)
-        .where(eq(queuedThreadMessages.id, id))
-        .get();
-      if (
-        !existing ||
-        existing.claimedAt !== null ||
-        existing.claimToken !== null
-      ) {
-        return null;
-      }
-
-      const now = Date.now();
-      clearPreviousQueuedMessageGroupEdgeInTransaction(tx, existing, now);
-      const claimToken = createQueuedThreadMessageClaimToken();
-      const updated = tx
-        .update(queuedThreadMessages)
-        .set({ claimedAt: now, claimToken, updatedAt: now })
-        .where(
-          and(
-            eq(queuedThreadMessages.id, id),
-            isNull(queuedThreadMessages.claimedAt),
-            isNull(queuedThreadMessages.claimToken),
-          ),
-        )
-        .returning()
-        .get();
-
-      return requireClaimedQueuedThreadMessage(updated ?? null);
-    },
-    { behavior: "immediate" },
-  );
-
-  if (claimedQueuedMessage) {
-    notifier.notifyThread(claimedQueuedMessage.threadId, ["queue-changed"]);
-  }
-  return claimedQueuedMessage;
-}
-
 function claimQueuedThreadMessageIdsInTransaction(
   tx: DbTransaction,
   ids: readonly string[],
@@ -957,15 +1032,25 @@ export type QueuedThreadMessageGroupClaimPolicy =
   | {
       kind: "automatic";
       isGroupEligible: QueuedThreadMessageGroupEligibility;
+      /**
+       * True only for the retry the row's own `next_attempt_at` booked. A recorded
+       * failure hides a row from every other automatic claim — otherwise the
+       * idle drain would re-run a failing send every sweep tick — and the one
+       * claim that must see through it is the retry of that failure.
+       */
+      retryingFailure: boolean;
     }
   | { kind: "explicit-send" };
 
 function isAutomaticQueuedThreadMessageGroupClaimAllowed(
   rows: readonly QueuedThreadMessageRow[],
   pauseOrdinaryMessages: boolean,
+  retryingFailure: boolean,
+  now: number,
 ): boolean {
   return (
-    rows.every((row) => row.failureReason === null) &&
+    !isQueuedThreadMessageGroupEditHeld(rows, now) &&
+    (retryingFailure || rows.every((row) => row.failureReason === null)) &&
     (!pauseOrdinaryMessages ||
       rows.every((row) => !isOrdinaryTurnEndQueuedMessage(row)))
   );
@@ -997,6 +1082,8 @@ export function claimQueuedThreadMessageGroup(
           !isAutomaticQueuedThreadMessageGroupClaimAllowed(
             group,
             isThreadQueueAutoSendPaused(tx, existing.threadId),
+            policy.retryingFailure,
+            Date.now(),
           )) ||
         (policy.kind === "automatic" && !policy.isGroupEligible(group))
       ) {
@@ -1028,7 +1115,7 @@ export function claimNextQueuedThreadMessageGroup(
   db: DbConnection,
   notifier: DbNotifier,
   threadId: string,
-  isGroupEligible?: QueuedThreadMessageGroupEligibility,
+  isGroupEligible: QueuedThreadMessageGroupEligibility,
 ): ClaimedQueuedThreadMessageRow[] | null {
   const claimedQueuedMessages = db.transaction(
     (tx) => {
@@ -1036,22 +1123,31 @@ export function claimNextQueuedThreadMessageGroup(
       // on. A group with one waiting member is skipped whole — dispatching
       // its drainable tail alone would split a batch the sender composed as
       // one prompt — and skipping it does not block the independent rows
-      // behind it: the queue is a queue, not a pipeline.
+      // behind it: the queue is a queue, not a pipeline. The one exception is
+      // a group someone is editing: the drainable rows behind it wait for the
+      // edit, so it still goes first once it is saved or cancelled.
       const queuedMessages = listQueuedThreadMessages(tx, threadId);
       const pauseOrdinaryMessages = isThreadQueueAutoSendPaused(tx, threadId);
+      const now = Date.now();
+      const drainableGroups = partitionQueuedMessageGroups(
+        queuedMessages,
+      ).filter((rows) => rows.some(isIdleDrainableQueuedMessage));
+      const editHeldIndex = drainableGroups.findIndex((rows) =>
+        isQueuedThreadMessageGroupEditHeld(rows, now),
+      );
       const group =
-        partitionQueuedMessageGroups(queuedMessages).find((rows) => {
-          const eligible = isGroupEligible
-            ? rows.some(isIdleDrainableQueuedMessage) && isGroupEligible(rows)
-            : rows.every(isIdleDrainableQueuedMessage);
-          return (
-            eligible &&
-            isAutomaticQueuedThreadMessageGroupClaimAllowed(
-              rows,
-              pauseOrdinaryMessages,
-            )
-          );
-        }) ?? null;
+        drainableGroups
+          .slice(0, editHeldIndex === -1 ? undefined : editHeldIndex)
+          .find(
+            (rows) =>
+              isGroupEligible(rows) &&
+              isAutomaticQueuedThreadMessageGroupClaimAllowed(
+                rows,
+                pauseOrdinaryMessages,
+                false,
+                now,
+              ),
+          ) ?? null;
       if (group === null) {
         return null;
       }
@@ -1301,6 +1397,8 @@ export function requeueClaimedQueuedThreadMessages(
             waitHolder: waitHolderFor(args.waitingOn),
             sendAt: args.sendAt,
             failureReason: null,
+            failureCount: 0,
+            nextAttemptAt: null,
             updatedAt: now,
           })
           .where(
@@ -1321,8 +1419,12 @@ export function requeueClaimedQueuedThreadMessages(
             // A re-queue is a fresh, successful statement of why this row is
             // waiting, which supersedes whatever the previous attempt failed
             // with. Leaving a stale failure next to a current wait would show
-            // the user two contradictory explanations of the same row.
+            // the user two contradictory explanations of the same row, and
+            // would spend the row's remaining attempts against a failure it
+            // has since got past.
             failureReason: null,
+            failureCount: 0,
+            nextAttemptAt: null,
             updatedAt: now,
           })
           .where(
@@ -1674,8 +1776,11 @@ export function setQueuedThreadMessageWaitingOn(
         // successful statement of why this row is waiting supersedes whatever
         // a previous attempt failed with. Leaving a stale failure beside a
         // current wait would show the reader two contradictory explanations of
-        // one row.
+        // one row, and would spend the row's remaining attempts against a
+        // failure it has since got past.
         failureReason: null,
+        failureCount: 0,
+        nextAttemptAt: null,
         updatedAt: Date.now(),
       })
       .where(
@@ -1698,6 +1803,14 @@ export interface SetQueuedThreadMessageFailureReasonArgs {
   id: string;
   threadId: string;
   failureReason: string;
+  now: number;
+  /**
+   * How long to wait before each further automatic attempt, indexed by the
+   * failures already recorded. Running off the end is what makes a failure
+   * terminal, so the caller decides how many attempts a row gets and how far
+   * apart — the policy is the server's, the counting is this row's.
+   */
+  retryDelaysMs: readonly number[];
 }
 
 /**
@@ -1708,33 +1821,98 @@ export interface SetQueuedThreadMessageFailureReasonArgs {
  * is still waiting on whatever it was waiting on, and the failure is a separate
  * fact about the last attempt rather than a new reason to wait. A later
  * successful re-queue clears it (see `requeueClaimedQueuedThreadMessages`).
+ *
+ * Recording a failure also spends one of the row's attempts and books the next
+ * one. What failed a dispatch is usually a condition with an end — a provider
+ * whose plugin is still loading, a workspace mid-rebuild — so the row is owed
+ * another try before anybody is asked to look at it. It is terminal only once
+ * `retryDelaysMs` runs out, which is the state `next_attempt_at` NULL records.
  */
 export function setQueuedThreadMessageFailureReason(
   db: DbConnection,
   notifier: DbNotifier,
   args: SetQueuedThreadMessageFailureReasonArgs,
 ): QueuedThreadMessageRow | null {
-  const updated =
-    db
-      .update(queuedThreadMessages)
-      .set({
-        failureReason: args.failureReason,
-        updatedAt: Date.now(),
-      })
-      .where(
-        and(
-          eq(queuedThreadMessages.id, args.id),
-          eq(queuedThreadMessages.threadId, args.threadId),
-          liveQueuedThreadMessage(),
-        ),
-      )
-      .returning()
-      .get() ?? null;
+  const updated = db.transaction(
+    (tx): QueuedThreadMessageRow | null => {
+      const existing = getQueuedThreadMessage(tx, args.id);
+      if (
+        !existing ||
+        existing.threadId !== args.threadId ||
+        isQueuedThreadMessageClaimed(existing)
+      ) {
+        return null;
+      }
+      const failureCount = existing.failureCount + 1;
+      const delayMs = args.retryDelaysMs[failureCount - 1];
+      return (
+        tx
+          .update(queuedThreadMessages)
+          .set({
+            failureReason: args.failureReason,
+            failureCount,
+            nextAttemptAt: delayMs === undefined ? null : args.now + delayMs,
+            updatedAt: args.now,
+          })
+          .where(
+            and(
+              eq(queuedThreadMessages.id, args.id),
+              eq(queuedThreadMessages.threadId, args.threadId),
+              liveQueuedThreadMessage(),
+            ),
+          )
+          .returning()
+          .get() ?? null
+      );
+    },
+    { behavior: "immediate" },
+  );
 
   if (updated) {
     notifier.notifyThread(args.threadId, ["queue-changed"]);
   }
   return updated;
+}
+
+/**
+ * Every live row whose booked retry has come due, oldest first.
+ *
+ * Deliberately not filtered by wait: the retry is not the wait's wake firing
+ * again, it is core re-asking the whole question from scratch, which is the
+ * only thing that can move a row whose wait went stale while it sat failed
+ * (a `host-offline` row whose host came back during the failure, say). Rows
+ * on archived or deleted threads are excluded for the same reason the due
+ * sweep excludes them: nobody is waiting for those to send.
+ */
+export function listRetryableFailedQueuedThreadMessages(
+  db: DbQueryConnection,
+  now: number,
+): QueuedThreadMessageRow[] {
+  return db
+    .select()
+    .from(queuedThreadMessages)
+    .where(
+      and(
+        isNotNull(queuedThreadMessages.failureReason),
+        isNotNull(queuedThreadMessages.nextAttemptAt),
+        lte(queuedThreadMessages.nextAttemptAt, now),
+        liveQueuedThreadMessage(),
+        exists(
+          db
+            .select({ live: sql`1` })
+            .from(threads)
+            .where(
+              and(
+                eq(threads.id, queuedThreadMessages.threadId),
+                isNull(threads.archivedAt),
+                isNull(threads.deletedAt),
+              ),
+            ),
+        ),
+      ),
+    )
+    .orderBy(asc(queuedThreadMessages.nextAttemptAt), asc(queuedThreadMessages.id))
+    .all();
 }
 
 /**

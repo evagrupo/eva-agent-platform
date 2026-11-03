@@ -6,10 +6,11 @@ const productFiles = [
   "./views/SettingsView.tsx",
   "./components/settings/settings-sections.ts",
   "./components/plugin/browse-hero/browse-hero-archetypes.ts",
-  "./components/sidebar/SidebarNavigationRegion.tsx",
   "./components/sidebar/AppSidebar.tsx",
   "./components/sidebar/sidebarFooterPreferences.ts",
   "./components/AppErrorBoundary.tsx",
+  "./components/onboarding/OnboardingFlow.tsx",
+  "./components/onboarding/OnboardingViews.tsx",
   "./components/plugin/management/AddPluginDialog.tsx",
   "./components/plugin/management/PluginMarketplaceListing.tsx",
   "./components/plugin/management/BrowsePluginsTab.tsx",
@@ -32,7 +33,7 @@ const productFiles = [
   "./lib/plugin-frontend.ts",
   "./views/EvaAdminDashboardView.tsx",
   "./views/EvaAgentsView.tsx",
-  "./components/sidebar/BuiltInSidebarNavigation.tsx",
+  "./components/sidebar/AppNavRail.tsx",
 ];
 
 describe("EVA product surface", () => {

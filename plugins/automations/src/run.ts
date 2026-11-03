@@ -33,9 +33,21 @@ type AgentThreadsSdk = {
     args: Parameters<BbPluginApi["sdk"]["threads"]["spawn"]>[0],
   ): Promise<unknown>;
 };
+type EvaAgentChatLookup = (args: {
+  agentId: string;
+  forThreadId: string;
+}) => Promise<{ chatThreadId: string | null }>;
 export type AgentRunApi = Pick<BbPluginApi, "realtime" | "log"> & {
   sdk: { threads: AgentThreadsSdk };
 };
+
+/** The host SDK's EVA chat lookup, when this bb build provides it. */
+function evaAgentChatLookup(bb: AgentRunApi): EvaAgentChatLookup | null {
+  const evaAgents = (bb.sdk as { evaAgents?: { chat?: unknown } }).evaAgents;
+  return typeof evaAgents?.chat === "function"
+    ? (evaAgents.chat.bind(evaAgents) as EvaAgentChatLookup)
+    : null;
+}
 export type ScriptRunApi = Pick<BbPluginApi, "realtime" | "log"> & {
   sdk: { projects: ProjectsSdk };
 };
@@ -84,9 +96,39 @@ function isProjectGoneError(error: unknown): boolean {
 
 function renderAutomationDueMessage(args: {
   automationId: string;
+  name: string;
   prompt: string;
 }): string {
-  return `[bb automation due:${args.automationId}]\n\n${args.prompt}`;
+  return `[bb automation due:${args.automationId}]\n\nScheduled task: ${args.name}\n\n${args.prompt}`;
+}
+
+/**
+ * The single chat that receives an EVA agent automation's runs: the
+ * automation owner's chat with the agent, resolved fresh on every run so a
+ * replaced chat keeps receiving results. Null when there is none yet.
+ */
+async function resolveAgentChatThreadId(
+  bb: AgentRunApi,
+  automation: AutomationRow,
+  agentId: string,
+): Promise<string | null> {
+  const anchor = automation.targetThreadId ?? automation.createdByThreadId;
+  const lookupChat = evaAgentChatLookup(bb);
+  if (anchor === null || lookupChat === null) {
+    return automation.targetThreadId;
+  }
+  try {
+    const { chatThreadId } = await lookupChat({
+      agentId,
+      forThreadId: anchor,
+    });
+    return chatThreadId ?? automation.targetThreadId;
+  } catch (error) {
+    bb.log.warn(
+      `Automation ${automation.id} could not resolve the ${agentId} chat: ${errorMessage(error)}`,
+    );
+    return automation.targetThreadId;
+  }
 }
 
 function isThreadReusable(thread: SdkThread): boolean {
@@ -110,18 +152,25 @@ export async function executeAgentRun(
   args: AgentRunArgs,
 ): Promise<void> {
   try {
-    if (args.automation.targetThreadId !== null) {
-      await reuseTargetThreadForRun(bb, db, {
-        ...args,
-        targetThreadId: args.automation.targetThreadId,
-      });
+    const agentId = args.execution.agentId;
+    const targetThreadId =
+      agentId === undefined
+        ? args.automation.targetThreadId
+        : await resolveAgentChatThreadId(bb, args.automation, agentId);
+    if (targetThreadId !== null) {
+      await reuseTargetThreadForRun(bb, db, { ...args, targetThreadId });
       return;
     }
     const thread = sdkThreadSchema.parse(
       await bb.sdk.threads.spawn({
         projectId: args.automation.projectId,
         environment: args.execution.environment,
-        prompt: args.execution.prompt,
+        ...(agentId === undefined ? {} : { agentId }),
+        prompt: renderAutomationDueMessage({
+          automationId: args.automation.id,
+          name: args.automation.name,
+          prompt: args.execution.prompt,
+        }),
         title: args.automation.name,
         providerId: args.execution.providerId,
         model: args.execution.model,
@@ -138,6 +187,9 @@ export async function executeAgentRun(
       runId: args.run.id,
       threadId: thread.id,
       now: Date.now(),
+      // A thread started for an EVA agent becomes the user's chat with that
+      // agent, so it keeps the ability to schedule work.
+      spawned: agentId === undefined,
     });
   } catch (error) {
     settleDispatchFailure(bb, db, args, error);
@@ -214,6 +266,7 @@ async function reuseTargetThreadForRun(
     runId: args.run.id,
     threadId: args.targetThreadId,
     now: Date.now(),
+    spawned: false,
   });
   await bb.sdk.threads.send({
     threadId: args.targetThreadId,
@@ -223,6 +276,7 @@ async function reuseTargetThreadForRun(
         type: "text",
         text: renderAutomationDueMessage({
           automationId: args.automation.id,
+          name: args.automation.name,
           prompt: args.execution.prompt,
         }),
         mentions: [],
@@ -439,9 +493,6 @@ async function reconcileOutcome(
         status: "failed",
         error: "Turn failed while the automations plugin was not running",
       };
-    // Still going somewhere: leave the run marked running and re-check later.
-    // `pending` belongs here — the thread's first dispatch is queued, not
-    // failed, so the run has neither succeeded nor finished.
     case "pending":
     case "starting":
     case "active":

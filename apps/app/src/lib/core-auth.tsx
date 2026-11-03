@@ -387,7 +387,6 @@ export function CoreAuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Supplies a fixed auth state; for tests and embedded surfaces with no session. */
 export function StaticCoreAuthProvider({
   value,
   children,
@@ -977,6 +976,12 @@ export function canUseCorePlugin(
     (auth.status === "ready" && !auth.required && !auth.authenticated)
   ) {
     return true;
+  }
+  if (pluginId === "thread-list") {
+    return (
+      canUseCoreCapability(auth, "threadOwnRead") ||
+      canUseCoreCapability(auth, "threadAllRead")
+    );
   }
   if (
     !canUseCoreCapability(auth, "plugins") ||

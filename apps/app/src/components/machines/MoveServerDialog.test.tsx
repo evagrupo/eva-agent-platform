@@ -276,7 +276,7 @@ describe("MoveServerDialog", () => {
     ).toHaveBeenLastCalledWith({ targetHostId: TARGET.id, serverUrl: null });
   });
 
-  it("requires confirming that the existing bb data on the machine gets archived", async () => {
+  it("requires confirming that the existing EVA data on the machine gets archived", async () => {
     vi.mocked(sdk.experimental_server.checkMove).mockResolvedValue(
       checkResponse({
         existingTargetServerData: {
@@ -299,7 +299,7 @@ describe("MoveServerDialog", () => {
     renderDialog();
 
     const confirmation = await screen.findByRole("checkbox", {
-      name: /Archive the existing bb data at \/Users\/sawyer\/\.bb/u,
+      name: /Archive the existing EVA data at \/Users\/sawyer\/\.bb/u,
     });
     expect(screen.getByText(/^5\.0 MB\./u)).toBeDefined();
     expect(startButton().hasAttribute("disabled")).toBe(true);

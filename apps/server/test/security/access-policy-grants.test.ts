@@ -24,6 +24,7 @@ import {
   policyBootstrapForContext,
   reasoningLevelsAllowedByPolicyForAgent,
   resolveCorePolicy,
+  resolveEvaAgentExecutionDefaults,
   type CoreAuthContext,
   type CorePolicy,
 } from "../../src/access-policy.js";
@@ -140,6 +141,119 @@ function execution(
 }
 
 describe("agent-bound execution policy", () => {
+  it("prefers an agent tuple and otherwise falls back to policy defaults", () => {
+    const agent = {
+      id: "crm",
+      providerIds: ["codex", "acp-cursor"],
+      defaultProviderId: "acp-cursor",
+      defaultModel: "grok-4.7",
+      defaultReasoningLevel: "high" as const,
+      defaultPermissionMode: "full" as const,
+    };
+    const policy: CorePolicy = {
+      ...defaultAdminPolicy,
+      defaultProviderId: "codex",
+      defaultModel: "gpt-6.1-terra",
+      defaultReasoningLevel: "xhigh",
+      defaultPermissionMode: "full",
+    };
+
+    expect(resolveEvaAgentExecutionDefaults(policy, agent)).toEqual({
+      providerId: "codex",
+      model: "gpt-6.1-terra",
+      reasoningLevel: "xhigh",
+      permissionMode: "full",
+    });
+
+    expect(
+      resolveEvaAgentExecutionDefaults(
+        {
+          ...policy,
+          agentExecutionTuples: [
+            {
+              agentId: "crm",
+              allowedProviderIds: ["acp-cursor"],
+              allowedModelPatterns: ["grok-4.7"],
+              allowedReasoningLevels: ["high"],
+              defaultProviderId: "acp-cursor",
+              defaultModel: "grok-4.7",
+              defaultReasoningLevel: "high",
+              defaultPermissionMode: "full",
+              fixedExecution: false,
+              maxPermissionMode: "full",
+              terminalAccess: "full",
+              allowedToolIds: ["*"],
+              allowedPluginIds: ["*"],
+            },
+          ],
+        },
+        agent,
+      ),
+    ).toEqual({
+      providerId: "acp-cursor",
+      model: "grok-4.7",
+      reasoningLevel: "high",
+      permissionMode: "full",
+    });
+  });
+
+  it("keeps configured administrator defaults while preserving administrator access", () => {
+    const db = createTestDb();
+    const now = new Date();
+    db.insert(authPolicies)
+      .values({
+        id: "admin",
+        role: "admin",
+        policyJson: JSON.stringify(defaultAdminPolicy),
+        revision: 1,
+        updatedAt: Date.now(),
+      })
+      .run();
+    db.insert(authUsers)
+      .values({
+        id: "configured-admin",
+        name: "Configured Admin",
+        email: "configured-admin@eva.test",
+        emailVerified: true,
+        image: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(authPrincipals)
+      .values({
+        userId: "configured-admin",
+        role: "admin",
+        status: "active",
+        policyId: "admin",
+        revision: 1,
+        updatedAt: Date.now(),
+      })
+      .run();
+    db.update(authPolicies)
+      .set({
+        policyJson: JSON.stringify({
+          ...defaultAdminPolicy,
+          defaultProviderId: "codex",
+          defaultModel: "gpt-6.1-terra",
+          defaultReasoningLevel: "xhigh",
+          defaultPermissionMode: "full",
+        }),
+      })
+      .where(eq(authPolicies.id, "admin"))
+      .run();
+
+    const resolved = resolveCorePolicy(db, "configured-admin");
+    expect(resolved?.policy).toMatchObject({
+      allowedAgentIds: ["*"],
+      allowedProviderIds: ["*"],
+      defaultProviderId: "codex",
+      defaultModel: "gpt-6.1-terra",
+      defaultReasoningLevel: "xhigh",
+      defaultPermissionMode: "full",
+    });
+  });
+
   it.each(["creative", "admin"])(
     "allows administrator provider selection for the pinned %s agent without widening user access",
     (agentId) => {
@@ -240,8 +354,8 @@ describe("agent-bound execution policy", () => {
                 "custom-provider",
               ],
               defaultProviderId: "codex",
-              defaultModel: "gpt-5.6-luna",
-              defaultReasoningLevel: "max",
+              defaultModel: "gpt-6.1-terra",
+              defaultReasoningLevel: "high",
               defaultPermissionMode: "full",
               reasoningLevels: expect.any(Array),
               permissionModes: expect.any(Array),

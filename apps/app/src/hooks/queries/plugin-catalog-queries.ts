@@ -1,17 +1,17 @@
+import type { PluginMarketplaceCategory } from "@bb/domain";
 import type {
-  InstalledPlugin,
   PluginApplyUpdateResult as SdkPluginApplyUpdateResult,
   PluginCatalogAuthor,
   PluginCatalogCollection,
   PluginCatalogCollectionMembership,
-  PluginCatalogResolvedSource,
   PluginCatalogSearchResult as SdkPluginCatalogSearchResult,
   PluginMarketplace,
   PluginMarketplaceRefreshResult,
   PluginSourceDetail as SdkPluginSourceDetail,
   PluginUpdateCheckEntry,
 } from "@bb/server-contract";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidatePluginList } from "../cache-owners/plugin-cache-owner";
 import { createPluginsClient } from "./plugin-client";
 import { toEpochMs } from "./plugin-settings-queries";
 import {
@@ -19,6 +19,7 @@ import {
   pluginCatalogSearchQueryKey,
   pluginMarketplacesQueryKey,
   pluginSourceQueryKey,
+  pluginUpdateCheckQueryKey,
 } from "./query-keys";
 
 type FetchLike = typeof fetch;
@@ -76,24 +77,6 @@ export function usePluginSource(
     enabled: options.enabled,
     staleTime: 30_000,
   });
-}
-
-export async function installPlugin(
-  fetchImpl: FetchLike,
-  source: string,
-): Promise<InstalledPlugin> {
-  return createPluginsClient(fetchImpl).install({ source });
-}
-
-export async function installCatalogPlugin(
-  fetchImpl: FetchLike,
-  args: {
-    entryId: string;
-    marketplace?: string;
-    confirmedSource?: PluginCatalogResolvedSource;
-  },
-): Promise<InstalledPlugin> {
-  return createPluginsClient(fetchImpl).catalog.install(args);
 }
 
 export function useCatalogInstallPlan(
@@ -187,6 +170,30 @@ export async function checkPluginUpdates(
   return results.map(toUpdatesEntry);
 }
 
+export function usePluginUpdateCheck(
+  pluginId: string | null,
+  options: { enabled: boolean },
+) {
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: pluginUpdateCheckQueryKey(pluginId),
+    queryFn: async () => {
+      const results = await checkPluginUpdates(
+        fetch,
+        pluginId === null ? {} : { id: pluginId },
+      );
+      await invalidatePluginList({ queryClient });
+      return results;
+    },
+    enabled: options.enabled,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
+  });
+}
+
 export interface PluginUpdateResult {
   applied: boolean;
   outcome: SdkPluginApplyUpdateResult["outcome"];
@@ -232,6 +239,8 @@ export interface PluginCatalogSearchEntry {
   official: boolean;
   author: PluginCatalogAuthor | null;
   installed: boolean;
+  installedByDefault: boolean;
+  conflictingInstallSource: string | null;
   installs: number | null;
   compatible: boolean;
   incompatibleReason: string | null;
@@ -265,6 +274,8 @@ function toPluginCatalogSearchEntry(
     official: data.official,
     author: data.author,
     installed: data.installed,
+    installedByDefault: data.installedByDefault,
+    conflictingInstallSource: data.conflictingInstallSource,
     installs: data.installs,
     compatible: data.compatible,
     incompatibleReason: data.incompatibleReason ?? null,
@@ -274,13 +285,14 @@ function toPluginCatalogSearchEntry(
 export interface PluginCatalogSearchData {
   entries: PluginCatalogSearchEntry[];
   collections: PluginCatalogCollection[];
+  categories: PluginMarketplaceCategory[];
 }
 
 export async function searchPluginCatalog(
   fetchImpl: FetchLike,
   query: string,
 ): Promise<PluginCatalogSearchData> {
-  const { results, collections } = await createPluginsClient(
+  const { results, collections, categories } = await createPluginsClient(
     fetchImpl,
   ).catalog.search({
     query,
@@ -288,6 +300,7 @@ export async function searchPluginCatalog(
   return {
     entries: results.map(toPluginCatalogSearchEntry),
     collections,
+    categories,
   };
 }
 

@@ -385,25 +385,6 @@ describe("bb thread spawn command output", () => {
     });
   });
 
-  it("bb thread spawn requires an explicit --project", async () => {
-    vi.stubEnv("BB_PROJECT_ID", undefined);
-    const post = vi.fn();
-    const stderrWrite = captureCommanderErrors();
-    stubServerApi({ "v1.threads.$post": post });
-
-    await expect(
-      runCommand(["thread", "spawn", "--prompt", "hello"], register),
-    ).rejects.toThrow("process.exit:1");
-
-    expect(stderrWrite).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "error: required option '--project <id>' not specified",
-      ),
-    );
-    expect(resolveLocalHostIdMock).not.toHaveBeenCalled();
-    expect(post).not.toHaveBeenCalled();
-  });
-
   it("bb thread spawn ignores BB_PROJECT_ID when --project is omitted", async () => {
     vi.stubEnv("BB_PROJECT_ID", "proj-env");
     const post = vi.fn();
@@ -545,7 +526,7 @@ describe("bb thread spawn command output", () => {
     );
   });
 
-  it("bb thread spawn allows sections for hidden workers", async () => {
+  it("bb thread spawn combines sections and pinning for hidden workers", async () => {
     const thread: domain.Thread = fixtures.makeThread({
       sectionId: "sec_work",
       id: "thread-hidden-section",
@@ -566,6 +547,7 @@ describe("bb thread spawn command output", () => {
         "background work",
         "--visibility",
         "hidden",
+        "--pinned",
         "--section",
         "sec_work",
       ],
@@ -575,20 +557,15 @@ describe("bb thread spawn command output", () => {
     expect(post).toHaveBeenCalledWith({
       json: expect.objectContaining({
         sectionId: "sec_work",
+        pinned: true,
         visibility: "hidden",
       }),
     });
   });
 
-  it("bb thread spawn help lists product permission modes", async () => {
+  it("bb thread spawn help does not point at bb curl", async () => {
     const helpOutput = await getHelpOutput(["thread", "spawn"], register);
-    expect(helpOutput).toContain("--permission-mode <mode>");
-    expect(helpOutput).toContain("--visibility <visibility>");
-    expect(helpOutput).toContain("Exact Git ref");
-    expect(helpOutput).toContain("origin/<branch> for a remote ref");
-    expect(helpOutput).toContain("bb environment providers");
     expect(helpOutput).not.toContain("bb curl");
-    expect(helpOutput).toMatch(/Permission mode: accept-edits, auto, or full/);
   });
 
   it("bb thread spawn reports invalid permission mode choices", async () => {

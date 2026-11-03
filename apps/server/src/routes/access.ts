@@ -21,6 +21,7 @@ import {
 } from "../agents/eva-agent-catalog.js";
 import { listEvaAgentsFromDb } from "../agents/eva-agent-registry.js";
 import { EVA_AGENT_TOOLS } from "../agents/eva-agent-tools.js";
+import { listEvaAgentChatsForUser } from "../agents/eva-agent-user-chats.js";
 import { ApiError } from "../errors.js";
 import { EVA_CONNECTOR_CAPABILITY_MANIFESTS } from "../connectors/capability-manifests.js";
 import {
@@ -371,6 +372,21 @@ export function registerAccessRoutes(
   app.get("/access/users/:id", (context) => {
     requireAdministrator();
     return context.json(management.getUser(context.req.param("id")));
+  });
+
+  /**
+   * Lists a user's canonical EVA agent chats for administrator monitoring:
+   * one entry per agent with its latest message preview and the number of
+   * the user's other non-deleted threads with that agent, including
+   * delegated sub-threads.
+   */
+  app.get("/access/users/:id/eva-chats", (context) => {
+    requireAdministrator();
+    const { id: userId } = management.getUser(context.req.param("id"));
+    return context.json({
+      userId,
+      chats: listEvaAgentChatsForUser(deps.db, userId),
+    });
   });
 
   app.patch("/access/users/:id", async (context) => {

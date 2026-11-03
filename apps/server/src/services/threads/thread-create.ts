@@ -1,3 +1,4 @@
+import { evaAgentChatTitle } from "../../agents/eva-agent-chat-presentation.js";
 import { requestThreadStorageDeletion } from "./thread-lifecycle.js";
 import { assertEnvironmentPathAvailable } from "../environments/path-admission.js";
 import {
@@ -29,7 +30,7 @@ import {
   rememberProjectExecutionDefaultsForCreate,
   resolveProjectExecutionDefaultsForCreate,
 } from "./project-execution-defaults.js";
-import { validatePromptAttachmentReferences } from "../projects/attachments.js";
+import { resolvePromptAttachmentReferences } from "../projects/attachments.js";
 import {
   appendPluginMentionContext,
   captureUserMessageSentTelemetry,
@@ -39,7 +40,6 @@ import {
   hostIdForEnvironmentIntent,
   type PendingThreadStartContext,
 } from "./dispatch-attempt.js";
-import { setThreadStartupContext } from "@bb/db";
 import { emitPluginThreadDeleted } from "../plugins/plugin-thread-events.js";
 import {
   createThreadRecord,
@@ -64,7 +64,7 @@ import {
   type ThreadCreateServiceRequest,
 } from "./thread-create-request.js";
 import { resolveDispatchAuthor } from "./dispatch-author.js";
-import { deriveTitleFallback } from "./title-generation.js";
+import { deriveForkTitle, deriveTitleFallback } from "./title-generation.js";
 import type { ThreadProvisionEnvironmentIntent } from "./thread-startup-store.js";
 import { resolveSystemProviderModels } from "../system/execution-options.js";
 import {
@@ -77,6 +77,7 @@ import {
   assertResourceAccessForUser,
   requireAuthorizedThreadForUser,
 } from "../../access-policy.js";
+import { ensureEvaAgentCanonicalChat } from "../../agents/eva-agent-chat.js";
 
 type ThreadCreateDeps = LoggedPendingInteractionWorkSessionDeps;
 
@@ -390,9 +391,25 @@ async function createPendingThreadAndAttemptFirstDispatch(
       sourceThreadId: args.request.sourceThreadId,
     });
   }
+  const startContext: PendingThreadStartContext = {
+    environmentIntent: args.environmentIntent,
+    fork: args.fork?.descriptor ?? null,
+    ...(args.providerInput !== undefined
+      ? { providerInput: args.providerInput }
+      : {}),
+    startedOnBehalfOf: args.request.startedOnBehalfOf,
+    titleProvided: Boolean(args.request.title),
+  };
+  const placementHostId = hostIdForEnvironmentIntent(
+    deps,
+    args.environmentIntent,
+  );
+  if (placementHostId !== null)
+    requireEnvironmentPlacementHost(deps, placementHostId);
   const thread = createThreadRecord(deps, {
     request: args.request,
     environmentId: args.environmentId,
+    startupContext: JSON.stringify({ kind: "pending", ...startContext }),
   });
   let execution: Awaited<ReturnType<typeof buildExecutionOptions>>;
   try {
@@ -417,26 +434,6 @@ async function createPendingThreadAndAttemptFirstDispatch(
       args.request,
       executionPlanArgs,
     );
-    const startContext: PendingThreadStartContext = {
-      environmentIntent: args.environmentIntent,
-      fork: args.fork?.descriptor ?? null,
-      ...(args.providerInput !== undefined
-        ? { providerInput: args.providerInput }
-        : {}),
-      startedOnBehalfOf: args.request.startedOnBehalfOf,
-      titleProvided: Boolean(args.request.title),
-    };
-    const placementHostId = hostIdForEnvironmentIntent(
-      deps,
-      args.environmentIntent,
-    );
-    if (placementHostId !== null)
-      requireEnvironmentPlacementHost(deps, placementHostId);
-    setThreadStartupContext(deps.db, {
-      threadId: thread.id,
-      startupContext: JSON.stringify({ kind: "pending", ...startContext }),
-    });
-
     await attemptDispatch(deps, {
       thread,
       payload: {
@@ -608,20 +605,18 @@ export async function createThreadFromRequest(
   }
   const pluginMetadata = resolveCreateThreadPluginMetadata(rawRequestInput);
   const requestInput = { ...rawRequestInput };
-  if (!unassignedThread) {
-    requestInput.input = (
-      await appendPluginMentionContext(
-        { input: requestInput.input },
-        {
-          db: deps.db,
-          ownerUserId: rawRequestInput.ownerUserId,
-          ...(requestedAgentId === undefined
-            ? {}
-            : { agentId: requestedAgentId }),
-        },
-      )
-    ).input;
-  }
+  requestInput.input = (
+    await appendPluginMentionContext(
+      { input: requestInput.input },
+      {
+        db: deps.db,
+        ownerUserId: rawRequestInput.ownerUserId,
+        ...(requestedAgentId === undefined
+          ? {}
+          : { agentId: requestedAgentId }),
+      },
+    )
+  ).input;
   assertProjectWorkspaceCompatibility(project, requestInput);
   const originKind = requestInput.originKind ?? null;
   const sourceThreadId =
@@ -701,12 +696,6 @@ export async function createThreadFromRequest(
       );
     }
   }
-  await validatePromptAttachmentReferences({
-    db: deps.db,
-    dataDir: deps.config.dataDir,
-    input: requestInput.input,
-    projectId: requestInput.projectId,
-  });
   await deps.providerRegistry.whenRegistrationsSettled();
   const {
     executionDefaults,
@@ -761,6 +750,26 @@ export async function createThreadFromRequest(
     providerId,
     titleFallback: deriveTitleFallback(requestInput.input),
   };
+  const chatTitle = evaAgentChatTitle(deps.db, {
+    agentId: requestedAgentId ?? null,
+    parentThreadId: request.parentThreadId ?? null,
+  });
+  if (chatTitle !== null) {
+    request.title = chatTitle;
+    request.titleFallback = chatTitle;
+  }
+  if (
+    request.title === undefined &&
+    request.originKind === "fork" &&
+    request.visibility === "visible" &&
+    request.input.every((item) => item.visibility === "agent-only") &&
+    sourceThread !== null
+  ) {
+    const forkTitle = deriveForkTitle(sourceThread);
+    if (forkTitle !== null) {
+      request.title = forkTitle;
+    }
+  }
   const resolvedEnvironment =
     requestedEnvironment.type === "provider"
       ? null
@@ -852,6 +861,13 @@ export async function createThreadFromRequest(
       projectId: request.projectId,
       requestedEnvironment: request.environment,
     });
+  request.input = await resolvePromptAttachmentReferences({
+    db: deps.db,
+    dataDir: deps.config.dataDir,
+    input: request.input,
+    projectId: request.projectId,
+    hostId: hostIdForEnvironmentIntent(deps, environmentIntent),
+  });
 
   const fork = resolveForkPoint(deps, {
     originKind: request.originKind ?? null,
@@ -882,6 +898,17 @@ export async function createThreadFromRequest(
     ...createArgs,
     sendAt: request.sendAt,
   });
+  if (
+    request.agentId !== null &&
+    request.agentId !== undefined &&
+    typeof request.ownerUserId === "string" &&
+    thread.parentThreadId === null
+  ) {
+    ensureEvaAgentCanonicalChat(deps.db, {
+      agentId: request.agentId,
+      ownerUserId: request.ownerUserId,
+    });
+  }
   deps.telemetry.capture({
     name: "thread_created",
     properties: {

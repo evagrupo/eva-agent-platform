@@ -76,7 +76,7 @@ function toCatalogEntry(
     description: row.description,
     icon: row.icon,
     sortOrder: row.sortOrder,
-    status: row.status,
+    status: "live",
     sourceProviderId: row.sourceProviderId,
     providerIds,
     defaultProviderId: row.defaultProviderId,
@@ -186,6 +186,10 @@ function catalogValues(entry: EvaAgentCatalogEntry, now: number) {
 export function ensureEvaAgentRegistry(db: DbConnection): void {
   const now = Date.now();
   db.transaction((tx) => {
+    tx.update(evaAgents)
+      .set({ status: "live", updatedAt: now })
+      .where(ne(evaAgents.status, "live"))
+      .run();
     for (const entry of EVA_AGENT_CATALOG) {
       tx.insert(evaAgents)
         .values(catalogValues(entry, now))

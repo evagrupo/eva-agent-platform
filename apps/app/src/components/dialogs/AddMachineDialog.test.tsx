@@ -89,6 +89,7 @@ function stubManualLaunch(configure?: () => void) {
   vi.mocked(sdk.hosts.experimental_create).mockResolvedValue(reservedHost);
   vi.mocked(sdk.hosts.experimental_getEnrollmentCommand).mockResolvedValue({
     command: "bb machine enroll test",
+    windowsCommand: "irm windows-command | iex",
     expiresAt: Date.now() + 60_000,
   });
   vi.mocked(sdk.hosts.get).mockImplementation(() => new Promise(() => {}));
@@ -132,7 +133,7 @@ it("names the server machine a new machine depends on", async () => {
   const rendered = renderAddMachineContent("host_server");
   expect(
     await screen.findByText(
-      "The new machine will connect to the bb server on Mac mini. Keep that computer on so the new machine can keep working.",
+      "The new machine will connect to the EVA server on Mac mini. Keep that computer on so the new machine can keep working.",
     ),
   ).toBeDefined();
   rendered.unmount();
@@ -144,7 +145,7 @@ it("does not name a fallback machine when the server has no primary host", async
   await screen.findByText("bb machine enroll test");
   expect(
     screen.getByText(
-      "The new machine will connect to your bb server. Keep the server machine on so the new machine can keep working.",
+      "The new machine will connect to your EVA server. Keep the server machine on so the new machine can keep working.",
     ),
   ).toBeDefined();
   expect(screen.queryByText(/Mac mini|MacBook Pro/u)).toBeNull();
@@ -169,15 +170,40 @@ it("retrieves the enrollment command after asynchronous access preparation", asy
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         command: "delayed enrollment command",
+        windowsCommand: "irm windows-command | iex",
         expiresAt: Date.now() + 60_000,
       });
     vi.mocked(sdk.hosts.get).mockResolvedValue({
       ...reservedHost,
       connectMachineId: null,
+      threadStorageRootPath: null,
     });
   });
   await screen.findByText("delayed enrollment command", {}, { timeout: 3_000 });
   expect(sdk.hosts.experimental_getEnrollmentCommand).toHaveBeenCalledTimes(2);
+  rendered.unmount();
+});
+
+it("marks a previously available command as used when the server withdraws it", async () => {
+  const rendered = setup(() => {
+    vi.mocked(sdk.hosts.experimental_getEnrollmentCommand)
+      .mockResolvedValueOnce({
+        command: "single-use enrollment command",
+        windowsCommand: "irm windows-command | iex",
+        expiresAt: Date.now() + 60_000,
+      })
+      .mockResolvedValue(null);
+    vi.mocked(sdk.hosts.get).mockResolvedValue({
+      ...reservedHost,
+      connectMachineId: null,
+      threadStorageRootPath: null,
+    });
+  });
+  await screen.findByText("single-use enrollment command");
+  await screen.findByText("Command used", {}, { timeout: 3_000 });
+  expect(
+    screen.getByRole("button", { name: "Copy" }).hasAttribute("disabled"),
+  ).toBe(true);
   rendered.unmount();
 });
 
@@ -189,6 +215,7 @@ it("accepts a connection before an enrollment command is returned", async () => 
     vi.mocked(sdk.hosts.get).mockResolvedValue({
       ...reservedHost,
       connectMachineId: null,
+      threadStorageRootPath: null,
       status: "connected",
       lifecycle: { ...reservedHost.lifecycle, phase: "active" },
     });
@@ -226,6 +253,7 @@ it("reuses the launch key on retry and replaces it on regeneration without rando
     );
     vi.mocked(sdk.hosts.experimental_getEnrollmentCommand).mockResolvedValue({
       command: "expired enrollment command",
+      windowsCommand: "irm windows-command | iex",
       expiresAt: Date.now() - 1_000,
     });
   });

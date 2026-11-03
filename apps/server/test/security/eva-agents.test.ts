@@ -1,8 +1,13 @@
+import { registerHostRpcResponder } from "../helpers/host-rpc.js";
+import { defaultAdminPolicy } from "../../src/access-policy.js";
+import { eq } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   authAccounts,
+  authAgentGrants,
+  authPolicies,
   authPrincipals,
   authUsers,
   createThread,
@@ -101,6 +106,168 @@ function toolText(
 }
 
 describe("EVA agent surface", () => {
+  it("lets chat owners read only their Markdown reports without general file access", async () => {
+    await withTestHarness({ authRequired: true }, async (harness) => {
+      await seedIdentity(harness.db, {
+        email: "report-user@eva.test",
+        name: "Report User",
+        password: "report-user-password",
+        role: "user",
+        userId: "report-user",
+      });
+      const now = Date.now();
+      harness.db
+        .insert(authAgentGrants)
+        .values({
+          id: "report-meta",
+          userId: "report-user",
+          groupId: null,
+          agentId: "meta",
+          providerIdsJson: '["codex"]',
+          modelPatternsJson: '["*"]',
+          reasoningLevelsJson: '["high"]',
+          fixedExecution: false,
+          permissionMode: null,
+          terminalAccess: "none",
+          toolIdsJson: "[]",
+          pluginIdsJson: "[]",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      const cookie = await signIn(
+        harness,
+        "report-user@eva.test",
+        "report-user-password",
+      );
+      const { host, session } = seedHostSession(harness.deps, {
+        id: "reports-host",
+      });
+      const project = getPersonalProject(harness.db)!;
+      const environment = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: project.id,
+        path: "/tmp/reports-agent",
+      });
+      const thread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        environmentId: environment.id,
+        ownerUserId: "report-user",
+        agentId: "meta",
+        providerId: "codex",
+        status: "idle",
+      });
+      const responder = registerHostRpcResponder(harness, {
+        hostId: host.id,
+        sessionId: session.id,
+        handle: (request) => {
+          if (request.command.type !== "host.read_file")
+            throw new Error("Unexpected report command");
+          expect(request.command.rootPath).toBe(
+            `/tmp/bb-host-data/${host.id}/thread-storage/${thread.id}`,
+          );
+          expect(request.command.path).toBe(
+            request.command.rootPath + "/reports/campaign.md",
+          );
+          return {
+            ok: true,
+            result: {
+              path: request.command.path,
+              content: "# Campaign results\n\nSales increased.",
+              contentEncoding: "utf8",
+              sizeBytes: 37,
+              mimeType: "text/markdown",
+              sha256: "report-hash",
+            },
+          };
+        },
+      });
+      try {
+        const report = await harness.app.request(
+          `/api/v1/eva/reports/${thread.id}?name=campaign.md`,
+          { headers: { cookie } },
+        );
+        expect(report.status, await report.clone().text()).toBe(200);
+        expect(await report.json()).toEqual({
+          name: "campaign.md",
+          content: "# Campaign results\n\nSales increased.",
+        });
+        for (const name of [
+          "../AGENTS.md",
+          "campaign.html",
+          "/etc/passwd",
+          "nested/campaign.md",
+        ]) {
+          const denied = await harness.app.request(
+            `/api/v1/eva/reports/${thread.id}?name=${encodeURIComponent(name)}`,
+            { headers: { cookie } },
+          );
+          expect(denied.status).toBe(400);
+        }
+        const privateThread = createThread(harness.db, harness.hub, {
+          projectId: project.id,
+          environmentId: environment.id,
+          ownerUserId: null,
+          agentId: "meta",
+          providerId: "codex",
+          status: "idle",
+        });
+        const denied = await harness.app.request(
+          `/api/v1/eva/reports/${privateThread.id}?name=campaign.md`,
+          { headers: { cookie } },
+        );
+        expect(denied.status).toBe(403);
+        const files = await harness.app.request(
+          `/api/v1/threads/${thread.id}/thread-storage/files`,
+          { headers: { cookie } },
+        );
+        expect(files.status).toBe(403);
+        expect(responder.requests).toHaveLength(1);
+      } finally {
+        responder.unregister();
+      }
+    });
+  });
+
+  it("restricts agent customization RPCs even when a regular user has broad plugin access", async () => {
+    await withTestHarness({ authRequired: true }, async (harness) => {
+      await seedIdentity(harness.db, {
+        email: "settings-user@eva.test",
+        name: "Settings User",
+        password: "settings-user-password",
+        role: "user",
+        userId: "settings-user",
+      });
+      harness.db
+        .update(authPolicies)
+        .set({ policyJson: JSON.stringify(defaultAdminPolicy) })
+        .where(eq(authPolicies.id, "user"))
+        .run();
+      const cookie = await signIn(
+        harness,
+        "settings-user@eva.test",
+        "settings-user-password",
+      );
+      for (const method of ["agents_update", "agents_create"]) {
+        const response = await harness.app.request(
+          `/api/v1/plugins/eva/rpc/${method}`,
+          {
+            method: "POST",
+            headers: { cookie, "content-type": "application/json" },
+            body: JSON.stringify({
+              slug: "meta",
+              instructions: "Replace instructions",
+            }),
+          },
+        );
+        expect(response.status, await response.clone().text()).toBe(403);
+        expect(await response.text()).toContain(
+          "Administrator access required",
+        );
+      }
+    });
+  });
+
   it("persists managed agents and filters their workspace and thread surface by grants", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
       await seedIdentity(harness.db, {
@@ -188,6 +355,18 @@ describe("EVA agent surface", () => {
         }),
       });
       expect(created.status).toBe(201);
+      expect((await created.clone().json()).agent.status).toBe("live");
+      for (const status of ["draft", "shadow", "live"]) {
+        const rejected = await harness.app.request(
+          "/api/v1/eva/agents/growth-review",
+          {
+            method: "PATCH",
+            headers: { ...adminHeaders, "content-type": "application/json" },
+            body: JSON.stringify({ status }),
+          },
+        );
+        expect(rejected.status).toBe(400);
+      }
       const patched = await harness.app.request(
         "/api/v1/eva/agents/growth-review",
         {
@@ -269,7 +448,15 @@ describe("EVA agent surface", () => {
         { headers: userHeaders },
       );
       expect(searchable.status).toBe(200);
-      expect((await searchable.json()).groups).toEqual([
+      // The agent being chatted with is not suggested in its own chat, and
+      // this user may use no other agent.
+      expect((await searchable.json()).groups).toEqual([]);
+      const adminSearchable = await harness.app.request(
+        "/api/v1/eva/agent-mentions/search?q=growth&agentId=orchestrator",
+        { headers: adminHeaders },
+      );
+      expect(adminSearchable.status).toBe(200);
+      expect((await adminSearchable.json()).groups).toEqual([
         {
           pluginId: "bb-eva",
           providerId: "agent",
@@ -362,11 +549,12 @@ describe("EVA agent surface", () => {
       });
       expect(grantedList.status).toBe(200);
       const grantedBody = (await grantedList.json()) as {
-        agents: Array<{ id: string }>;
+        agents: Array<{ id: string; chatThreadId: string | null }>;
       };
       expect(grantedBody.agents.map((agent) => agent.id)).toEqual([
         "growth-review",
       ]);
+      expect(grantedBody.agents[0]?.chatThreadId).toBeNull();
 
       const personalProject = getPersonalProject(harness.db);
       expect(personalProject).not.toBeNull();
@@ -380,17 +568,71 @@ describe("EVA agent surface", () => {
         titleFallback: "Growth review thread",
         visibility: "visible",
       });
+      const canonicalAgents = await harness.app.request("/api/v1/eva/agents", {
+        headers: userHeaders,
+      });
+      expect(canonicalAgents.status).toBe(200);
+      expect(
+        (
+          (await canonicalAgents.json()) as {
+            agents: Array<{ id: string; chatThreadId: string | null }>;
+          }
+        ).agents,
+      ).toContainEqual(
+        expect.objectContaining({
+          id: "growth-review",
+          chatThreadId: thread.id,
+        }),
+      );
+
+      const historicalThread = createThread(harness.db, harness.hub, {
+        projectId: personalProject!.id,
+        ownerUserId: "eva-agent-user",
+        agentId: "growth-review",
+        providerId: "codex",
+        status: "idle",
+        title: "Historical growth review thread",
+        titleFallback: "Historical growth review thread",
+        visibility: "visible",
+      });
+      const stableAgents = await harness.app.request("/api/v1/eva/agents", {
+        headers: userHeaders,
+      });
+      expect(stableAgents.status).toBe(200);
+      expect(
+        (
+          (await stableAgents.json()) as {
+            agents: Array<{ id: string; chatThreadId: string | null }>;
+          }
+        ).agents,
+      ).toContainEqual(
+        expect.objectContaining({
+          id: "growth-review",
+          chatThreadId: thread.id,
+        }),
+      );
+
       const threads = await harness.app.request(
         "/api/v1/eva/agents/growth-review/threads",
         { headers: userHeaders },
       );
       expect(threads.status).toBe(200);
-      expect((await threads.json()).threads).toEqual([
-        expect.objectContaining({
-          id: thread.id,
-          title: "Growth review thread",
-        }),
-      ]);
+      const threadBody = (await threads.json()) as {
+        threads: Array<{ id: string; title: string | null }>;
+      };
+      expect(threadBody.threads).toHaveLength(2);
+      expect(threadBody.threads).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: thread.id,
+            title: "Growth review thread",
+          }),
+          expect.objectContaining({
+            id: historicalThread.id,
+            title: "Historical growth review thread",
+          }),
+        ]),
+      );
       const threadDetail = await harness.app.request(
         `/api/v1/eva/agents/growth-review/threads/${thread.id}`,
         { headers: userHeaders },
@@ -422,9 +664,20 @@ describe("EVA agent surface", () => {
         thread,
         tool: "eva_list_agent_threads",
       });
-      expect(JSON.parse(toolText(listedThreads))).toEqual([
-        expect.objectContaining({ agent: "growth-review", id: thread.id }),
-      ]);
+      const listedThreadBody = JSON.parse(toolText(listedThreads)) as Array<{
+        agent: string;
+        id: string;
+      }>;
+      expect(listedThreadBody).toHaveLength(2);
+      expect(listedThreadBody).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ agent: "growth-review", id: thread.id }),
+          expect.objectContaining({
+            agent: "growth-review",
+            id: historicalThread.id,
+          }),
+        ]),
+      );
 
       const read = await handleEvaAgentToolCall(harness.deps, {
         input: { threadId: thread.id },
@@ -517,6 +770,20 @@ describe("EVA agent surface", () => {
         environmentProviderId: "personal-workspace",
         environmentProviderPluginId: "environment-personal-workspace",
       });
+      const started = await harness.app.request(
+        "/api/v1/eva/agents/growth-review/threads",
+        {
+          method: "POST",
+          headers: { ...adminHeaders, "content-type": "application/json" },
+          body: JSON.stringify({
+            prompt: "Please review this proposal",
+            title: "Old prompt title",
+          }),
+        },
+      );
+      expect(started.status, await started.clone().text()).toBe(201);
+      expect((await started.json()).thread.title).toBe("Growth review");
+
       const orchestratorThread = createThread(harness.db, harness.hub, {
         projectId: personalProject!.id,
         environmentId: environment.id,
@@ -552,6 +819,7 @@ describe("EVA agent surface", () => {
         environmentId: environment.id,
         providerId: "codex",
         agentId: "growth-review",
+        title: "Prepare a three-point lead triage summary; do not contact any…",
         ownerUserId: "eva-agent-user",
         parentThreadId: orchestratorThread.id,
         visibility: "visible",
@@ -590,6 +858,7 @@ describe("EVA agent surface", () => {
         getThread(harness.db, adminDelegatedResult.threadId),
       ).toMatchObject({
         agentId: "growth-review",
+        title: "Prepare a bounded specialist report without changing data.",
         ownerUserId: "eva-agent-user",
         parentThreadId: adminThread.id,
         visibility: "visible",
@@ -606,18 +875,36 @@ describe("EVA agent surface", () => {
         titleFallback: "HR specialist thread",
         visibility: "visible",
       });
+      const peopleDelegated = await handleEvaAgentToolCall(harness.deps, {
+        input: {
+          agent: "growth-review",
+          task: "Ask for a leave request count.",
+        },
+        thread: peopleThread,
+        tool: "eva_delegate_to_agent",
+      });
+      expect(peopleDelegated.success).toBe(true);
+      const peopleChild = getThread(
+        harness.db,
+        (JSON.parse(toolText(peopleDelegated)) as { threadId: string })
+          .threadId,
+      );
+      expect(peopleChild).toMatchObject({
+        agentId: "growth-review",
+        parentThreadId: peopleThread.id,
+      });
+
+      // An agent cannot hand the same request back into its own chain.
       await expect(
         handleEvaAgentToolCall(harness.deps, {
           input: {
             agent: "growth-review",
-            task: "Ask for a leave request count.",
+            task: "Count the leave requests again.",
           },
-          thread: peopleThread,
+          thread: peopleChild!,
           tool: "eva_delegate_to_agent",
         }),
-      ).rejects.toThrow(
-        "Only the EVA Master Orchestrator and Admin EVA agent can delegate work to another agent",
-      );
+      ).rejects.toThrow("That agent is already working on this request.");
     });
   });
 

@@ -11,6 +11,7 @@ export * from "./schema.js";
 export {
   createQueuedThreadMessageId,
   createEventId,
+  createEvaAgentMemoryId,
   createHostId,
   createThreadProvisioningId,
 } from "./ids.js";

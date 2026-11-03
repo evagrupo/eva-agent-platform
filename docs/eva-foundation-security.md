@@ -84,6 +84,15 @@ metadata reads use the same policy. Admin receives this credential even when
 Automations is not permitted. It does not acquire access to another user's
 threads unless the user's effective policy already permits those reads.
 
+When its owner is an active administrator, the Admin agent can also use the
+existing plugin and marketplace management APIs: catalog search and install
+plans, installation and its job status/cancellation, updates, enable/disable,
+reload, configuration, source/log inspection, removal, safe mode, and cache
+pruning. These routes retain their normal capability and plugin-policy checks.
+An ordinary user assigned the Admin agent does not gain this administrator
+access. Arbitrary plugin HTTP/RPC calls and plugin-token retrieval/rotation are
+not included in this management grant.
+
 Specialists retain their existing Automations and basic discovery routes,
 without Admin's added log, timeline, output, or environment reads. Neither
 credential allows general thread mutations, account/settings administration,

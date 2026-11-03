@@ -1,4 +1,5 @@
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { isProviderModelSupported } from "./services/providers/provider-model-rules.js";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
@@ -393,6 +394,45 @@ export const defaultAdminPolicy: CorePolicy = {
     threadAllWrite: true,
   },
 };
+
+export function resolveEvaAgentExecutionDefaults(
+  policy: CorePolicy,
+  agent: Pick<
+    EvaAgentCatalogEntry,
+    | "id"
+    | "providerIds"
+    | "defaultProviderId"
+    | "defaultModel"
+    | "defaultReasoningLevel"
+    | "defaultPermissionMode"
+  >,
+): Omit<CoreExecutionInput, "agentId" | "requireComplete"> {
+  const tuple = policy.agentExecutionTuples?.find(
+    (candidate) => candidate.agentId === agent.id,
+  );
+  const providerId =
+    tuple?.defaultProviderId ??
+    policy.defaultProviderId ??
+    agent.defaultProviderId ??
+    agent.providerIds[0];
+  const model =
+    tuple?.defaultModel ?? policy.defaultModel ?? agent.defaultModel;
+  const reasoningLevel =
+    tuple?.defaultReasoningLevel ??
+    policy.defaultReasoningLevel ??
+    agent.defaultReasoningLevel;
+  const permissionMode =
+    tuple?.defaultPermissionMode ??
+    policy.defaultPermissionMode ??
+    agent.defaultPermissionMode;
+
+  return {
+    ...(providerId === undefined ? {} : { providerId }),
+    model,
+    reasoningLevel,
+    permissionMode,
+  };
+}
 
 export const defaultUserPolicy: CorePolicy = {
   allowedAgentIds: [],
@@ -937,7 +977,14 @@ export function resolveCorePolicy(
     policy = policyWithGrants;
   }
   if (resolved.principal.role === "admin") {
-    policy = defaultAdminPolicy;
+    policy = {
+      ...defaultAdminPolicy,
+      defaultProviderId: resolved.policy.defaultProviderId,
+      defaultModel: resolved.policy.defaultModel,
+      defaultReasoningLevel: resolved.policy.defaultReasoningLevel,
+      defaultPermissionMode: resolved.policy.defaultPermissionMode,
+      fixedExecution: resolved.policy.fixedExecution,
+    };
   }
   return {
     policy,
@@ -1487,6 +1534,7 @@ export function isModelAllowedByPolicyForAgent(
   knownAgentIds?: ReadonlySet<string>,
   agentProviderIds?: ReadonlyMap<string, readonly string[]>,
 ): boolean {
+  if (!isProviderModelSupported(providerId, model)) return false;
   if (
     !isProviderAllowedByPolicyForAgent(
       policy,
@@ -1732,7 +1780,35 @@ export function assertPluginAllowedForUser(
   }
 }
 
+/** Rejects a provider/model pair the platform does not run (see provider-model-rules). */
+function assertProviderModelSupported(
+  input: CoreExecutionInput,
+): CoreExecutionInput {
+  if (
+    input.providerId !== undefined &&
+    input.model !== undefined &&
+    !isProviderModelSupported(input.providerId, input.model)
+  ) {
+    deny(`The model ${input.model} is not available with this provider`);
+  }
+  return input;
+}
+
 function assertExecutionAllowedForPolicy(
+  policy: CorePolicy,
+  input: CoreExecutionInput,
+  args: {
+    knownAgentIds?: ReadonlySet<string>;
+    agentProviderIds?: ReadonlyMap<string, readonly string[]>;
+  } = {},
+): CoreExecutionInput {
+  assertProviderModelSupported(input);
+  return assertProviderModelSupported(
+    assertExecutionAllowedForPolicyUnchecked(policy, input, args),
+  );
+}
+
+function assertExecutionAllowedForPolicyUnchecked(
   policy: CorePolicy,
   input: CoreExecutionInput,
   args: {
@@ -2073,7 +2149,7 @@ export function assertExecutionAllowed(
   input: CoreExecutionInput,
 ): CoreExecutionInput {
   const authContext = getCoreAuthContext(context);
-  if (authContext === null) return { ...input };
+  if (authContext === null) return assertProviderModelSupported({ ...input });
   const resolvedInput =
     input.agentId === undefined && authContext.defaultAgentId != null
       ? { ...input, agentId: authContext.defaultAgentId }
@@ -2176,6 +2252,12 @@ export function isPluginAllowedByPolicy(
   policy: CorePolicy,
   pluginId: string,
 ): boolean {
+  if (pluginId === "thread-list") {
+    return (
+      hasCoreCapability(policy, "threadOwnRead") ||
+      hasCoreCapability(policy, "threadAllRead")
+    );
+  }
   const tuples = policy.agentExecutionTuples;
   const allowed =
     tuples === undefined
@@ -2344,6 +2426,52 @@ export function canReadThread(
   if (!threadAgentAllowed(authContext, thread)) return false;
   if (ownRead && thread.ownerUserId === authContext.userId) return true;
   return readThreadAccess(db, thread.id, authContext.userId)?.canRead === true;
+}
+
+export function threadReadFilterForContext(
+  db: DbConnection,
+  context: CoreRequestContext,
+): SQL | undefined {
+  const authContext = getCoreAuthContext(context);
+  if (authContext === null) return undefined;
+  const projectFilter =
+    authContext.agentCliScope === undefined
+      ? undefined
+      : eq(threads.projectId, authContext.agentCliScope.projectId);
+  if (authContext.role === "admin") return projectFilter;
+  if (hasCoreCapability(authContext.policy, "threadAllRead"))
+    return projectFilter;
+  if (!hasCoreCapability(authContext.policy, "threadOwnRead")) return sql`0`;
+  const agents = (
+    authContext.evaAgents ?? listAllowedEvaAgents(authContext.policy)
+  )
+    .filter((agent) =>
+      isAgentAllowedByPolicy(
+        authContext.policy,
+        agent.id,
+        knownAgentIdsForAuthContext(authContext),
+      ),
+    )
+    .map((agent) => agent.id);
+  return and(
+    projectFilter,
+    or(isNull(threads.agentId), inArray(threads.agentId, agents)),
+    or(
+      eq(threads.ownerUserId, authContext.userId),
+      inArray(
+        threads.id,
+        db
+          .select({ id: authThreadAccess.threadId })
+          .from(authThreadAccess)
+          .where(
+            and(
+              eq(authThreadAccess.userId, authContext.userId),
+              eq(authThreadAccess.canRead, true),
+            ),
+          ),
+      ),
+    ),
+  );
 }
 
 export function canWriteThread(
@@ -2681,6 +2809,16 @@ export function policyBootstrapForContext(
       const singleTuple = tuples.length === 1 ? tuples[0] : undefined;
       const catalogDefaultProviderId =
         policy.defaultProviderId ?? agent.defaultProviderId;
+      const policyDefaultModel =
+        policy.defaultModel !== null &&
+        modelPermits(policy.allowedModelPatterns, policy.defaultModel)
+          ? policy.defaultModel
+          : null;
+      const policyDefaultReasoningLevel =
+        policy.defaultReasoningLevel !== null &&
+        policy.allowedReasoningLevels.includes(policy.defaultReasoningLevel)
+          ? policy.defaultReasoningLevel
+          : null;
       const fixedExecution =
         tuples.length === 1
           ? singleTuple?.fixedExecution === true
@@ -2707,27 +2845,24 @@ export function policyBootstrapForContext(
                     permits(policy.allowedProviderIds, catalogDefaultProviderId)
                   ? catalogDefaultProviderId
                   : null);
-            if (candidate === null || providerIds.includes(candidate)) {
-              return candidate;
-            }
+            // When the catalog default is not permitted for this user, fall
+            // back to the first provider they may use rather than none.
+            if (candidate === null) return providerIds[0] ?? null;
+            if (providerIds.includes(candidate)) return candidate;
             return providerIds[0] ?? candidate;
           })(),
           defaultModel:
             singleTuple?.defaultModel ??
-            (fixedExecution === true && policy.defaultModel !== null
-              ? policy.defaultModel
-              : modelPermits(policy.allowedModelPatterns, agent.defaultModel)
-                ? agent.defaultModel
-                : null),
+            policyDefaultModel ??
+            (modelPermits(policy.allowedModelPatterns, agent.defaultModel)
+              ? agent.defaultModel
+              : null),
           defaultReasoningLevel:
             singleTuple?.defaultReasoningLevel ??
-            (fixedExecution === true && policy.defaultReasoningLevel !== null
-              ? policy.defaultReasoningLevel
-              : policy.allowedReasoningLevels.includes(
-                    agent.defaultReasoningLevel,
-                  )
-                ? agent.defaultReasoningLevel
-                : null),
+            policyDefaultReasoningLevel ??
+            (policy.allowedReasoningLevels.includes(agent.defaultReasoningLevel)
+              ? agent.defaultReasoningLevel
+              : null),
           defaultPermissionMode:
             fixedDefaultPermissionMode !== null
               ? fixedDefaultPermissionMode

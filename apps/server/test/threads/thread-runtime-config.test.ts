@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { eq } from "drizzle-orm";
@@ -16,6 +15,7 @@ import {
 import {
   defaultExperiments,
   encodeClientTurnRequestIdNumber,
+  normalizeProviderNativeRoots,
 } from "@bb/domain";
 import { validatePluginProviderDeclaration } from "@get-bb/plugin-sdk/internal/host-policy";
 import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
@@ -25,11 +25,11 @@ import { setPluginAgentContributions } from "../../src/services/plugins/plugin-a
 import { readSkillTreeManifest } from "../../src/services/skills/injected-skills.js";
 import type { PluginAgentToolContribution } from "../../src/services/plugins/plugin-service.js";
 import { defaultUserPolicy } from "../../src/access-policy.js";
-import { EVA_AGENT_TOOL_NAMES } from "../../src/agents/eva-agent-tools.js";
 import {
-  resolvePermissionEscalation,
-  resolveThreadRuntimeCommandConfig,
-} from "../../src/services/threads/thread-runtime-config.js";
+  EVA_AGENT_MEMORY_TOOL_NAMES,
+  EVA_AGENT_TOOL_NAMES,
+} from "../../src/agents/eva-agent-tools.js";
+import { resolveThreadRuntimeCommandConfig } from "../../src/services/threads/thread-runtime-config.js";
 import {
   buildExecutionOptions,
   buildThreadStartCommand,
@@ -116,48 +116,45 @@ function registerRemoteRuntimeFileResponder(
     hostId: args.hostId,
     sessionId: args.sessionId,
     handle: ({ command }) => {
-      if (command.type === "host.list_files") {
-        const prefix = `${command.path}${path.sep}`;
-        const files = [...args.files.keys()]
-          .filter((filePath) => filePath.startsWith(prefix))
-          .map((filePath) => path.relative(command.path, filePath))
-          .filter((relativePath) => {
-            const segments = relativePath.split(path.sep);
-            return segments.length === 2 && segments[1] === "SKILL.md";
-          })
-          .sort()
-          .slice(0, command.limit)
-          .map((relativePath) => ({
-            name: path.basename(relativePath),
-            path: relativePath.split(path.sep).join("/"),
-          }));
-        return { ok: true, result: { files, truncated: false } };
-      }
-      if (command.type === "host.read_file") {
-        const content = args.files.get(command.path);
-        if (content === undefined) {
-          return {
-            ok: false,
-            errorCode: "ENOENT",
-            errorMessage: `Path does not exist: ${command.path}`,
-          };
-        }
-        const bytes = Buffer.from(content, "utf8");
+      if (command.type === "host.read_workspace_agent_context") {
+        const skillsRootPath = path.posix.join(
+          command.rootPath,
+          ".bb",
+          "skills",
+        );
+        const projectSkills = [...args.files.entries()]
+          .map(([filePath, content]) => ({
+            segments: path.posix
+              .relative(skillsRootPath, filePath)
+              .split(path.posix.sep),
+            content,
+          }))
+          .filter(
+            ({ segments }) =>
+              segments.length === 2 &&
+              segments[0] !== ".." &&
+              segments[1] === "SKILL.md",
+          )
+          .map(({ segments, content }) => ({
+            kind: "file" as const,
+            directoryName: segments[0]!,
+            content,
+          }))
+          .sort((left, right) =>
+            left.directoryName.localeCompare(right.directoryName),
+          );
+        const agentInstructions =
+          args.files
+            .get(path.posix.join(command.rootPath, ".bb", "AGENTS.md"))
+            ?.trim() || null;
         return {
           ok: true,
           result: {
-            path: command.path,
-            content,
-            contentEncoding: "utf8",
-            sha256: createHash("sha256").update(bytes).digest("hex"),
-            sizeBytes: bytes.length,
+            agentInstructions,
+            projectSkills,
+            projectSkillsTruncated: false,
+            sharedSkills: args.sharedSkills ?? [],
           },
-        };
-      }
-      if (command.type === "host.list_skills") {
-        return {
-          ok: true,
-          result: { skills: args.sharedSkills ?? [] },
         };
       }
       throw new Error(`Unexpected remote runtime RPC ${command.type}`);
@@ -405,25 +402,9 @@ describe("thread runtime config", () => {
         command: "grok",
         args: ["agent", "stdio"],
         env: {},
-        modelCli: {
-          listArgs: ["models"],
-          selectFlag: "--model",
-          primaryModels: ["grok-4.5", "grok-composer-2.5-fast"],
-        },
         permissionCli: {
           full: ["--always-approve"],
           insertAfterArgs: 1,
-        },
-        reasoningCli: {
-          flag: "--reasoning-effort",
-          supportedLevels: ["low", "medium", "high"],
-          levelValues: {
-            none: "low",
-            xhigh: "high",
-            ultracode: "high",
-            max: "high",
-          },
-          defaultLevel: "high",
         },
       },
       providerId: "acp-grok",
@@ -687,6 +668,65 @@ describe("thread runtime config", () => {
     });
   });
 
+  it.each([
+    { providerId: "pi", model: "openai/codex-mini", modeSource: "default" },
+    { providerId: "pi", model: "openai/codex-mini", modeSource: "requested" },
+    { providerId: "pi", model: "openai/codex-mini", modeSource: "recorded" },
+    { providerId: "codex", model: "gpt-5", modeSource: "requested" },
+    { providerId: "codex", model: "gpt-5", modeSource: "recorded" },
+  ])(
+    "allows $providerId full mode from $modeSource under an auto parent",
+    async ({ providerId, model, modeSource }) => {
+      await withTestHarness(async (harness) => {
+        const { host } = seedHostSession(harness.deps, {
+          id: "host-runtime-child-full-mode",
+        });
+        const { project } = seedProjectWithSource(harness.deps, {
+          hostId: host.id,
+        });
+        const environment = seedEnvironment(harness.deps, {
+          hostId: host.id,
+          projectId: project.id,
+        });
+        const parentThread = seedThread(harness.deps, {
+          projectId: project.id,
+          environmentId: environment.id,
+        });
+        seedThreadRuntimeState(harness.deps, {
+          threadId: parentThread.id,
+          environmentId: environment.id,
+          providerThreadId: "provider-parent-auto",
+          permissionMode: "auto",
+        });
+        const childThread = seedThread(harness.deps, {
+          projectId: project.id,
+          environmentId: environment.id,
+          parentThreadId: parentThread.id,
+          providerId,
+        });
+        if (modeSource === "recorded") {
+          seedThreadRuntimeState(harness.deps, {
+            threadId: childThread.id,
+            environmentId: environment.id,
+            providerThreadId: "provider-child-full",
+            permissionMode: "full",
+          });
+        }
+
+        const execution = await buildExecutionOptions(
+          harness.deps,
+          {
+            model,
+            ...(modeSource === "requested" ? { permissionMode: "full" } : {}),
+          },
+          { threadId: childThread.id },
+        );
+
+        expect(execution.permissionMode).toBe("full");
+      });
+    },
+  );
+
   it("treats ghost parent references as root-thread execution defaults", async () => {
     await withTestHarness(async (harness) => {
       const { host } = seedHostSession(harness.deps, {
@@ -847,7 +887,7 @@ describe("thread runtime config", () => {
           { threadId: thread.id },
         ),
       ).rejects.toThrow(
-        "Provider codex does not support ultracode reasoning level. Supported reasoning levels: low, medium, high, xhigh, max, ultra.",
+        "Provider codex does not support ultracode reasoning level. Supported reasoning levels: none, low, medium, high, xhigh, max, ultra.",
       );
     });
   });
@@ -983,8 +1023,10 @@ describe("thread runtime config", () => {
       const claudeCode = await build("claude-code");
       expect(claudeCode.options.providerOptions).toEqual({
         chromeEnabled: false,
+        disable1MContext: false,
         memoryEnabled: true,
         providerSubagentsEnabled: true,
+        sandboxEnabled: true,
         workflowsEnabled: true,
       });
 
@@ -1218,11 +1260,6 @@ describe("thread runtime config", () => {
     });
   });
 
-  it("derives ask escalation only for user-initiated work", () => {
-    expect(resolvePermissionEscalation({ initiator: "user" })).toBe("ask");
-    expect(resolvePermissionEscalation({ initiator: "system" })).toBe("deny");
-  });
-
   it("resolves the workspace, storage path, and environment directory dynamic tool", async () => {
     await withTestHarness(async (harness) => {
       const hostId = "host-runtime";
@@ -1306,62 +1343,6 @@ describe("thread runtime config", () => {
     });
   });
 
-  it("keeps local-host workspace .bb/AGENTS.md instructions unchanged", async () => {
-    await withTestHarness(async (harness) => {
-      const hostId = "host-runtime-agents-md";
-      seedHostSession(harness.deps, { id: hostId });
-      seedPrimaryHost(harness.deps, hostId);
-      const workspacePath = path.join(
-        harness.config.dataDir,
-        "agents-md-workspace",
-      );
-      const { project } = seedProjectWithSource(harness.deps, {
-        hostId,
-        path: workspacePath,
-      });
-      const environment = seedEnvironment(harness.deps, {
-        hostId,
-        projectId: project.id,
-        path: workspacePath,
-      });
-      const thread = seedThread(harness.deps, {
-        projectId: project.id,
-        environmentId: environment.id,
-        providerId: "codex",
-      });
-      await writeWorkspaceAgentInstructions({
-        content:
-          "# Project Rules\n\nAlways run the smoke test before pushing.\n",
-        workspacePath,
-      });
-
-      const runtimeConfig = await resolveThreadRuntimeCommandConfig(
-        harness.deps,
-        {
-          thread,
-          model: "test-model",
-          environment: {
-            hostId: environment.hostId,
-            id: environment.id,
-            path: environment.path,
-            status: environment.status,
-          },
-        },
-      );
-
-      expect(runtimeConfig.instructionMode).toBe("append");
-      expect(runtimeConfig.instructions).not.toContain(
-        "You are working inside bb, an agentic IDE",
-      );
-      expect(runtimeConfig.instructions).toContain(
-        "The following workspace instructions come from .bb/AGENTS.md:",
-      );
-      expect(runtimeConfig.instructions).toContain(
-        "Always run the smoke test before pushing.",
-      );
-    });
-  });
-
   it("reads workspace .bb/AGENTS.md from a non-primary host", async () => {
     await withTestHarness(async (harness) => {
       const { host: primary } = seedHostSession(harness.deps, {
@@ -1375,7 +1356,7 @@ describe("thread runtime config", () => {
         ...defaultExperiments,
       });
       const workspacePath = "/remote/runtime-agents-workspace";
-      const agentInstructionsPath = path.join(
+      const agentInstructionsPath = path.posix.join(
         workspacePath,
         ".bb",
         "AGENTS.md",
@@ -1416,17 +1397,12 @@ describe("thread runtime config", () => {
       expect(runtimeConfig.instructions).toContain(
         "# Remote Rules\n\nRead me from the remote daemon.",
       );
-      expect(responder.requests).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            command: expect.objectContaining({
-              type: "host.read_file",
-              path: agentInstructionsPath,
-              rootPath: workspacePath,
-            }),
-          }),
-        ]),
-      );
+      expect(responder.requests.map(({ command }) => command)).toEqual([
+        expect.objectContaining({
+          type: "host.read_workspace_agent_context",
+          rootPath: workspacePath,
+        }),
+      ]);
     });
   });
 
@@ -1486,13 +1462,13 @@ describe("thread runtime config", () => {
         ...defaultExperiments,
       });
       const workspacePath = "/remote/runtime-skills-workspace";
-      const skillRootPath = path.join(
+      const skillRootPath = path.posix.join(
         workspacePath,
         ".bb",
         "skills",
         "remote-review",
       );
-      const skillFilePath = path.join(skillRootPath, "SKILL.md");
+      const skillFilePath = path.posix.join(skillRootPath, "SKILL.md");
       const responder = registerRemoteRuntimeFileResponder(harness, {
         hostId: host.id,
         sessionId: session.id,
@@ -1537,23 +1513,12 @@ describe("thread runtime config", () => {
         sourceRootPath: skillRootPath,
         skillFilePath,
       });
-      expect(responder.requests).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            command: expect.objectContaining({
-              type: "host.list_files",
-              path: path.join(workspacePath, ".bb", "skills"),
-            }),
-          }),
-          expect.objectContaining({
-            command: expect.objectContaining({
-              type: "host.read_file",
-              path: skillFilePath,
-              rootPath: workspacePath,
-            }),
-          }),
-        ]),
-      );
+      expect(responder.requests.map(({ command }) => command)).toEqual([
+        expect.objectContaining({
+          type: "host.read_workspace_agent_context",
+          rootPath: workspacePath,
+        }),
+      ]);
     });
   });
 
@@ -1570,14 +1535,14 @@ describe("thread runtime config", () => {
           id: "host-runtime-shared-skills",
         });
         const workspacePath = "/remote/runtime-shared-skills";
-        const skillFilePath = path.join(
+        const skillFilePath = path.posix.join(
           workspacePath,
           ".agents",
           "skills",
           "portable-review",
           "SKILL.md",
         );
-        registerRemoteRuntimeFileResponder(harness, {
+        const responder = registerRemoteRuntimeFileResponder(harness, {
           hostId: host.id,
           sessionId: session.id,
           files: new Map(),
@@ -1617,9 +1582,26 @@ describe("thread runtime config", () => {
           sourceType: "shared-project",
           name: "portable-review",
           description: "Review code from one shared source.",
-          sourceRootPath: path.dirname(skillFilePath),
+          sourceRootPath: path.posix.dirname(skillFilePath),
           skillFilePath,
         });
+        expect(responder.requests.map(({ command }) => command)).toMatchObject([
+          {
+            type: "host.read_workspace_agent_context",
+            includeAgentInstructions: true,
+            projectSkillRead: {
+              limit: 1_000,
+              maxFileBytes: 10 * 1024 * 1024,
+              maxContentBytes: 32 * 1024 * 1024,
+              excludeNames: expect.arrayContaining(["venv", "node_modules"]),
+            },
+            rootPath: workspacePath,
+            sharedSkillRoots: normalizeProviderNativeRoots({
+              user: [".agents/skills"],
+              project: [".agents/skills"],
+            }),
+          },
+        ]);
       },
     );
   });
@@ -1670,6 +1652,7 @@ describe("thread runtime config", () => {
         },
       );
 
+      expect(runtimeConfig.instructionMode).toBe("append");
       const userSource =
         "The following user instructions come from <dataDir>/AGENTS.md:";
       const workspaceSource =
@@ -1814,10 +1797,10 @@ describe("thread runtime config", () => {
         expect.arrayContaining([...EVA_AGENT_TOOL_NAMES]),
       );
       expect(runtimeConfig.instructions).toContain(
-        "In an Orchestrator thread, route a resolved @EVA-agent mention",
+        "The Master Orchestrator manages all agents",
       );
       expect(runtimeConfig.instructions).toContain(
-        "Do not claim delegated work is complete until you read the child's result.",
+        "read the child's result before you report it",
       );
 
       const adminThread = createThread(harness.db, harness.hub, {
@@ -1848,10 +1831,10 @@ describe("thread runtime config", () => {
         expect.arrayContaining([...EVA_AGENT_TOOL_NAMES]),
       );
       expect(adminConfig.instructions).toContain(
-        "Only the EVA Master Orchestrator and the Admin EVA agent may create EVA child threads",
+        "Any EVA agent may collaborate with the other EVA agents",
       );
       expect(adminConfig.instructions).toContain(
-        "When answering questions about what an agent does or inspecting its source workspace, Admin must inspect the files directly instead of delegating",
+        "The Admin agent answers questions about what an agent does by inspecting its files directly instead of delegating",
       );
 
       const specialistThread = createThread(harness.db, harness.hub, {
@@ -1881,11 +1864,11 @@ describe("thread runtime config", () => {
       const specialistToolNames = specialistConfig.dynamicTools.map(
         (tool) => tool.name,
       );
-      for (const toolName of EVA_AGENT_TOOL_NAMES) {
-        expect(specialistToolNames).not.toContain(toolName);
-      }
+      expect(specialistToolNames).toEqual(
+        expect.arrayContaining([...EVA_AGENT_TOOL_NAMES]),
+      );
       expect(specialistConfig.instructions).toContain(
-        "Only the EVA Master Orchestrator and the Admin EVA agent may create or delegate work to EVA child threads",
+        "When the user tags an agent with @ and gives a task or question, ask that agent.",
       );
     });
   });
@@ -2176,7 +2159,9 @@ describe("thread runtime config", () => {
         const restricted = await resolve();
         expect(configuredAllowedPluginIds).toEqual([]);
         expect(environmentAllowedPluginIds).toEqual([]);
-        expect(restricted.dynamicTools).toEqual([]);
+        expect(restricted.dynamicTools.map((tool) => tool.name)).toEqual([
+          ...EVA_AGENT_MEMORY_TOOL_NAMES,
+        ]);
         expect(restricted.instructions).not.toContain("allowed");
         expect(restricted.instructions).not.toContain("blocked");
         expect(
@@ -2205,6 +2190,7 @@ describe("thread runtime config", () => {
         expect(configuredAllowedPluginIds).toEqual(["allowed"]);
         expect(environmentAllowedPluginIds).toEqual(["allowed"]);
         expect(scoped.dynamicTools.map((tool) => tool.name)).toEqual([
+          ...EVA_AGENT_MEMORY_TOOL_NAMES,
           "allowed-tool",
         ]);
         expect(scoped.instructions).toContain("allowed dynamic instruction");
@@ -2260,6 +2246,99 @@ describe("thread runtime config", () => {
         }),
       });
     }
+
+    it.each(["meta", "admin", null])(
+      "selects GenUI instructions for %s without removing its tools",
+      async (agentId) => {
+        await withTestHarness(async (harness) => {
+          const { host } = seedHostSession(harness.deps, {
+            id: "host-chat-ui",
+          });
+          const { project } = seedProjectWithSource(harness.deps, {
+            hostId: host.id,
+            path: "/tmp/chat-ui",
+          });
+          const environment = seedEnvironment(harness.deps, {
+            hostId: host.id,
+            projectId: project.id,
+            path: "/tmp/chat-ui",
+          });
+          const thread = {
+            ...seedThread(harness.deps, {
+              projectId: project.id,
+              environmentId: environment.id,
+              providerId: "codex",
+            }),
+            agentId,
+          };
+          setPluginAgentContributions({
+            listSkillRootContributions: () => [],
+            listAgentTools: () => [],
+            listInstructionContributions: () => [
+              {
+                pluginId: "genui",
+                provider: () =>
+                  "Developer-only: show test logs and stack traces",
+              },
+              {
+                pluginId: "other",
+                provider: () => "Other integration instructions",
+              },
+            ],
+            findAgentTool: () => undefined,
+            invokeAgentTool: async () => ({ success: false, contentItems: [] }),
+            resolveMention: async () => ({ ok: false, error: "unused" }),
+            resolveAgentConfiguration: async () => ({
+              tools: [
+                {
+                  pluginId: "genui",
+                  tool: {
+                    name: "check_ui",
+                    description: "Check UI",
+                    inputSchema: { type: "object" },
+                  },
+                  instructions: "UI grammar: Card and Text",
+                },
+              ],
+              selectedSkillIdsByPlugin: new Map(),
+              dynamicInstructions: [
+                {
+                  pluginId: "genui",
+                  text: "Developer examples: use Changes and Logs",
+                },
+              ],
+            }),
+          });
+          const config = await resolveThreadRuntimeCommandConfig(harness.deps, {
+            thread,
+            model: "test-model",
+            environment: {
+              hostId: host.id,
+              id: environment.id,
+              path: environment.path,
+              status: environment.status,
+            },
+          });
+          expect(config.dynamicTools.map((tool) => tool.name)).toContain(
+            "check_ui",
+          );
+          expect(config.instructions).toContain("UI grammar: Card and Text");
+          expect(config.instructions).toContain(
+            "Other integration instructions",
+          );
+          if (agentId === "meta") {
+            expect(config.instructions).toContain("# Friendly chat UI");
+            expect(config.instructions).toContain("side panel");
+            expect(config.instructions).not.toContain("Developer-only");
+            expect(config.instructions).not.toContain("Developer examples");
+          } else {
+            expect(config.instructions).toContain("Developer-only");
+            expect(config.instructions).toContain("Developer examples");
+            expect(config.instructions).not.toContain("# Friendly chat UI");
+          }
+        });
+      },
+    );
 
     it("appends attributed plugin instructions after tool snippets and before data-dir instructions", async () => {
       await withTestHarness(async (harness) => {

@@ -14,6 +14,7 @@ import {
   isAgentAllowedByPolicy,
   resolveCorePolicy,
   resolveCoreResourceAccess,
+  resolveEvaAgentExecutionDefaults,
   type CoreAuthContext,
 } from "../access-policy.js";
 import { ApiError } from "../errors.js";
@@ -27,6 +28,21 @@ import { createEvaAgentService } from "./eva-agent-service.js";
 import { createThreadFromRequest } from "../services/threads/thread-create.js";
 import { acceptThreadSendRequest } from "../services/threads/thread-send-request.js";
 import { getLastThreadOutput } from "../services/threads/thread-data.js";
+import {
+  EVA_AGENT_MEMORY_BODY_MAX_CHARS,
+  EVA_AGENT_MEMORY_KINDS,
+  EVA_AGENT_MEMORY_TITLE_MAX_CHARS,
+  forgetEvaAgentMemory,
+  getEvaAgentMemory,
+  saveEvaAgentMemory,
+  type EvaAgentMemoryScope,
+} from "./eva-agent-memories.js";
+
+export const EVA_AGENT_MEMORY_TOOL_NAMES = [
+  "eva_memory_save",
+  "eva_memory_get",
+  "eva_memory_forget",
+] as const;
 
 export const EVA_AGENT_TOOL_NAMES = [
   "eva_list_agents",
@@ -34,26 +50,28 @@ export const EVA_AGENT_TOOL_NAMES = [
   "eva_list_agent_threads",
   "eva_read_agent_thread",
   "eva_message_agent_thread",
+  ...EVA_AGENT_MEMORY_TOOL_NAMES,
 ] as const;
 
 const evaAgentToolNameSet = new Set<string>(EVA_AGENT_TOOL_NAMES);
-const evaAgentDelegatorIds = new Set(["orchestrator", "admin"]);
-
+const evaAgentMemoryToolNameSet = new Set<string>(EVA_AGENT_MEMORY_TOOL_NAMES);
+/**
+ * Every EVA agent can collaborate: ask another agent, hand work off, or
+ * delegate a bounded task. The Master Orchestrator is the agent whose mandate
+ * is managing all the others. Policy grants still decide which agents and
+ * tools each user may use.
+ */
 export function isEvaAgentDelegator(
   agentId: string | null | undefined,
 ): boolean {
-  return (
-    agentId !== null &&
-    agentId !== undefined &&
-    evaAgentDelegatorIds.has(agentId)
-  );
+  return typeof agentId === "string" && agentId.length > 0;
 }
 
-export const EVA_AGENT_COLLABORATION_INSTRUCTIONS =
-  "Only the EVA Master Orchestrator and the Admin EVA agent may create EVA child threads by calling eva_delegate_to_agent. In either authorized thread, use EVA collaboration tools only for agents and tools permitted by the current policy; delegate bounded tasks into inspectable BB child threads, read their results, and send follow-ups when needed. In an Orchestrator thread, route a resolved @EVA-agent mention only when the user gives a concrete task; a mention alone is not authorization to start work. In an Admin thread, delegate when the user explicitly requests delegation or clearly assigns a concrete task to another named agent. When answering questions about what an agent does or inspecting its source workspace, Admin must inspect the files directly instead of delegating. Do not claim delegated work is complete until you read the child's result. Keep each delegation within the target agent's mandate, preserve human-approval boundaries, and never expose server filesystem paths or credentials.";
+/** How many agent hand-offs may be chained below one user conversation. */
+export const EVA_MAX_DELEGATION_DEPTH = 3;
 
-export const EVA_AGENT_SPECIALIST_INSTRUCTIONS =
-  "Only the EVA Master Orchestrator and the Admin EVA agent may create or delegate work to EVA child threads. Handle requests directly within your own mandate. Do not call EVA collaboration tools, create or message child threads, or ask another agent to do work. If a request is outside your scope, explain the boundary and suggest that the user ask the Master Orchestrator or Admin agent.";
+export const EVA_AGENT_COLLABORATION_INSTRUCTIONS =
+  "Any EVA agent may collaborate with the other EVA agents through the EVA collaboration tools: ask another agent a question, hand off work that belongs to its mandate, or delegate a bounded task. The Master Orchestrator manages all agents and routes work between them. When the user tags an agent with @ and gives a task or question, ask that agent. Delegate on your own initiative only when a request clearly belongs to another agent's mandate. Before you hand off, tell the user in one short sentence which agent you are asking and why. Delegated work runs in inspectable BB child threads: read the child's result before you report it, and send follow-ups when needed. Do not hand work back to an agent that asked you, and do not create long hand-off chains. Use collaboration tools only for agents and tools permitted by the current policy, keep each task within the target agent's mandate, preserve human-approval boundaries, and never expose server filesystem paths or credentials. The Admin agent answers questions about what an agent does by inspecting its files directly instead of delegating.";
 
 const evaAgentIdInputSchema = z
   .string()
@@ -84,6 +102,22 @@ const messageAgentThreadInputSchema = z
       .default("auto"),
   })
   .strict();
+const memoryIdInputSchema = z.string().trim().min(1).max(128);
+const memorySaveInputSchema = z
+  .object({
+    title: z.string().min(1).max(1_000),
+    details: z.string().min(1).max(64_000),
+    kind: z.enum(EVA_AGENT_MEMORY_KINDS),
+    id: memoryIdInputSchema.optional(),
+  })
+  .strict();
+const memoryIdOnlyInputSchema = z.object({ id: memoryIdInputSchema }).strict();
+
+function titleFromPrompt(prompt: string): string {
+  const compact = prompt.replace(/\s+/gu, " ").trim();
+  if (compact.length <= 64) return compact || "Collaboration";
+  return compact.slice(0, 61).trimEnd() + "…";
+}
 
 type OwnedThread = Thread & { ownerUserId?: string | null };
 
@@ -191,8 +225,74 @@ export const EVA_AGENT_TOOLS: readonly DynamicTool[] = [
   },
 ];
 
+export const EVA_AGENT_MEMORY_TOOLS: readonly DynamicTool[] = [
+  {
+    name: "eva_memory_save",
+    description:
+      "Remember something about the current user for future conversations: a preference they stated, a correction they gave you, an approach that works, or a useful fact. Saving a title you already used, or passing an existing id, updates that memory instead of creating a duplicate. Never store secrets or other people's private data.",
+    inputSchema: objectInputSchema(
+      {
+        title: {
+          type: "string",
+          description: "Short, specific title shown in your memory list.",
+          maxLength: EVA_AGENT_MEMORY_TITLE_MAX_CHARS,
+        },
+        details: {
+          type: "string",
+          description:
+            "What to remember and when it applies. Opened later with eva_memory_get.",
+          maxLength: EVA_AGENT_MEMORY_BODY_MAX_CHARS,
+        },
+        kind: { type: "string", enum: [...EVA_AGENT_MEMORY_KINDS] },
+        id: {
+          type: "string",
+          description: "Id of an existing memory to update.",
+        },
+      },
+      ["title", "details", "kind"],
+    ),
+    presentation: {
+      label: { pending: "Saving memory", completed: "Saved memory" },
+      icon: { glyph: "Edit" },
+      suppress: true,
+    },
+  },
+  {
+    name: "eva_memory_get",
+    description:
+      "Open the full details of one of your saved memories about the current user.",
+    inputSchema: objectInputSchema(
+      { id: { type: "string", description: "Memory id from your list." } },
+      ["id"],
+    ),
+    presentation: {
+      label: { pending: "Recalling memory", completed: "Recalled memory" },
+      icon: { glyph: "Search" },
+      suppress: true,
+    },
+  },
+  {
+    name: "eva_memory_forget",
+    description:
+      "Delete one of your saved memories about the current user when it is wrong or no longer applies.",
+    inputSchema: objectInputSchema(
+      { id: { type: "string", description: "Memory id from your list." } },
+      ["id"],
+    ),
+    presentation: {
+      label: { pending: "Forgetting memory", completed: "Forgot memory" },
+      icon: { glyph: "Trash2" },
+      suppress: true,
+    },
+  },
+];
+
 export function isEvaAgentToolName(value: string): boolean {
   return evaAgentToolNameSet.has(value);
+}
+
+export function isEvaAgentMemoryToolName(value: string): boolean {
+  return evaAgentMemoryToolNameSet.has(value);
 }
 
 function response(success: boolean, text: string): ToolCallResponse {
@@ -227,7 +327,7 @@ function authContextForUser(db: DbConnection, userId: string): CoreAuthContext {
 function requireCurrentEvaThread(
   deps: LoggedPendingInteractionWorkSessionDeps,
   thread: OwnedThread,
-): { authContext: CoreAuthContext } {
+): { authContext: CoreAuthContext; memoryScope: EvaAgentMemoryScope } {
   const ownerUserId = thread.ownerUserId ?? null;
   if (ownerUserId === null) {
     throw new ApiError(
@@ -274,7 +374,7 @@ function requireCurrentEvaThread(
       "The current policy does not permit this EVA thread",
     );
   }
-  return { authContext };
+  return { authContext, memoryScope: { agentId, ownerUserId } };
 }
 
 function requireTargetAgent(
@@ -296,22 +396,41 @@ function requireTargetAgent(
   return agent;
 }
 
-function executionDefaults(
-  authContext: CoreAuthContext,
-  agent: NonNullable<ReturnType<typeof getEvaAgentForDb>>,
-) {
-  const tuple = authContext.policy.agentExecutionTuples?.find(
-    (candidate) => candidate.agentId === agent.id,
-  );
-  return {
-    providerId:
-      tuple?.defaultProviderId ??
-      agent.defaultProviderId ??
-      agent.providerIds[0],
-    model: tuple?.defaultModel ?? agent.defaultModel,
-    reasoningLevel: tuple?.defaultReasoningLevel ?? agent.defaultReasoningLevel,
-    permissionMode: tuple?.defaultPermissionMode ?? agent.defaultPermissionMode,
-  };
+/**
+ * Prevents agents from bouncing work between each other: a hand-off may not
+ * target an agent already working on this request (including the current
+ * one), and chains stay short.
+ */
+export function assertDelegationAllowed(
+  db: DbConnection,
+  thread: Pick<Thread, "agentId" | "parentThreadId">,
+  targetAgentId: string,
+): void {
+  const chainAgentIds = new Set<string>();
+  if (thread.agentId) chainAgentIds.add(thread.agentId);
+  let depth = 0;
+  let parentThreadId = thread.parentThreadId;
+  while (parentThreadId !== null && depth <= EVA_MAX_DELEGATION_DEPTH) {
+    const parent = getThread(db, parentThreadId);
+    if (parent === null) break;
+    depth += 1;
+    if (parent.agentId) chainAgentIds.add(parent.agentId);
+    parentThreadId = parent.parentThreadId;
+  }
+  if (chainAgentIds.has(targetAgentId)) {
+    throw new ApiError(
+      409,
+      "delegation_cycle",
+      "That agent is already working on this request. Continue the work yourself or reply to the agent that asked you.",
+    );
+  }
+  if (depth >= EVA_MAX_DELEGATION_DEPTH) {
+    throw new ApiError(
+      409,
+      "delegation_too_deep",
+      "This request has already been handed off several times. Finish it yourself and report back.",
+    );
+  }
 }
 
 function parseToolInput<T>(schema: z.ZodType<T>, input: unknown): T {
@@ -355,11 +474,93 @@ function limitedText(value: string | null, maxLength: number): string | null {
   return `${value.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
+function handleEvaAgentMemoryToolCall(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: {
+    input: unknown;
+    scope: EvaAgentMemoryScope;
+    threadId: string;
+    tool: string;
+  },
+): ToolCallResponse {
+  try {
+    switch (args.tool) {
+      case "eva_memory_save": {
+        const parsed = memorySaveInputSchema.safeParse(args.input ?? {});
+        if (!parsed.success) {
+          return response(
+            false,
+            "Invalid memory: provide a title, details, and a kind of preference, correction, pattern, or fact.",
+          );
+        }
+        const result = saveEvaAgentMemory(deps.db, args.scope, {
+          ...(parsed.data.id === undefined ? {} : { id: parsed.data.id }),
+          title: parsed.data.title,
+          body: parsed.data.details,
+          kind: parsed.data.kind,
+          sourceThreadId: args.threadId,
+        });
+        return response(
+          true,
+          JSON.stringify({
+            id: result.memory.id,
+            title: result.memory.title,
+            kind: result.memory.kind,
+            status: result.status,
+          }),
+        );
+      }
+      case "eva_memory_get": {
+        const parsed = memoryIdOnlyInputSchema.safeParse(args.input ?? {});
+        if (!parsed.success) return response(false, "Provide a memory id.");
+        const memory = getEvaAgentMemory(deps.db, args.scope, parsed.data.id);
+        if (memory === null) return response(false, "Memory not found");
+        return response(
+          true,
+          JSON.stringify({
+            id: memory.id,
+            title: memory.title,
+            kind: memory.kind,
+            details: memory.body,
+            updatedAt: memory.updatedAt,
+          }),
+        );
+      }
+      case "eva_memory_forget": {
+        const parsed = memoryIdOnlyInputSchema.safeParse(args.input ?? {});
+        if (!parsed.success) return response(false, "Provide a memory id.");
+        if (!forgetEvaAgentMemory(deps.db, args.scope, parsed.data.id)) {
+          return response(false, "Memory not found");
+        }
+        return response(
+          true,
+          JSON.stringify({ id: parsed.data.id, status: "forgotten" }),
+        );
+      }
+      default:
+        return response(false, "Unsupported EVA memory tool");
+    }
+  } catch (error) {
+    if (error instanceof ApiError && error.status < 500) {
+      return response(false, error.body.message);
+    }
+    throw error;
+  }
+}
+
 export async function handleEvaAgentToolCall(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: { input: unknown; thread: OwnedThread; tool: string },
 ): Promise<ToolCallResponse> {
   const current = requireCurrentEvaThread(deps, args.thread);
+  if (isEvaAgentMemoryToolName(args.tool)) {
+    return handleEvaAgentMemoryToolCall(deps, {
+      input: args.input,
+      scope: current.memoryScope,
+      threadId: args.thread.id,
+      tool: args.tool,
+    });
+  }
   const service = createEvaAgentService({ db: deps.db, config: deps.config });
   switch (args.tool) {
     case "eva_list_agents": {
@@ -393,12 +594,16 @@ export async function handleEvaAgentToolCall(
         throw new ApiError(
           403,
           "policy_denied",
-          "Only the EVA Master Orchestrator and Admin EVA agent can delegate work to another agent",
+          "Only EVA agent threads can delegate work to another agent",
         );
       }
       const input = parseToolInput(delegateInputSchema, args.input);
       const agent = requireTargetAgent(deps, current.authContext, input.agent);
-      const defaults = executionDefaults(current.authContext, agent);
+      assertDelegationAllowed(deps.db, args.thread, agent.id);
+      const defaults = resolveEvaAgentExecutionDefaults(
+        current.authContext.policy,
+        agent,
+      );
       const execution = assertExecutionAllowedForUser(
         deps.db,
         current.authContext.userId,
@@ -425,7 +630,7 @@ export async function handleEvaAgentToolCall(
           ? {}
           : { permissionMode: execution.permissionMode }),
         origin: "app",
-        title: `${agent.displayName} collaboration`,
+        title: titleFromPrompt(input.task),
         input: [{ type: "text", text: input.task, mentions: [] }],
         environment: { type: "host", workspace: { type: "personal" } },
         parentThreadId: args.thread.id,

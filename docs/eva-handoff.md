@@ -32,8 +32,11 @@ The current fork contains the following major surfaces:
   hosts, environments, realtime, and queued execution.
 - EVA agents, skills, managed workspaces, agent instructions, agent threads,
   bounded agent-to-agent collaboration, SDK contracts, CLI commands, and UI.
-- Hidden global, role, user, and agent instructions with server-side
-  precedence and current-policy checks.
+- Hidden global, role, user, agent, and user-for-one-agent instructions with
+  server-side precedence and current-policy checks.
+- Administrator-only review of each user's EVA agent chats in the admin
+  dashboard (`GET /api/v1/access/users/:id/eva-chats`); regular users only
+  ever resolve chats from threads they own.
 - Protected mini-app gateway with authenticated handoffs, scoped links,
   wildcard-host routing, host-only app cookies, and WebSocket proxying.
 - Systemd source deployment, persistent data paths, health/readiness endpoints,

@@ -19,6 +19,7 @@ declare module "ws" {
     static readonly CONNECTING: number;
     static readonly OPEN: number;
     readonly readyState: number;
+    readonly bufferedAmount: number;
     readonly protocol: string;
     send(
       data: string | Buffer | Uint8Array | ArrayBuffer,

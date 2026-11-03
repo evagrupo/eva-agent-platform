@@ -12,7 +12,9 @@ script Run a stored server-side script and capture stdout/stderr/exit.
 
 Use the top-level `bb automation` command. The CLI routes it to this plugin.
 
-Pass `--project` explicitly for every automation command. Inside a thread, automations are stamped origin `agent` and record the creating thread automatically. Automation-spawned threads cannot create automations.
+Pass `--project` explicitly for every automation command. Inside a thread, automations are stamped origin `agent` and record the creating thread automatically. Threads an automation started cannot create automations; a chat that only receives runs can.
+
+Inside an EVA agent chat (other than the Admin development agent), an agent automation posts each run back into that chat by default. Use `--agent <id>` for another agent's chat, or `--new-thread` for a separate thread per run.
 
 Personal supports automations with `--project proj_personal`. Use `bb project list --include-personal --json` to include it in discovery; an empty default project list does not mean Personal is unavailable.
 

@@ -52,7 +52,10 @@ function renderAdminDashboard(fetchMock: typeof fetch) {
   );
 }
 
-function mockAdminApi(groupResponse: Response) {
+function mockAdminApi(
+  groupResponse: Response,
+  overrides: Record<string, unknown> = {},
+) {
   const responses: Record<string, unknown> = {
     "/api/v1/access/users": [],
     "/api/v1/access/policies": [{ id: "user", role: "user" }],
@@ -75,6 +78,7 @@ function mockAdminApi(groupResponse: Response) {
       agents: [],
     },
     "/api/v1/access/audit?limit=40": [],
+    ...overrides,
   };
 
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -140,5 +144,196 @@ describe("EVA admin dashboard feedback", () => {
       expect(toastMock.error).toHaveBeenCalledWith("Group already exists"),
     );
     expect(screen.queryByText("Group already exists")).toBeNull();
+  });
+});
+
+const monitoredUser = {
+  id: "alice",
+  email: "alice@eva.test",
+  name: "Alice",
+  role: "user",
+  status: "active",
+  policyId: "user",
+  defaultAgentId: null,
+};
+
+const helperAgent = {
+  id: "helper",
+  displayName: "Helper",
+  description: "Helps with everyday tasks",
+  providerIds: ["codex"],
+  defaultProviderId: "codex",
+  defaultModel: "gpt-5.6-luna",
+  defaultReasoningLevel: "high",
+  defaultPermissionMode: "accept-edits",
+  reasoningLevels: ["high"],
+  permissionModes: ["accept-edits"],
+};
+
+function catalogWithHelper() {
+  return {
+    defaults: {
+      providerId: "codex",
+      model: "gpt-5.6-luna",
+      reasoningLevel: "high",
+      permissionMode: "accept-edits",
+    },
+    registeredProviderIds: [],
+    plugins: [],
+    tools: [],
+    providers: [],
+    connectors: [],
+    agents: [helperAgent],
+  };
+}
+
+describe("EVA admin dashboard user chats", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("lists the selected user's agent chats and links each to its thread", async () => {
+    const fetchMock = mockAdminApi(jsonResponse({}), {
+      "/api/v1/access/users": [monitoredUser],
+      "/api/v1/access/agents": catalogWithHelper(),
+      "/api/v1/access/users/alice/eva-chats": {
+        userId: "alice",
+        chats: [
+          {
+            agentId: "helper",
+            agentName: "Helper",
+            agentIcon: "Sparkles",
+            threadId: "thr_alice",
+            projectId: "proj_team",
+            title: "Helper chat",
+            status: "idle",
+            updatedAt: 2_000,
+            preview: { role: "user", text: "Book my flight", at: 1_000 },
+            otherThreadCount: 2,
+          },
+        ],
+      },
+    });
+    renderAdminDashboard(fetchMock);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /chats de usuarios/i }),
+    );
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "alice" },
+    });
+
+    const link = await screen.findByRole("link", { name: /helper/i });
+    expect(link.getAttribute("href")).toBe(
+      "/projects/proj_team/threads/thr_alice",
+    );
+    expect(link.textContent).toContain("User: Book my flight");
+    expect(link.textContent).toContain("2 other threads");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/access/users/alice/eva-chats",
+      expect.anything(),
+    );
+  });
+
+  it("shows an empty state and request failures for the selected user", async () => {
+    const fetchMock = mockAdminApi(jsonResponse({}), {
+      "/api/v1/access/users": [
+        monitoredUser,
+        { ...monitoredUser, id: "bob", email: "bob@eva.test", name: "Bob" },
+      ],
+      "/api/v1/access/users/alice/eva-chats": { userId: "alice", chats: [] },
+    });
+    renderAdminDashboard(fetchMock);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /chats de usuarios/i }),
+    );
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "alice" },
+    });
+    expect(
+      await screen.findByText("This user has no agent chats yet."),
+    ).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "bob" },
+    });
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Unexpected request: /api/v1/access/users/bob/eva-chats",
+    );
+  });
+});
+
+describe("EVA admin dashboard user instructions", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function submitUserInstruction(agentId: string) {
+    const created: unknown[] = [];
+    const baseFetch = mockAdminApi(jsonResponse({}), {
+      "/api/v1/access/users": [monitoredUser],
+      "/api/v1/access/agents": catalogWithHelper(),
+    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (
+          String(input) === "/api/v1/access/instructions" &&
+          init?.method === "POST"
+        ) {
+          created.push(JSON.parse(String(init.body)));
+          return jsonResponse({ id: "alice-rule" }, 201);
+        }
+        return baseFetch(input, init);
+      },
+    );
+    renderAdminDashboard(fetchMock);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /instrucciones del servidor/i,
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Instruction ID"), {
+      target: { value: "alice-rule" },
+    });
+    fireEvent.change(screen.getByLabelText("Scope"), {
+      target: { value: "user" },
+    });
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "alice" },
+    });
+    fireEvent.change(screen.getByLabelText("Agent (optional)"), {
+      target: { value: agentId },
+    });
+    fireEvent.change(screen.getByLabelText("Content"), {
+      target: { value: "Answer Alice in Spanish." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Crear" }));
+    await waitFor(() => expect(created).toHaveLength(1));
+    return created[0];
+  }
+
+  it("binds a user instruction to the selected agent", async () => {
+    expect(await submitUserInstruction("helper")).toEqual({
+      id: "alice-rule",
+      scope: "user",
+      content: "Answer Alice in Spanish.",
+      userId: "alice",
+      agentId: "helper",
+    });
+  });
+
+  it("keeps a user instruction for all agents when no agent is selected", async () => {
+    expect(await submitUserInstruction("")).toEqual({
+      id: "alice-rule",
+      scope: "user",
+      content: "Answer Alice in Spanish.",
+      userId: "alice",
+    });
   });
 });

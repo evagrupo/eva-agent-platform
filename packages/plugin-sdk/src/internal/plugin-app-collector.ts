@@ -16,6 +16,7 @@ import type {
   PluginFileOpenerRegistration,
   PluginHomepageSectionRegistration,
   PluginCommandRegistration,
+  ExperimentalComposerCommandRegistration,
   PluginMessageActionRegistration,
   PluginMessageDirectiveRegistration,
   PluginNavPanelRegistration,
@@ -25,9 +26,9 @@ import type {
   ExperimentalIconRegistration,
   PluginSettingsSectionRegistration,
   PluginSidebarFooterActionRegistration,
-  ExperimentalSidebarNavigationRegistration,
   PluginSourceCodeRendererRegistration,
   PluginThreadHeaderActionRegistration,
+  PluginThreadActionRegistration,
   ExperimentalPluginBrowserToolbarActionRegistration,
   PluginThreadListRegistration,
   PluginThreadPanelActionRegistration,
@@ -328,12 +329,17 @@ const commandShortcutSchema = z
     "Use Command, Control, or Alt with a key, or a function key",
   );
 
-export interface CollectedPluginCommandRegistration extends Omit<
-  PluginCommandRegistration,
-  "defaultShortcut"
-> {
-  defaultShortcut: z.infer<typeof commandShortcutSchema> | null;
-}
+type CollectedCommandShortcut = z.infer<typeof commandShortcutSchema> | null;
+
+export type CollectedPluginCommandRegistration =
+  | (Omit<PluginCommandRegistration, "defaultShortcut"> & {
+      target: "app";
+      defaultShortcut: CollectedCommandShortcut;
+    })
+  | (Omit<ExperimentalComposerCommandRegistration, "defaultShortcut"> & {
+      target: "composer";
+      defaultShortcut: CollectedCommandShortcut;
+    });
 
 export interface CollectedPluginAppRegistrations {
   homepageSections: PluginHomepageSectionRegistration[];
@@ -346,9 +352,9 @@ export interface CollectedPluginAppRegistrations {
   pendingInteractions: PluginPendingInteractionRegistration[];
   sidebarFooterActions: PluginSidebarFooterActionRegistration[];
   experimentalSidebarFooterItems: CollectedExperimentalSidebarFooterItem[];
-  experimentalSidebarNavigations: ExperimentalSidebarNavigationRegistration[];
   threadLists: PluginThreadListRegistration[];
   threadHeaderActions: PluginThreadHeaderActionRegistration[];
+  threadActions: PluginThreadActionRegistration<unknown>[];
   browserToolbarActions: ExperimentalPluginBrowserToolbarActionRegistration[];
   fileOpeners: PluginFileOpenerRegistration[];
   sourceCodeRenderers: PluginSourceCodeRendererRegistration[];
@@ -471,9 +477,9 @@ export function collectPluginAppRegistrations(
     pendingInteractions: [],
     sidebarFooterActions: [],
     experimentalSidebarFooterItems: [],
-    experimentalSidebarNavigations: [],
     threadLists: [],
     threadHeaderActions: [],
+    threadActions: [],
     browserToolbarActions: [],
     fileOpeners: [],
     sourceCodeRenderers: [],
@@ -497,11 +503,12 @@ export function collectPluginAppRegistrations(
     threadPanelAction: new Set<string>(),
     newThreadPanelAction: new Set<string>(),
     composerCustomization: new Set<string>(),
+    composerPopup: new Set<string>(),
     pendingInteraction: new Set<string>(),
     sidebarFooterItem: new Set<string>(),
-    sidebarNavigation: new Set<string>(),
     threadList: new Set<string>(),
     threadHeaderAction: new Set<string>(),
+    threadAction: new Set<string>(),
     browserToolbarAction: new Set<string>(),
     fileOpener: new Set<string>(),
     sourceCodeRenderer: new Set<string>(),
@@ -516,13 +523,30 @@ export function collectPluginAppRegistrations(
     contentScript: new Set<string>(),
   };
 
-  function registerCommand(registration: PluginCommandRegistration): void {
-    const kind = "commands.register";
+  function collectCommand(
+    kind: string,
+    registration:
+      | PluginCommandRegistration
+      | ExperimentalComposerCommandRegistration,
+  ) {
     const id = requireSlotId(kind, registration?.id);
     requireUniqueId(kind, seenIds.command, id);
     if (typeof registration.run !== "function") {
       throw new Error(`${kind}: "run" must be a function`);
     }
+    return {
+      id,
+      defaultShortcut:
+        registration.defaultShortcut === undefined
+          ? null
+          : commandShortcutSchema.parse(registration.defaultShortcut),
+      title: requireNonEmptyString(kind, "title", registration.title),
+    };
+  }
+
+  function registerCommand(registration: PluginCommandRegistration): void {
+    const kind = "commands.register";
+    const command = collectCommand(kind, registration);
     if (
       registration.isAvailable !== undefined &&
       typeof registration.isAvailable !== "function"
@@ -530,15 +554,21 @@ export function collectPluginAppRegistrations(
       throw new Error(`${kind}: "isAvailable" must be a function`);
     }
     collected.commandPaletteActions.push({
-      id,
-      defaultShortcut:
-        registration.defaultShortcut === undefined
-          ? null
-          : commandShortcutSchema.parse(registration.defaultShortcut),
-      title: requireNonEmptyString(kind, "title", registration.title),
+      target: "app",
+      ...command,
       ...(registration.isAvailable !== undefined
         ? { isAvailable: registration.isAvailable }
         : {}),
+      run: registration.run,
+    });
+  }
+
+  function registerComposerCommand(
+    registration: ExperimentalComposerCommandRegistration,
+  ): void {
+    collected.commandPaletteActions.push({
+      target: "composer",
+      ...collectCommand("composer.experimental_registerCommand", registration),
       run: registration.run,
     });
   }
@@ -566,7 +596,12 @@ export function collectPluginAppRegistrations(
           "description",
           registration.description,
         );
+        const page = registration.experimental_page;
+        if (page !== undefined && page !== "mobile") {
+          throw new Error(`${kind}: experimental_page must be "mobile"`);
+        }
         collected.settingsSections.push({
+          ...(page !== undefined ? { experimental_page: page } : {}),
           id,
           ...(title !== undefined ? { title } : {}),
           ...(description !== undefined ? { description } : {}),
@@ -736,15 +771,6 @@ export function collectPluginAppRegistrations(
         collected.sidebarFooterActions.push(legacyRegistration);
         sidebarFooterItems.push(adaptSidebarFooterAction(legacyRegistration));
       },
-      experimental_sidebarNavigation(registration) {
-        collected.experimentalSidebarNavigations.push(
-          collectTitledComponent(
-            "slots.experimental_sidebarNavigation",
-            seenIds.sidebarNavigation,
-            registration,
-          ),
-        );
-      },
       experimental_threadList(registration) {
         collected.threadLists.push(
           collectTitledComponent(
@@ -762,6 +788,39 @@ export function collectPluginAppRegistrations(
           id,
           title: requireNonEmptyString(kind, "title", registration.title),
           component: requireComponent(kind, registration.component),
+        });
+      },
+      experimental_threadAction(registration) {
+        const kind = "slots.experimental_threadAction";
+        const id = requireSlotId(kind, registration?.id);
+        requireUniqueId(kind, seenIds.threadAction, id);
+        if (typeof registration.item !== "function") {
+          throw new Error(`${kind}: "item" must be a function`);
+        }
+        if (
+          registration.useData !== undefined &&
+          typeof registration.useData !== "function"
+        ) {
+          throw new Error(`${kind}: "useData" must be a function`);
+        }
+        if (
+          registration.order !== undefined &&
+          !Number.isFinite(registration.order)
+        ) {
+          throw new Error(`${kind}: "order" must be a finite number`);
+        }
+        collected.threadActions.push({
+          id,
+          title: requireNonEmptyString(kind, "title", registration.title),
+          icon: requireNonEmptyString(kind, "icon", registration.icon),
+          group: requireNonEmptyString(kind, "group", registration.group),
+          ...(registration.order !== undefined
+            ? { order: registration.order }
+            : {}),
+          ...(registration.useData !== undefined
+            ? { useData: registration.useData }
+            : {}),
+          item: registration.item,
         });
       },
       experimental_browserToolbarAction(registration) {
@@ -920,11 +979,13 @@ export function collectPluginAppRegistrations(
           registration,
           seenIds.composerCustomization,
           onComposerCustomizationRejected,
+          seenIds.composerPopup,
         );
         if (customization !== null) {
           collected.composerCustomizations.push(customization);
         }
       },
+      experimental_registerCommand: registerComposerCommand,
     },
     experimental_icons: {
       register(registration) {

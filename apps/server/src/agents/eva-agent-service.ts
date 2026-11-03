@@ -34,6 +34,11 @@ import {
   findEvaAgentSeedDir,
   seedEvaAgentWorkspace,
 } from "./eva-agent-seed.js";
+import {
+  ensureEvaAgentCanonicalChat,
+  getEvaAgentChatPreview,
+  type EvaAgentChatPreview,
+} from "./eva-agent-chat.js";
 
 const skillIdSchema = z
   .string()
@@ -75,6 +80,8 @@ export interface EvaAgentView {
     lastScaffoldedAt: number | null;
     managedFiles: string[];
   };
+  chatThreadId: string | null;
+  chatPreview: EvaAgentChatPreview | null;
   weeklyConversationCount: number;
 }
 
@@ -107,7 +114,6 @@ export interface UpdateEvaAgentInput {
   displayName?: string;
   description?: string;
   icon?: string;
-  status?: EvaAgentCatalogEntry["status"];
   instructions?: string;
   providerId?: string | null;
   model?: string;
@@ -243,9 +249,17 @@ function weeklyConversationCount(db: DbConnection, agentId: string): number {
 function toView(
   deps: EvaAgentServiceDeps,
   agent: EvaAgentCatalogEntry,
+  ownerUserId?: string,
 ): EvaAgentView {
   const skills = listEvaAgentSkills(deps.db, agent.id);
   const workspace = getEvaAgentWorkspace(deps.db, agent.id);
+  const chatThreadId =
+    ownerUserId === undefined
+      ? null
+      : ensureEvaAgentCanonicalChat(deps.db, {
+          agentId: agent.id,
+          ownerUserId,
+        });
   if (workspace === null) throw new Error("EVA agent workspace is missing");
   return {
     ...agent,
@@ -260,6 +274,11 @@ function toView(
       lastScaffoldedAt: workspace.lastScaffoldedAt,
       managedFiles: managedFiles(skills),
     },
+    chatThreadId,
+    chatPreview:
+      chatThreadId === null
+        ? null
+        : getEvaAgentChatPreview(deps.db, chatThreadId),
     weeklyConversationCount: weeklyConversationCount(deps.db, agent.id),
   };
 }
@@ -314,12 +333,14 @@ export function createEvaAgentService(deps: EvaAgentServiceDeps) {
         }
       }
     },
-    list(): EvaAgentView[] {
-      return listEvaAgentsFromDb(deps.db).map((agent) => toView(deps, agent));
+    list(ownerUserId?: string): EvaAgentView[] {
+      return listEvaAgentsFromDb(deps.db).map((agent) =>
+        toView(deps, agent, ownerUserId),
+      );
     },
-    get(agentId: string): EvaAgentView | null {
+    get(agentId: string, ownerUserId?: string): EvaAgentView | null {
       const agent = getEvaAgentForDb(deps.db, agentId);
-      return agent === null ? null : toView(deps, agent);
+      return agent === null ? null : toView(deps, agent, ownerUserId);
     },
     async scaffold(agentId: string): Promise<EvaAgentView | null> {
       const agent = getEvaAgentForDb(deps.db, agentId);
@@ -377,7 +398,7 @@ export function createEvaAgentService(deps: EvaAgentServiceDeps) {
             0,
             ...listEvaAgentsFromDb(deps.db).map((entry) => entry.sortOrder),
           ) + 1,
-        status: "draft",
+        status: "live",
         sourceProviderId: providerId,
         providerIds: [providerId],
         defaultProviderId: providerId,
@@ -454,7 +475,6 @@ export function createEvaAgentService(deps: EvaAgentServiceDeps) {
         displayName: input.displayName?.trim() ?? current.displayName,
         description: input.description?.trim() ?? current.description,
         icon: input.icon?.trim() ?? current.icon,
-        status: input.status ?? current.status,
         sourceProviderId: providerId,
         providerIds:
           providerId === null ? [...current.providerIds] : [providerId],

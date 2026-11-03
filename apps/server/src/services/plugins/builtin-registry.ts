@@ -20,6 +20,8 @@ interface ResolveBuiltinPluginRootPathArgs {
 
 export const BUILTIN_PLUGINS_DIRECTORY_NAME = "builtin-plugins";
 
+export const BUILTIN_PLUGIN_ID_PREFIX = "bb--";
+
 const ACCOUNT_POOL_PARENT_URL_ENV = "BB_ACCOUNT_POOL_PARENT_URL";
 
 export function accountPoolDefaultEnabled(
@@ -32,6 +34,11 @@ export function accountPoolDefaultEnabled(
 const REPO_PLUGINS_DIRECTORY_NAME = "plugins";
 
 export const BUILTIN_PLUGINS = [
+  {
+    name: "storage-retention",
+    pluginId: "bb--storage-retention",
+    defaultEnabled: false,
+  },
   {
     name: "bb-guide",
     pluginId: "bb-guide",
@@ -50,6 +57,16 @@ export const BUILTIN_PLUGINS = [
   {
     name: "automations",
     pluginId: "automations",
+    defaultEnabled: true,
+  },
+  {
+    name: "bb-account",
+    pluginId: "bb-account",
+    defaultEnabled: true,
+  },
+  {
+    name: "bb-ai",
+    pluginId: "bb-ai",
     defaultEnabled: true,
   },
   {
@@ -114,7 +131,7 @@ export const BUILTIN_PLUGINS = [
   },
   {
     name: "provider-usage",
-    pluginId: "provider-usage",
+    pluginId: "bb--provider-usage",
     defaultEnabled: true,
   },
   {
@@ -151,6 +168,16 @@ export const BUILTIN_PLUGINS = [
     name: "drafts",
     pluginId: "drafts",
     defaultEnabled: true,
+  },
+  {
+    name: "thread-list",
+    pluginId: "thread-list",
+    defaultEnabled: true,
+  },
+  {
+    name: "prompt-library",
+    pluginId: "bb--prompt-library",
+    defaultEnabled: false,
   },
   {
     name: "scheduled-send",

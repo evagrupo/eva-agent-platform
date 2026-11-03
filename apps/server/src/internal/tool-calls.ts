@@ -9,6 +9,7 @@ import type { AppDeps } from "../types.js";
 import { ApiError } from "../errors.js";
 import {
   handleEvaAgentToolCall,
+  isEvaAgentMemoryToolName,
   isEvaAgentToolName,
 } from "../agents/eva-agent-tools.js";
 import { requireThreadEnvironment } from "../services/lib/entity-lookup.js";
@@ -83,7 +84,10 @@ export function registerInternalToolCallRoutes(app: Hono, deps: AppDeps): void {
         );
       }
       if (isEvaAgentToolName(payload.tool)) {
-        if (thread.ownerUserId !== null) {
+        if (
+          thread.ownerUserId !== null &&
+          !isEvaAgentMemoryToolName(payload.tool)
+        ) {
           assertToolAllowedForUser(
             deps.db,
             thread.ownerUserId,

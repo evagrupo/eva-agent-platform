@@ -7,7 +7,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import type { AddressInfo } from "node:net";
-import { createConnection, getAppSettings, type DbConnection } from "@bb/db";
+import {
+  createConnection,
+  getAppSettings,
+  getDisabledProviderIds,
+  listRunningThreads,
+  setAppSettings,
+  type DbConnection,
+} from "@bb/db";
 import { defaultFeatureFlags } from "@bb/domain";
 import { initDb } from "../../src/db.js";
 import { createApp } from "../../src/server.js";
@@ -22,6 +29,10 @@ import { SkillTreeRegistry } from "../../src/services/skills/injected-skills.js"
 import { PluginHostArtifactRegistry } from "../../src/services/plugins/plugin-host-artifact-registry.js";
 import { createProviderNativeRootsCache } from "../../src/services/providers/native-roots.js";
 import { createAiServiceRegistry } from "../../src/services/ai/ai-service-registry.js";
+import {
+  createAppUpdateService,
+  type AppUpdateService,
+} from "../../src/services/system/app-update.js";
 import {
   createAppVersionService,
   type AppVersionService,
@@ -78,6 +89,7 @@ export async function installTestBuiltinPlugin(
 }
 
 export type TestAppHarnessConfigOverrides = Partial<ServerRuntimeConfig> & {
+  appUpdateService?: AppUpdateService;
   appVersionService?: AppVersionService;
   terminalAttachTimeoutMs?: number;
   terminalCloseTimeoutMs?: number;
@@ -144,6 +156,7 @@ export async function createTestAppHarness(
   overrides: TestAppHarnessConfigOverrides = {},
 ): Promise<TestAppHarness> {
   const {
+    appUpdateService,
     appVersionService,
     terminalAttachTimeoutMs = TEST_TERMINAL_RPC_TIMEOUT_MS,
     terminalCloseTimeoutMs,
@@ -155,6 +168,10 @@ export async function createTestAppHarness(
   const logger = createTestLogger();
   const dataDir = await mkdtemp(join(tmpdir(), "bb-server-test-"));
   const db = createTestDb();
+  setAppSettings(db, {
+    ...getAppSettings(db),
+    machineGitCredentialsEnabled: false,
+  });
   const hub = new NotificationHubImpl();
   const watchInterests = new WatchInterestCoordinator({ db, hub });
   const sharedPorts = new HostSharedPortCoordinator({ db, hub });
@@ -164,6 +181,7 @@ export async function createTestAppHarness(
       const settings = getAppSettings(db);
       return {
         providerOrder: settings.providerOrder,
+        disabledProviderIds: getDisabledProviderIds(db),
         defaultProviderId: settings.defaultProviderId,
       };
     },
@@ -216,16 +234,13 @@ export async function createTestAppHarness(
     customModels: [],
     dataDir,
     featureFlags: defaultFeatureFlags,
+    performanceDiagnosticsAvailable: false,
     hostDaemonPort: 3001,
     marketplaceUrl: "https://marketplace.invalid/marketplace.json",
     inheritedSkillsRootPaths: [],
-    inferenceFallbackModel: "test/mock-fallback-model",
-    inferenceModel: "test/mock-model",
     isDevelopment: true,
-    openAiApiKey: "test-openai-key",
     serverPort: 3334,
     sharedSkillRoots: { user: [], project: [] },
-    transcriptionModel: "test/mock-transcription",
     appUrl: "https://bb.example.test",
     ...configOverrides,
   };
@@ -267,10 +282,26 @@ export async function createTestAppHarness(
   const appVersion =
     appVersionService ??
     createAppVersionService({
+      sourceCommit: null,
+      installKind: null,
       config,
       logger,
     });
+  const appUpdate =
+    appUpdateService ??
+    createAppUpdateService({
+      currentCommit: null,
+      appSurface: "web",
+      appVersion,
+      config,
+      countRunningThreads: () => listRunningThreads(db).length,
+      launcher: null,
+      logger,
+      mode: null,
+      notifyChanged: () => hub.notifySystem(["app-update-changed"]),
+    });
   const deps: ServerAppDeps = {
+    appUpdate,
     appVersion,
     bbAppManagedConfig,
     config,

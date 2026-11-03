@@ -150,7 +150,6 @@ function ThreadDetailSecondaryContentBody({
           onToggle: onToggleConversationCollapse,
         }}
         composerHost={composerHost}
-        compactPresentation="full"
         renderHostedPanel={renderHostedPanel}
         renderPanel={({
           presentation,
@@ -176,9 +175,6 @@ function ThreadDetailSecondaryContentBody({
               presentation === "inline" && isMainCollapsed
             }
             onToggleConversationCollapse={onToggleMainCollapse}
-            {...(presentation === "inline"
-              ? { inlinePanelToggle: "button" as const }
-              : {})}
             resizablePanelId={resizablePanelId}
             metadataContent={metadataContent}
           />

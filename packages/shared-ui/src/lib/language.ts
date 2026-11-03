@@ -849,6 +849,10 @@ const evaTranslations: Readonly<Record<string, string>> = {
   "Pinned provider:": "Proveedor fijado:",
   "Agent folder:": "Carpeta del agente:",
   "Switch agent": "Cambiar de agente",
+  Development: "Desarrollo",
+  "Working on it…": "Trabajando en ello…",
+  "Something went wrong on my side. Please try again in a moment.":
+    "Algo salió mal por mi parte. Inténtalo de nuevo en un momento.",
   "EVA could not be loaded.": "No se pudo cargar EVA.",
   "Conversation name": "Nombre de la conversación",
   "Manage conversation": "Gestionar conversación",

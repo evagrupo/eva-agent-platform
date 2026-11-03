@@ -22,7 +22,6 @@ function messageFromResponse(value: unknown): string | null {
 
 export async function createEvaAgentThread(args: {
   agentId: string;
-  agentName: string;
   request: NewThreadRequest;
 }): Promise<string> {
   const prompt = args.request.input
@@ -40,7 +39,7 @@ export async function createEvaAgentThread(args: {
       agentId: args.agentId,
       origin: "plugin",
       originPluginId: "eva",
-      title: `${args.agentName} — ${prompt.slice(0, 120) || "New conversation"}`,
+      title: prompt.slice(0, 120) || "New conversation",
     }),
   });
   const body: unknown = await response.json().catch(() => null);

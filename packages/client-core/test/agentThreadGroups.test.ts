@@ -24,7 +24,7 @@ function createThread(overrides: Partial<ThreadListEntry>): ThreadListEntry {
 describe("buildAgentThreadGroups", () => {
   it("keeps catalog order including empty agents, then unknown, then other threads", () => {
     const agents = [
-      { id: "meta", displayName: "Meta" },
+      { id: "meta", displayName: "Meta", chatThreadId: "thr_4" },
       { id: "tiktok", displayName: "TikTok" },
       { id: "hr", displayName: "RR. HH." },
     ];
@@ -37,6 +37,8 @@ describe("buildAgentThreadGroups", () => {
     ];
 
     const groups = buildAgentThreadGroups(threads, agents);
+
+    expect(groups[0]?.chatThreadId).toBe("thr_4");
 
     expect(
       groups.map((group) => ({
