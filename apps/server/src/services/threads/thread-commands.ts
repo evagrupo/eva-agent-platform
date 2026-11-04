@@ -1,3 +1,7 @@
+import {
+  administratorRulesUpdateInput,
+  recordAdministratorRulesInSession,
+} from "./administrator-rules-delivery.js";
 import { environments, hasStoredSpawnAgentToolCall, threads } from "@bb/db";
 import { and, eq, isNull } from "drizzle-orm";
 import {
@@ -335,6 +339,10 @@ export async function buildThreadStartCommand(
     model: args.execution.model,
   });
   const bridgeLaunch = requireBridgeLaunchForProviderId(deps, args.providerId);
+  recordAdministratorRulesInSession(
+    args.thread.id,
+    runtimeContext.administratorRules,
+  );
   return {
     type: "thread.start",
     environmentId: args.environment.id,
@@ -437,16 +445,26 @@ export async function prepareTurnSubmitCommandPayload(
     environment: args.environment,
     model: args.execution.model,
   });
+  const rulesUpdate = administratorRulesUpdateInput(
+    args.thread.id,
+    runtimeContext.administratorRules,
+  );
+  const input =
+    rulesUpdate === null ? args.input : [rulesUpdate, ...args.input];
+  const inputGroups =
+    rulesUpdate === null || args.inputGroups === undefined
+      ? args.inputGroups
+      : args.inputGroups.map((group, index) =>
+          index === 0 ? [rulesUpdate, ...group] : group,
+        );
   return buildPreparedTurnSubmitCommandPayload({
     deps,
     environmentId: args.environment.id,
     hostId: args.environment.hostId,
     execution: args.execution,
     permissionEscalation: args.permissionEscalation,
-    input: args.input,
-    ...(args.inputGroups !== undefined
-      ? { inputGroups: args.inputGroups }
-      : {}),
+    input,
+    ...(inputGroups !== undefined ? { inputGroups } : {}),
     providerThreadId,
     runtimeContext,
     target: args.target,

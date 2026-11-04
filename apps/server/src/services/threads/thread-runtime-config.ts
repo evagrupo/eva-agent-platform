@@ -20,6 +20,8 @@ import type {
   HostDaemonInjectedSkillSource,
 } from "@bb/host-daemon-contract";
 import { ApiError } from "../../errors.js";
+
+const EVA_PLUGIN_ID = "eva";
 import type { LoggedWorkSessionDeps } from "../../types.js";
 import { throwEnvironmentNotReady } from "../lib/lifecycle-api-errors.js";
 import { requireLiveThreadStoragePath } from "./thread-storage.js";
@@ -90,6 +92,8 @@ interface ResolvePermissionEscalationArgs {
 }
 
 export interface ResolvedThreadRuntimeCommandConfig {
+  /** Administrator rules for the thread owner and agent (empty for admins). */
+  administratorRules?: readonly string[];
   agentId?: string;
   contributedEnv: HostDaemonContributedEnvEntry[];
   dynamicTools: DynamicTool[];
@@ -246,9 +250,15 @@ export async function resolveThreadRuntimeCommandConfig(
           pluginId,
           knownAgentIds,
         )));
+  // An agent chat started from the EVA chat screen comes from the EVA
+  // plugin. The owner's right to run that agent was checked above, so the
+  // chat may start even when the general plugin capability is off.
+  const evaChatOrigin =
+    evaAgentThread && args.thread.originPluginId === EVA_PLUGIN_ID;
   if (
     ownerUserId !== null &&
     args.thread.originPluginId !== null &&
+    !evaChatOrigin &&
     !pluginAllowed(args.thread.originPluginId)
   ) {
     throw new ApiError(
@@ -552,6 +562,7 @@ export async function resolveThreadRuntimeCommandConfig(
   });
   markTurnTraceSpan("runtimeConfig.built");
   return {
+    administratorRules,
     agentId: unassignedThread ? undefined : effectiveAgentId,
     contributedEnv,
     dynamicTools,

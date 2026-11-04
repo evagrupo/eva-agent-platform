@@ -200,11 +200,34 @@ function userFacingRows(
 
 const noAgentNames: EvaAgentNameResolver = () => null;
 
+/**
+ * A failure the agent recovered from (an automatic retry or the next turn
+ * replied) is no longer news to the user, so its friendly error is dropped
+ * once an agent reply follows it.
+ */
+function withoutRecoveredErrors(rows: readonly TimelineRow[]): TimelineRow[] {
+  let replyFollows = false;
+  const kept: TimelineRow[] = [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.kind === "conversation" && row.role === "assistant") {
+      replyFollows = true;
+    }
+    if (row.kind === "system" && row.systemKind === "error" && replyFollows) {
+      continue;
+    }
+    kept.push(row);
+  }
+  return kept.reverse();
+}
+
 export function toEvaUserFacingTimelineRows(
   rows: readonly TimelineRow[],
   resolveAgentName: EvaAgentNameResolver = noAgentNames,
 ): TimelineRow[] {
-  return userFacingRows(rows, false, resolveAgentName);
+  return withoutRecoveredErrors(
+    userFacingRows(rows, false, resolveAgentName),
+  );
 }
 
 const NO_REPLY_TITLE =

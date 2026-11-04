@@ -113,6 +113,9 @@ export const rpcContract = defineRpcContract({
       summary: z.object({
         conversationsThisWeek: z.number().int().nonnegative(),
       }),
+      // Set to false by the server for regular users, who chat with agents
+      // but cannot create or configure them.
+      canManage: z.boolean().optional(),
     }),
   },
   agents_get: {

@@ -8,7 +8,11 @@ import {
   type ReactNode,
 } from "react";
 import { Navigate } from "react-router-dom";
-import type { PermissionMode, ReasoningLevel } from "@bb/domain";
+import {
+  CORE_SHELL_PLUGIN_IDS,
+  type PermissionMode,
+  type ReasoningLevel,
+} from "@bb/domain";
 import { Button } from "@bb/shared-ui/button";
 import { Input } from "@bb/shared-ui/input";
 
@@ -977,7 +981,7 @@ export function canUseCorePlugin(
   ) {
     return true;
   }
-  if (pluginId === "thread-list") {
+  if (CORE_SHELL_PLUGIN_IDS.has(pluginId)) {
     return (
       canUseCoreCapability(auth, "threadOwnRead") ||
       canUseCoreCapability(auth, "threadAllRead")

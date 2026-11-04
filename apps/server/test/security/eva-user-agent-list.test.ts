@@ -5,7 +5,10 @@ import {
   runWithCoreAuthRequest,
   type CoreAuthContext,
 } from "../../src/access-policy.js";
-import { toUserVisibleEvaAgentList } from "../../src/routes/plugins.js";
+import {
+  toUserVisibleEvaAgentDetail,
+  toUserVisibleEvaAgentList,
+} from "../../src/routes/plugins.js";
 
 const user: CoreAuthContext = {
   userId: "u1",
@@ -44,5 +47,35 @@ describe("EVA agent list for regular users", () => {
       expect(isPluginAllowedByPolicy(defaultUserPolicy, pluginId), pluginId).toBe(true);
     }
     expect(isPluginAllowedByPolicy(defaultUserPolicy, "bb--git")).toBe(false);
+  });
+
+  it("gives users one permitted agent without instructions or other people's threads", () => {
+    const detail = runWithCoreAuthRequest(user, "POST", () =>
+      toUserVisibleEvaAgentDetail(
+        {},
+        {
+          agent: { slug: "crm", instructions: "secret", skills: [{ id: "s" }], threadIds: ["thr_other"], threadCount: 3 },
+          threads: [{ id: "thr_other", title: "someone else's chat" }],
+          projectId: "p1",
+          hostId: "h1",
+          workspacePath: "/agents/crm",
+        },
+      ),
+    ) as Record<string, unknown>;
+    expect(detail).toEqual(
+      expect.objectContaining({
+        agent: expect.objectContaining({ slug: "crm", instructions: "", skills: [], threadIds: [] }),
+        threads: [],
+        projectId: "p1",
+      }),
+    );
+  });
+
+  it("hides agents outside the user's policy", () => {
+    expect(() =>
+      runWithCoreAuthRequest(user, "POST", () =>
+        toUserVisibleEvaAgentDetail({}, { agent: { slug: "meta" }, threads: [] }),
+      ),
+    ).toThrow("EVA agent not found");
   });
 });

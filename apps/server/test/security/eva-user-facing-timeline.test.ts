@@ -174,6 +174,14 @@ describe("EVA user-facing chat timeline", () => {
     expect(JSON.stringify(visible)).not.toContain("cat secrets");
   });
 
+  it("drops an error the agent recovered from with a later reply", () => {
+    const user = row({ id: "u1", kind: "conversation", role: "user", initiator: "user", text: "hi" });
+    const error = row({ id: "e1", kind: "system", systemKind: "error", title: "boom", detail: "stack" });
+    const reply = row({ id: "a1", kind: "conversation", role: "assistant", text: "hello" });
+    expect(toEvaUserFacingTimelineRows([user, error, reply]).map((entry) => entry.id)).toEqual(["u1", "a1"]);
+    expect(toEvaUserFacingTimelineRows([user, reply, error]).map((entry) => entry.id)).toEqual(["u1", "a1", "e1"]);
+  });
+
   it("keeps hand-off notes after the turn completes and links them to the other agent", () => {
     const delegate = row({
       id: "d1",

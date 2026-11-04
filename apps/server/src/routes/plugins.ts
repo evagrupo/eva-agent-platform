@@ -264,15 +264,55 @@ export function toUserVisibleEvaAgentList(
             (agent as { slug: string }).slug,
           ),
       )
-      .map((agent) => ({
-        ...agent,
-        instructions: "",
-        skills: [],
-        threadIds: [],
-        threadCount: 0,
-        lastActivityAt: null,
-      })),
+      .map(userVisibleAgent),
     summary: { conversationsThisWeek: 0 },
+    canManage: false,
+  };
+}
+
+const EVA_USER_READ_METHODS: ReadonlySet<string> = new Set([
+  "agents_list",
+  "agents_get",
+]);
+
+function userVisibleAgent(agent: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...agent,
+    instructions: "",
+    skills: [],
+    threadIds: [],
+    threadCount: 0,
+    lastActivityAt: null,
+  };
+}
+
+/**
+ * What a regular user may see of one agent when starting a chat with it: the
+ * agent card and where its chat runs, without instructions, skills, or other
+ * people's conversations. Agents outside the user's policy are not found.
+ */
+export function toUserVisibleEvaAgentDetail(
+  context: object,
+  result: unknown,
+): unknown {
+  const authContext = getCoreAuthContext(context);
+  if (authContext === null || typeof result !== "object" || result === null) {
+    return result;
+  }
+  const detail = result as { agent?: unknown };
+  const agent = detail.agent;
+  if (
+    typeof agent !== "object" ||
+    agent === null ||
+    typeof (agent as { slug?: unknown }).slug !== "string" ||
+    !isAgentAllowedByPolicy(authContext.policy, (agent as { slug: string }).slug)
+  ) {
+    throw new ApiError(404, "not_found", "EVA agent not found");
+  }
+  return {
+    ...detail,
+    agent: userVisibleAgent(agent as Record<string, unknown>),
+    threads: [],
   };
 }
 
@@ -1316,10 +1356,12 @@ export function registerPluginRoutes(
     const id = context.req.param("id");
     const method = context.req.param("method");
     assertPluginRouteAccess(context);
-    // Regular users may load their own agent list for the chat sidebar;
-    // every other EVA plugin call stays administrator-only.
+    // Regular users may load their own agents for the chat sidebar and the
+    // new-chat screen; every other EVA plugin call stays administrator-only.
     const evaUserRead =
-      id === "eva" && method === "agents_list" && !isCurrentAdministrator(context);
+      id === "eva" &&
+      EVA_USER_READ_METHODS.has(method) &&
+      !isCurrentAdministrator(context);
     if (id === "eva" && !evaUserRead) assertEvaPluginAdministrator(context);
     context.header("Cache-Control", "no-store");
     const problem = localAuthProblem(context, deps);
@@ -1413,9 +1455,11 @@ export function registerPluginRoutes(
     }
     return context.json({
       ok: true,
-      result: evaUserRead
-        ? toUserVisibleEvaAgentList(context, outcome.result)
-        : outcome.result,
+      result: !evaUserRead
+        ? outcome.result
+        : method === "agents_get"
+          ? toUserVisibleEvaAgentDetail(context, outcome.result)
+          : toUserVisibleEvaAgentList(context, outcome.result),
     });
   });
 }

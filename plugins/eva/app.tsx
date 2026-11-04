@@ -60,6 +60,8 @@ type AgentRoster = {
   agents: EvaAgent[];
   rootProjectId: string | null;
   summary: { conversationsThisWeek: number };
+  /** False for regular users: they chat with agents but cannot manage them. */
+  canManage?: boolean;
 };
 
 type AgentDetail = {
@@ -476,20 +478,32 @@ function AgentsRoster() {
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Agents</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {`${roster.agents.length} agents · ${roster.summary.conversationsThisWeek} conversations this week`}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Shared BB project · Orchestrator owns the agents root ·
-              specialists use isolated folders
-            </p>
+            {roster.canManage === false ? (
+              <p className="mt-1 text-sm text-muted-foreground">
+                Pick an agent to chat with.
+              </p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {`${roster.agents.length} agents · ${roster.summary.conversationsThisWeek} conversations this week`}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Shared BB project · Orchestrator owns the agents root ·
+                  specialists use isolated folders
+                </p>
+              </>
+            )}
           </div>
-          <Button
-            onClick={() => navigate.toPluginPanel("agents", { subPath: "new" })}
-          >
-            <Icon name="Plus" className="size-4" />
-            New agent
-          </Button>
+          {roster.canManage === false ? null : (
+            <Button
+              onClick={() =>
+                navigate.toPluginPanel("agents", { subPath: "new" })
+              }
+            >
+              <Icon name="Plus" className="size-4" />
+              New agent
+            </Button>
+          )}
         </header>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {roster.agents.map((agent) => (
@@ -1301,6 +1315,16 @@ function AgentThreadComposer({ slug }: { slug: string }) {
 
 function AgentsHome({ subPath }: { subPath: string }) {
   const [slug, route] = subPath.split("/").filter(Boolean);
+  const { roster } = useAgentRoster();
+  if (roster?.canManage === false) {
+    // Regular users only chat: an agent opens its chat, and agent creation
+    // and settings stay with administrators.
+    return slug && slug !== "new" ? (
+      <AgentThreadComposer slug={slug} />
+    ) : (
+      <AgentsRoster />
+    );
+  }
   if (slug === "new") return <CreateAgentPage />;
   if (slug && route === "new") return <AgentThreadComposer slug={slug} />;
   return slug ? <AgentDetail slug={slug} /> : <AgentsRoster />;
@@ -1322,15 +1346,17 @@ function AgentNavigation() {
   }
   return (
     <div className="space-y-1">
-      <Button
-        variant="outline"
-        size="sm"
-        className="mb-2 w-full justify-start"
-        onClick={() => navigate.toPluginPanel("agents", { subPath: "new" })}
-      >
-        <Icon name="Plus" className="size-4" />
-        New agent
-      </Button>
+      {roster.canManage === false ? null : (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mb-2 w-full justify-start"
+          onClick={() => navigate.toPluginPanel("agents", { subPath: "new" })}
+        >
+          <Icon name="Plus" className="size-4" />
+          New agent
+        </Button>
+      )}
       <p className="px-1 pb-2 text-xs text-muted-foreground">Switch agent</p>
       {roster.agents.map((agent) => (
         <button

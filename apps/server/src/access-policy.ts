@@ -24,6 +24,7 @@ import {
   type DbQueryConnection,
 } from "@bb/db";
 import {
+  CORE_SHELL_PLUGIN_IDS,
   modelPermits,
   permissionModeValues,
   reasoningEffortsForLevels,
@@ -2260,14 +2261,6 @@ export function isPluginAllowed(
     isPluginAllowedByPolicy(authContext.policy, pluginId)
   );
 }
-
-const CORE_SHELL_PLUGIN_IDS: ReadonlySet<string> = new Set([
-  "thread-list",
-  "navigation",
-  "bb--composer",
-  "eva",
-  "spanish-localization",
-]);
 
 export function isPluginAllowedByPolicy(
   policy: CorePolicy,

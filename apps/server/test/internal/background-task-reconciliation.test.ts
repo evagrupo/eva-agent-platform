@@ -233,6 +233,45 @@ describe("settleDanglingBackgroundTasks", () => {
     });
   });
 
+  it("settles tasks recorded before the foreground flag existed", async () => {
+    await withTestHarness(async (harness) => {
+      const host = seedHost(harness.deps);
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+      });
+      const environment = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: project.id,
+      });
+      const thread = seedThread(harness.deps, {
+        projectId: project.id,
+        environmentId: environment.id,
+      });
+      const legacyItem = backgroundTaskItemData({
+        itemId: "legacy-task",
+        status: "pending",
+        taskStatus: "running",
+      });
+      delete (legacyItem.item as Record<string, unknown>).foreground;
+      seedStoredEvent(harness.deps, {
+        threadId: thread.id,
+        sequence: 1,
+        type: "item/started",
+        scope: turnScope("turn-1"),
+        providerThreadId: "claude-session-1",
+        itemId: "legacy-task",
+        itemKind: "backgroundTask",
+        data: legacyItem,
+      });
+
+      settleDanglingBackgroundTasks(harness.deps, { hostId: host.id });
+
+      expect(listSettledBackgroundTaskItems(harness, thread.id)).toEqual([
+        { status: "interrupted", taskStatus: "stopped" },
+      ]);
+    });
+  });
+
   it("does not touch already-settled tasks or other hosts", async () => {
     await withTestHarness(async (harness) => {
       const host = seedHost(harness.deps);

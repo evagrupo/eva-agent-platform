@@ -715,8 +715,15 @@ describe("EVA admin chat monitoring and per-user chat isolation", () => {
         null,
       );
       expect(agentList.status).not.toBe(403);
+      // ...and one agent's card to start a chat with it (sanitized).
+      const agentDetail = await postJson(
+        harness,
+        "/api/v1/plugins/eva/rpc/agents_get",
+        user,
+        { slug: "meta" },
+      );
+      expect(agentDetail.status).not.toBe(403);
       for (const [method, input] of [
-        ["agents_get", { slug: "meta" }],
         ["agents_update", { slug: "meta", instructions: "Replace" }],
         [
           "agents_create",

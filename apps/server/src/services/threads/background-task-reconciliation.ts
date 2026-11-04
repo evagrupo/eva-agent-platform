@@ -28,8 +28,13 @@ type SettleDanglingBackgroundTasksTransactionDeps = {
   logger: AppDeps["logger"];
 };
 
+// Items recorded before `foreground` existed (bb 0.46 and earlier) lack it;
+// they were background tasks, so they still settle instead of staying
+// "running" forever.
 const storedBackgroundTaskEventDataSchema = z.object({
-  item: threadEventBackgroundTaskItemSchema,
+  item: threadEventBackgroundTaskItemSchema.extend({
+    foreground: z.boolean().default(false),
+  }),
 });
 
 function parseStoredBackgroundTaskItem(

@@ -1808,6 +1808,54 @@ describe("thread runtime config", () => {
         "read the child's result before you report it",
       );
 
+      // A chat started from the EVA chat screen (origin plugin "eva") runs for
+      // a user without the general plugin capability; other origin plugins
+      // still need it.
+      const environmentArgs = {
+        hostId: environment.hostId,
+        id: environment.id,
+        path: environment.path,
+        status: environment.status,
+      };
+      const evaOriginThread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        environmentId: environment.id,
+        ownerUserId: "orchestrator-runtime-owner",
+        agentId: "orchestrator",
+        providerId: "codex",
+        status: "idle",
+        title: "Chat from the EVA screen",
+        titleFallback: "Chat from the EVA screen",
+        visibility: "visible",
+        originPluginId: "eva",
+      });
+      await expect(
+        resolveThreadRuntimeCommandConfig(harness.deps, {
+          thread: evaOriginThread,
+          model: "test-model",
+          environment: environmentArgs,
+        }),
+      ).resolves.toBeDefined();
+      const otherOriginThread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        environmentId: environment.id,
+        ownerUserId: "orchestrator-runtime-owner",
+        agentId: "orchestrator",
+        providerId: "codex",
+        status: "idle",
+        title: "Chat from another plugin",
+        titleFallback: "Chat from another plugin",
+        visibility: "visible",
+        originPluginId: "bb--git",
+      });
+      await expect(
+        resolveThreadRuntimeCommandConfig(harness.deps, {
+          thread: otherOriginThread,
+          model: "test-model",
+          environment: environmentArgs,
+        }),
+      ).rejects.toThrow("is not allowed by the thread owner's policy");
+
       const adminThread = createThread(harness.db, harness.hub, {
         projectId: project.id,
         environmentId: environment.id,

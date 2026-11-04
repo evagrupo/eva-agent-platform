@@ -82,3 +82,4 @@ export * from "./mobile-app.js";
 export * from "./environment-removal.js";
 
 export const ARCHIVE_UNDO_GRACE_MS = 30_000;
+export * from "./core-shell-plugins.js";

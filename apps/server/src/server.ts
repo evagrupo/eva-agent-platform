@@ -34,7 +34,10 @@ import { performance } from "node:perf_hooks";
 import { extname, join, resolve } from "node:path";
 import { Hono } from "hono";
 import { getThread } from "@bb/db";
-import type { RealtimeSubscriptionTarget } from "@bb/domain";
+import {
+  CORE_SHELL_PLUGIN_IDS,
+  type RealtimeSubscriptionTarget,
+} from "@bb/domain";
 import { terminalWebSocketQuerySchema } from "@bb/server-contract";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
@@ -285,6 +288,39 @@ function allowsAdminPluginManagementRequest(
     default:
       return false;
   }
+}
+
+// App shell plugins every chat reader uses (sidebar navigation and thread
+// list, composer, EVA chat list, language switcher). Their assets and RPCs
+// pass the plugin capability gate; each RPC still enforces its own access
+// rules (EVA plugin calls are filtered per user in routes/plugins.ts).
+// Plugin ids are slugs (letters, digits, dashes), so they need no escaping.
+const CORE_SHELL_PLUGIN_PATTERN = `(?:${[...CORE_SHELL_PLUGIN_IDS].join("|")})`;
+const CORE_SHELL_PLUGIN_ASSET_PATH = new RegExp(
+  `^/plugins/${CORE_SHELL_PLUGIN_PATTERN}/assets/`,
+  "u",
+);
+const CORE_SHELL_PLUGIN_RPC_PATH = new RegExp(
+  `^/plugins/${CORE_SHELL_PLUGIN_PATTERN}/rpc(?:/[^/]+)?$`,
+  "u",
+);
+
+/** True for the requests the app shell needs to render for a chat reader. */
+export function isCoreShellPluginRequest(method: string, path: string): boolean {
+  if (method === "GET") {
+    return (
+      path === "/plugins" ||
+      path === "/plugins/contributions" ||
+      CORE_SHELL_PLUGIN_ASSET_PATH.test(path)
+    );
+  }
+  if (method === "POST") {
+    return (
+      CORE_SHELL_PLUGIN_RPC_PATH.test(path) ||
+      path === "/plugins/thread-list/cli"
+    );
+  }
+  return false;
 }
 
 function allowsAgentCliRequest(
@@ -1140,13 +1176,7 @@ export function createApp(
     const coreSidebarRequest =
       (isCoreCapabilityAllowed(context, "threadOwnRead") ||
         isCoreCapabilityAllowed(context, "threadAllRead")) &&
-      ((context.req.method === "GET" &&
-        (normalizedPath === "/plugins" ||
-          normalizedPath === "/plugins/contributions" ||
-          normalizedPath.startsWith("/plugins/thread-list/assets/"))) ||
-        (context.req.method === "POST" &&
-          (normalizedPath === "/plugins/thread-list/rpc" ||
-            normalizedPath === "/plugins/thread-list/cli")));
+      isCoreShellPluginRequest(context.req.method, normalizedPath);
     const requiredCapability = (() => {
       if (
         normalizedPath === "/plugin-catalog" ||
