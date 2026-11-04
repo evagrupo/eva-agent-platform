@@ -118,6 +118,13 @@ export async function handleHostSessionOpened(
     sameDaemonInstance,
     undeliveredEventThreadIds: args.undeliveredEventThreadIds,
   });
+  if (!sameDaemonInstance) {
+    // Events the previous daemon instance had not delivered yet can arrive
+    // during reconciliation, including "background task started" items from
+    // a session that no longer exists. Settle again so they never stay
+    // "running" forever.
+    settleDanglingBackgroundTasks(deps, { hostId: args.hostId });
+  }
 }
 
 export function handleDaemonSocketClosed(
