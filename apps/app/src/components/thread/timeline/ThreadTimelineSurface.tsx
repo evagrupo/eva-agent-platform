@@ -21,8 +21,8 @@ import { TimelineReasoningExpansionProvider } from "./TimelineReasoningExpansion
 import { TimelineWorkingIndicator } from "./TimelineWorkingIndicator.js";
 import {
   EVA_AGENT_CHAT_WORKING_LABEL,
-  isEvaAgentChatTechnicalNotice,
   useEvaAgentChatTimeline,
+  withoutEvaAgentChatTechnicalNotices,
 } from "./eva-agent-chat-timeline.js";
 import type {
   ThreadTimelineForkMessageHandler,
@@ -202,7 +202,7 @@ export function ThreadTimelineSurface({
   const visibleTimelineRows = useMemo(
     () =>
       isAgentChat
-        ? timelineRows.filter((row) => !isEvaAgentChatTechnicalNotice(row))
+        ? withoutEvaAgentChatTechnicalNotices(timelineRows)
         : timelineRows,
     [isAgentChat, timelineRows],
   );

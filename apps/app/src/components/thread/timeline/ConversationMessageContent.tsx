@@ -82,6 +82,7 @@ import type { PromptDraftAttachment } from "@bb/client-core";
 import { buildMarkdownMessageLinkRouting } from "@/components/ui/markdown-message-link-routing";
 import { markStreamTrace } from "@/lib/stream-trace";
 import { splitAgentChatGeneratedUi } from "./eva-agent-chat-generated-ui";
+import { useCoreAuth } from "@/lib/core-auth";
 
 interface ConversationMessageContentBaseProps {
   actionMetadata?: ReactNode;
@@ -563,6 +564,7 @@ function AssistantConversationMessage({
   const bubbleText = agentChatParts === null ? text : agentChatParts.prose;
   const generatedUi =
     agentChatParts === null || streaming ? "" : agentChatParts.generatedUi;
+  const isAdministrator = useCoreAuth()?.user?.role === "admin";
   const { split: streamingSplit, liveMarkdown } = useMemo(
     () => resolveStreamingMarkdown(bubbleText, streaming),
     [streaming, bubbleText],
@@ -721,7 +723,10 @@ function AssistantConversationMessage({
         />
       </div>
       {generatedUiMarkdown === null ? null : (
-        <div className="mt-2 w-full" data-agent-chat-generated-ui="">
+        <div
+          className="mt-2 w-full"
+          data-agent-chat-generated-ui={isAdministrator ? "full" : "simple"}
+        >
           {codeFenceRendererRegistry === null ? (
             generatedUiMarkdown
           ) : (

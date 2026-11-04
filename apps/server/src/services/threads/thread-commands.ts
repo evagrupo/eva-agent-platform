@@ -1,6 +1,8 @@
 import {
   administratorRulesUpdateInput,
+  chatGuideUpdateInput,
   recordAdministratorRulesInSession,
+  recordChatGuideInSession,
 } from "./administrator-rules-delivery.js";
 import { environments, hasStoredSpawnAgentToolCall, threads } from "@bb/db";
 import { and, eq, isNull } from "drizzle-orm";
@@ -343,6 +345,7 @@ export async function buildThreadStartCommand(
     args.thread.id,
     runtimeContext.administratorRules,
   );
+  recordChatGuideInSession(args.thread.id, runtimeContext.chatGuide);
   return {
     type: "thread.start",
     environmentId: args.environment.id,
@@ -445,17 +448,20 @@ export async function prepareTurnSubmitCommandPayload(
     environment: args.environment,
     model: args.execution.model,
   });
-  const rulesUpdate = administratorRulesUpdateInput(
-    args.thread.id,
-    runtimeContext.administratorRules,
-  );
+  const sessionUpdates = [
+    administratorRulesUpdateInput(
+      args.thread.id,
+      runtimeContext.administratorRules,
+    ),
+    chatGuideUpdateInput(args.thread.id, runtimeContext.chatGuide),
+  ].filter((update): update is PromptInput => update !== null);
   const input =
-    rulesUpdate === null ? args.input : [rulesUpdate, ...args.input];
+    sessionUpdates.length === 0 ? args.input : [...sessionUpdates, ...args.input];
   const inputGroups =
-    rulesUpdate === null || args.inputGroups === undefined
+    sessionUpdates.length === 0 || args.inputGroups === undefined
       ? args.inputGroups
       : args.inputGroups.map((group, index) =>
-          index === 0 ? [rulesUpdate, ...group] : group,
+          index === 0 ? [...sessionUpdates, ...group] : group,
         );
   return buildPreparedTurnSubmitCommandPayload({
     deps,

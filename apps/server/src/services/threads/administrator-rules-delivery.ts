@@ -67,4 +67,47 @@ export function administratorRulesUpdateInput(
 
 export function resetAdministratorRulesDeliveryForTest(): void {
   deliveredRulesByThread.clear();
+  deliveredGuideByThread.clear();
+}
+
+/**
+ * The agent chat presentation guide (simple UI, reply style) changes with
+ * platform releases. Running Codex sessions keep the guide they started
+ * with, so the current one rides along once, hidden, like administrator
+ * rules. Tracked separately from the rules.
+ */
+const deliveredGuideByThread = new Map<string, string>();
+
+export const CHAT_GUIDE_UPDATE_PREFIX = "[eva chat guide update]";
+
+function rememberGuide(threadId: string, key: string): void {
+  deliveredGuideByThread.delete(threadId);
+  deliveredGuideByThread.set(threadId, key);
+  if (deliveredGuideByThread.size > MAX_TRACKED_THREADS) {
+    const oldest = deliveredGuideByThread.keys().next().value;
+    if (oldest !== undefined) deliveredGuideByThread.delete(oldest);
+  }
+}
+
+export function recordChatGuideInSession(
+  threadId: string,
+  guide: string | undefined,
+): void {
+  if (guide !== undefined) rememberGuide(threadId, rulesKey([guide]));
+}
+
+export function chatGuideUpdateInput(
+  threadId: string,
+  guide: string | undefined,
+): PromptInput | null {
+  if (guide === undefined) return null;
+  const key = rulesKey([guide]);
+  if (deliveredGuideByThread.get(threadId) === key) return null;
+  rememberGuide(threadId, key);
+  return {
+    type: "text",
+    text: `${CHAT_GUIDE_UPDATE_PREFIX} This is the current presentation guide for your replies in this chat. It replaces any earlier version. Do not mention this note to the user.\n\n${guide}`,
+    mentions: [],
+    visibility: "agent-only",
+  };
 }

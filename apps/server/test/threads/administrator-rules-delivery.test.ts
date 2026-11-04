@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  CHAT_GUIDE_UPDATE_PREFIX,
+  chatGuideUpdateInput,
+  recordChatGuideInSession,
   ADMINISTRATOR_RULES_UPDATE_PREFIX,
   administratorRulesUpdateInput,
   recordAdministratorRulesInSession,
@@ -32,5 +35,16 @@ describe("administrator rules delivery to running sessions", () => {
   it("delivers rules to a session the server has not seen since it restarted", () => {
     expect(administratorRulesUpdateInput("thr_b", ["Rule."])).not.toBeNull();
     expect(administratorRulesUpdateInput("thr_c", [])).toBeNull();
+  });
+
+  it("gives a running chat the current guide once, and nothing to new sessions or other threads", () => {
+    const first = chatGuideUpdateInput("thr_chat", "Guide v2");
+    expect(first).toMatchObject({ visibility: "agent-only" });
+    expect(first && first.type === "text" ? first.text : "").toContain(CHAT_GUIDE_UPDATE_PREFIX);
+    expect(chatGuideUpdateInput("thr_chat", "Guide v2")).toBeNull();
+    expect(chatGuideUpdateInput("thr_chat", "Guide v3")).not.toBeNull();
+    recordChatGuideInSession("thr_new", "Guide v3");
+    expect(chatGuideUpdateInput("thr_new", "Guide v3")).toBeNull();
+    expect(chatGuideUpdateInput("thr_admin", undefined)).toBeNull();
   });
 });

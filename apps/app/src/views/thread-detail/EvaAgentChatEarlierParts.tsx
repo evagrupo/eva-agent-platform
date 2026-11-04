@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import type { PromptMentionLinkResolver } from "@bb/client-core";
 import { ThreadTimelineRows } from "@/components/thread/timeline/ThreadTimelineRows";
+import { withoutEvaAgentChatTechnicalNotices } from "@/components/thread/timeline/eva-agent-chat-timeline";
 import type { ThreadTimelineLinkHandler } from "@/components/thread/timeline/types";
 import { useImmediateRouteNavigate } from "@/components/ui/app-route-anchor";
 import {
@@ -68,7 +69,7 @@ export function EvaAgentChatEarlierParts({
             resolveUserAttachmentImageSrc={toUserAttachmentImageSrc}
             threadId={threadId}
             threadRuntimeDisplayStatus="idle"
-            timelineRows={rows}
+            timelineRows={withoutEvaAgentChatTechnicalNotices(rows)}
             workspaceRootPath={undefined}
           />
         );

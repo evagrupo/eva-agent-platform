@@ -731,3 +731,18 @@
     transform: scaleX(1);
   }
 }
+
+/*
+ * Agent chats for regular users: generated UI shows only working cards.
+ * A card that failed to compile, and each card's "Source" toggle, are
+ * developer details, so they are hidden (administrators still see them).
+ */
+[data-agent-chat-generated-ui="simple"]
+  [data-bb-image-preview-ignore]:has(> [role="alert"]) {
+  display: none;
+}
+[data-agent-chat-generated-ui="simple"]
+  [data-bb-image-preview-ignore]
+  > div[class~="-mt-2"]:has(> button[aria-expanded]) {
+  display: none;
+}

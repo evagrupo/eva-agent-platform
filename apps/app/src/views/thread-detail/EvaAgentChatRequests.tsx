@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { withoutEvaAgentChatTechnicalNotices } from "@/components/thread/timeline/eva-agent-chat-timeline";
 import type { PromptMentionLinkResolver } from "@bb/client-core";
 import type { EvaAgentChatRequest } from "@bb/sdk/browser";
 import type { TimelineRow } from "@bb/server-contract";
@@ -168,7 +169,7 @@ export function EvaAgentChatRequestCard({
                 resolveUserAttachmentImageSrc={toUserAttachmentImageSrc}
                 threadId={request.threadId}
                 threadRuntimeDisplayStatus={working ? "active" : "idle"}
-                timelineRows={rows}
+                timelineRows={withoutEvaAgentChatTechnicalNotices(rows)}
                 workspaceRootPath={undefined}
               />
             )}

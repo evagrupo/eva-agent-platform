@@ -94,6 +94,8 @@ interface ResolvePermissionEscalationArgs {
 export interface ResolvedThreadRuntimeCommandConfig {
   /** Administrator rules for the thread owner and agent (empty for admins). */
   administratorRules?: readonly string[];
+  /** The agent chat UI guide, for EVA agent chats only. */
+  chatGuide?: string;
   agentId?: string;
   contributedEnv: HostDaemonContributedEnvEntry[];
   dynamicTools: DynamicTool[];
@@ -568,6 +570,7 @@ export async function resolveThreadRuntimeCommandConfig(
   markTurnTraceSpan("runtimeConfig.built");
   return {
     administratorRules,
+    ...(friendlyChat ? { chatGuide: EVA_CHAT_UI_INSTRUCTIONS } : {}),
     agentId: unassignedThread ? undefined : effectiveAgentId,
     contributedEnv,
     dynamicTools,

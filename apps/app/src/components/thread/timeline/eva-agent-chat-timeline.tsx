@@ -71,3 +71,27 @@ export function isEvaAgentChatTechnicalNotice(row: {
     TECHNICAL_OPERATION_KINDS.has(row.operationKind)
   );
 }
+
+/** Agent chat rows without technical notices, inside turn groups too. */
+export function withoutEvaAgentChatTechnicalNotices<
+  Row extends {
+    kind: string;
+    systemKind?: string;
+    operationKind?: string;
+    children?: readonly Row[] | null;
+  },
+>(rows: readonly Row[]): Row[] {
+  const kept: Row[] = [];
+  for (const row of rows) {
+    if (isEvaAgentChatTechnicalNotice(row)) continue;
+    if (row.kind === "turn" && row.children != null) {
+      kept.push({
+        ...row,
+        children: withoutEvaAgentChatTechnicalNotices(row.children),
+      });
+      continue;
+    }
+    kept.push(row);
+  }
+  return kept;
+}
