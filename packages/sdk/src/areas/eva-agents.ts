@@ -293,11 +293,29 @@ export interface EvaAgentChatContinueInput extends EvaAgentIdArgs {
   reasoningLevel?: ReasoningLevel;
   serviceTier?: string;
   input: PromptInput[];
+  /** Start a fresh chat part; earlier parts stay visible but are not carried over. */
+  fresh?: boolean;
 }
 
 export interface EvaAgentChatSegmentsResult {
   threadIds: string[];
   latestThreadId: string | null;
+}
+
+const evaAgentChatRequestSchema = z.object({
+  threadId: z.string(),
+  fromAgentId: z.string(),
+  fromAgentName: z.string(),
+  summary: z.string(),
+  status: z.enum(["working", "done"]),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+export type EvaAgentChatRequest = z.infer<typeof evaAgentChatRequestSchema>;
+
+export interface EvaAgentChatRequestsResult {
+  requests: EvaAgentChatRequest[];
 }
 
 export interface EvaAgentWorkspaceSyncConfigureInput extends EvaAgentIdArgs {
@@ -348,6 +366,10 @@ export interface EvaAgentsArea {
   chatSegments(
     args: EvaAgentIdArgs & { threadId: string },
   ): Promise<EvaAgentChatSegmentsResult>;
+  /** Requests other agents delegated to this agent for the chat's owner. */
+  chatRequests(
+    args: EvaAgentIdArgs & { threadId: string },
+  ): Promise<EvaAgentChatRequestsResult>;
   thread(args: EvaAgentThreadArgs): Promise<EvaAgentThreadResult>;
   start(args: EvaAgentStartInput): Promise<EvaAgentThreadResult>;
   delegate(args: EvaAgentDelegateInput): Promise<EvaAgentThreadResult>;
@@ -470,6 +492,14 @@ export function createEvaAgentsArea(args: CreateSdkAreaArgs): EvaAgentsArea {
           threadIds: z.array(z.string()),
           latestThreadId: z.string().nullable(),
         }),
+        { signal: input.signal },
+      );
+    },
+    async chatRequests(input) {
+      const query = new URLSearchParams({ threadId: input.threadId });
+      return requestParsed(
+        `${agentPath(input.agentId)}/chat/requests?${query.toString()}`,
+        z.object({ requests: z.array(evaAgentChatRequestSchema) }),
         { signal: input.signal },
       );
     },

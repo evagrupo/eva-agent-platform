@@ -42,6 +42,10 @@ import {
   type TimelineViewTurnRow,
   type TimelineViewWorkRow,
 } from "@bb/thread-view";
+import {
+  findEvaAgentChatFinalAnswerIds,
+  useEvaAgentChatTimeline,
+} from "./eva-agent-chat-timeline.js";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
   collectTimelineAutoExpansionRowIds,
@@ -369,6 +373,9 @@ interface ConversationRowContentProps extends ConversationRowProps {
 
 const TimelineRendererStaticContext =
   createContext<TimelineRendererStaticContextValue | null>(null);
+/** EVA agent chats: ids of final answers; null outside agent chats. */
+const EvaAgentChatFinalAnswerIdsContext =
+  createContext<ReadonlySet<string> | null>(null);
 const SenderThreadMetadataContext = createContext<ReadonlyMap<
   string,
   SenderThreadMetadata
@@ -884,6 +891,7 @@ const ConversationRowContent = memo(function ConversationRowContent({
     workspaceRootPath,
   } = useTimelineRendererStaticContext();
   const senderThreadMetadataById = useSenderThreadMetadataContext();
+  const agentChatFinalAnswerIds = useContext(EvaAgentChatFinalAnswerIdsContext);
   if (
     row.role === "user" &&
     inlineMessageEditor !== undefined &&
@@ -1073,6 +1081,13 @@ const ConversationRowContent = memo(function ConversationRowContent({
         threadId={row.threadId}
         turnId={row.turnId}
         workspaceRootPath={workspaceRootPath}
+        agentChatTone={
+          agentChatFinalAnswerIds === null
+            ? undefined
+            : agentChatFinalAnswerIds.has(row.id)
+              ? "answer"
+              : "progress"
+        }
       />
     </>
   );
@@ -1732,6 +1747,12 @@ function TimelineRowView({
     row.kind === "work" ? row : null,
   );
   const staticLeadingIconUrl = useLeadingIconUrlForRow(row);
+  const agentChat = useEvaAgentChatTimeline();
+  const agentChatRow =
+    agentChat !== null && row.kind === "system"
+      ? agentChat.renderRow(row.id)
+      : null;
+  if (agentChatRow !== null) return agentChatRow;
 
   if (row.kind === "conversation") {
     return (
@@ -1866,6 +1887,10 @@ function TimelineExpandableRowView({
   const leadingIcon = leadingIconForRow(row);
   const leadingIconUrl = useLeadingIconUrlForRow(row);
   const leadingIconStyle = leadingIconStyleForRow(row);
+  // Agent chats keep a finished turn's work summary to one quiet, collapsed
+  // line above the answer.
+  const compactAgentChatTurn =
+    useEvaAgentChatTimeline() !== null && row.kind === "turn";
 
   return (
     <ExpandableTimelineRow
@@ -1877,11 +1902,17 @@ function TimelineExpandableRowView({
           : undefined
       }
       title={title}
-      summaryClassName={pastRowDimClassName({
-        activeLatestBundleId,
-        row,
-        scopeActive,
-      })}
+      summaryClassName={cn(
+        pastRowDimClassName({
+          activeLatestBundleId,
+          row,
+          scopeActive,
+        }),
+        compactAgentChatTurn && "opacity-60",
+      )}
+      headerClassName={
+        compactAgentChatTurn ? "min-h-5 text-xs" : undefined
+      }
       horizontalPadding={horizontalPadding}
       leadingIcon={leadingIcon}
       leadingIconFallback={
@@ -1892,8 +1923,9 @@ function TimelineExpandableRowView({
       leadingIconUrl={leadingIconUrl}
       leadingIconStyle={leadingIconStyle}
       autoExpanded={
-        liveAutoExpandedRowIds.has(row.id) ||
-        initialAutoExpandedRowIds.has(row.id)
+        !compactAgentChatTurn &&
+        (liveAutoExpandedRowIds.has(row.id) ||
+          initialAutoExpandedRowIds.has(row.id))
       }
       forceExpanded={searchExpandedRowIds.has(row.id)}
       terminalAutoExpanded={terminalAutoExpandedRowIds.has(row.id)}
@@ -2337,6 +2369,12 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
     () => (scopeActive ? findStreamingAssistantMessageId(rows) : null),
     [rows, scopeActive],
   );
+  const isAgentChat = useEvaAgentChatTimeline() !== null;
+  const agentChatFinalAnswerIds = useMemo(
+    () =>
+      isAgentChat ? findEvaAgentChatFinalAnswerIds(rows, scopeActive) : null,
+    [isAgentChat, rows, scopeActive],
+  );
   const computedAutoExpansionRowIds = useMemo(
     () => collectTimelineAutoExpansionRowIds({ rows, scopeActive }),
     [rows, scopeActive],
@@ -2568,6 +2606,9 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
                     <TimelineTurnStateContext.Provider
                       value={turnStateContextValue}
                     >
+                      <EvaAgentChatFinalAnswerIdsContext.Provider
+                        value={agentChatFinalAnswerIds}
+                      >
                       <TimelineWindowingMeasurementsContext.Provider
                         value={windowingMeasurements}
                       >
@@ -2601,6 +2642,7 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
                           ) : null}
                         </div>
                       </TimelineWindowingMeasurementsContext.Provider>
+                      </EvaAgentChatFinalAnswerIdsContext.Provider>
                       {hasSelectionActions ? (
                         <TimelineSelectionMenu
                           selection={activeSelection?.selection ?? null}

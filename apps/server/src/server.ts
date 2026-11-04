@@ -64,6 +64,7 @@ import {
   registerAgentBrowserRoutes,
 } from "./routes/agent-browser.js";
 import { startEvaAgentChatWatchdog } from "./agents/eva-agent-chat-watchdog.js";
+import { startEvaAgentThreadCleanup } from "./agents/eva-agent-thread-cleanup.js";
 import {
   createMiniAppService,
   registerMiniAppGateway,
@@ -1262,6 +1263,8 @@ export function createApp(
   registerEvaAgentChatContinueRoutes(publicApi, appDeps);
   // Agent chats never go silent: a reply reminder or one automatic retry.
   startEvaAgentChatWatchdog(appDeps);
+  // Finished agent threads are archived (never deleted) once a day.
+  const stopEvaAgentThreadCleanup = startEvaAgentThreadCleanup(appDeps);
   registerMiniAppRoutes(publicApi, miniAppService);
   registerProjectRoutes(publicApi, appDeps);
   registerPromptHistoryRoutes(publicApi, appDeps);
@@ -1523,12 +1526,14 @@ export function createApp(
 
   return {
     app,
-    closeWebSockets: () =>
-      closeWebSocketServer({
+    closeWebSockets: () => {
+      stopEvaAgentThreadCleanup();
+      return closeWebSocketServer({
         forceCloseAfterMs: WEB_SOCKET_SHUTDOWN_FORCE_CLOSE_MS,
         reason: WEB_SOCKET_SHUTDOWN_REASON,
         server: wss,
-      }),
+      });
+    },
     injectWebSocket,
     markReady: () => {
       ready = true;

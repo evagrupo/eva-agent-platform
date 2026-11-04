@@ -362,6 +362,114 @@ describe("thread notifications action", () => {
     await view.behavior.experimental_invalidateRpc(["thread:thr_top"]);
     await waitFor(() => expect(summary()?.selected).toBe("all"));
   });
+  it("lists every level, replies included, for ordinary threads", async () => {
+    const { item, summary, stored } = renderNotifications({}, ["thr_top"]);
+    await waitFor(() => expect(summary()?.selected).toBe("inherit"));
+    expect(
+      item()?.choices?.items.map(({ id, label }) => ({ id, label })),
+    ).toEqual([
+      { id: "inherit", label: "Same as default" },
+      { id: "all", label: "All activity" },
+      { id: "replies", label: "Replies only" },
+      { id: "input-only", label: "Needs input only" },
+      { id: "muted", label: "Muted" },
+    ]);
+    await act(() => item()!.run({ value: "replies", requestRename: () => {} }));
+    await waitFor(() =>
+      expect(summary()).toEqual({
+        detail: "Replies only",
+        icon: "MessageSquare",
+        hint: null,
+        selected: "replies",
+      }),
+    );
+    expect(stored()).toMatchObject({ thr_top: { own: "replies" } });
+  });
+
+  it("offers agent chats replies, all activity, or mute and selects the effective level", async () => {
+    const { item, summary, stored } = renderNotifications(
+      { thr_admin: { own: "inherit", ancestorCap: null } },
+      ["thr_top", "thr_admin", "thr_worker"],
+    );
+    const agentChat = { experimental_agentId: "sales" };
+    await waitFor(() => expect(summary(agentChat)?.selected).toBe("replies"));
+    expect(
+      item(agentChat)?.choices?.items.map(({ id, label }) => ({ id, label })),
+    ).toEqual([
+      { id: "replies", label: "Replies only" },
+      { id: "all", label: "All activity" },
+      { id: "muted", label: "Mute" },
+    ]);
+    expect(summary(agentChat)).toEqual({
+      detail: "Replies only",
+      icon: "MessageSquare",
+      hint: null,
+      selected: "replies",
+    });
+
+    expect(summary({ id: "thr_admin", experimental_agentId: "admin" })).toEqual(
+      {
+        detail: "All activity",
+        icon: "push-notifications/ringing",
+        hint: null,
+        selected: "inherit",
+      },
+    );
+    expect(
+      item({ id: "thr_admin", experimental_agentId: "admin" })?.choices?.items
+        .length,
+    ).toBe(5);
+    expect(
+      summary({
+        id: "thr_worker",
+        parentThreadId: "thr_top",
+        experimental_agentId: "sales",
+      }),
+    ).toMatchObject({ detail: "Needs input only", selected: "inherit" });
+
+    await act(() =>
+      item(agentChat)!.run({ value: "all", requestRename: () => {} }),
+    );
+    await waitFor(() => expect(summary(agentChat)?.selected).toBe("all"));
+    expect(summary(agentChat)?.detail).toBe("All activity");
+    expect(stored()).toMatchObject({ thr_top: { own: "all" } });
+
+    await act(() =>
+      item(agentChat)!.run({ value: "muted", requestRename: () => {} }),
+    );
+    await waitFor(() => expect(summary(agentChat)?.selected).toBe("muted"));
+    expect(summary(agentChat)?.detail).toBe("Muted");
+
+    await act(() =>
+      item(agentChat)!.run({ value: "replies", requestRename: () => {} }),
+    );
+    await waitFor(() =>
+      expect(stored()).toMatchObject({ thr_top: { own: "replies" } }),
+    );
+    expect(summary(agentChat)?.selected).toBe("replies");
+  });
+
+  it("resolves agent chats at their default in a bulk selection", async () => {
+    const { bulkItem } = renderNotifications(
+      { thr_b: { own: "replies", ancestorCap: null } },
+      ["thr_a", "thr_b", "thr_c"],
+    );
+    const shared = [
+      { id: "thr_a", experimental_agentId: "sales" },
+      { id: "thr_b" },
+    ];
+    await waitFor(() => expect(bulkItem(shared)?.detail).toBe("Replies only"));
+    expect(
+      bulkItem([
+        { id: "thr_a", experimental_agentId: "sales" },
+        { id: "thr_c" },
+      ])?.detail,
+    ).toBe("Mixed");
+    expect(bulkItem(shared)?.choices?.items.map((choice) => choice.id)).toEqual(
+      ["inherit", "all", "replies", "input-only", "muted"],
+    );
+  });
+
   it("reflects a parent cap changed by another client", async () => {
     const { view, summary, restore } = renderNotifications({}, [
       "thr_child",

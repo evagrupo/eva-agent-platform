@@ -113,8 +113,11 @@ import { getThreadDisplayTitle } from "@/lib/thread-title";
 import { hasThreadProvisioningFailure } from "@/lib/thread-provisioning-failure";
 import {
   getProjectComposeRoutePath,
+  getThreadRoutePath,
   type ThreadRoutePathArgs,
 } from "@/lib/route-paths";
+import { sdk } from "@/lib/sdk";
+
 import { THREAD_INFO_FIXED_TAB_REFERENCE } from "@/components/secondary-panel/thread-info-fixed-tab-navigation";
 import { ThreadDetailHeader } from "./ThreadDetailHeader";
 import {
@@ -128,6 +131,13 @@ import {
 import { ThreadScreen, useThreadComposerAddToChat } from "./ThreadScreen";
 import { ThreadDetailSecondaryContent } from "./ThreadDetailSecondaryContent";
 import { EvaAgentChatEarlierParts } from "./EvaAgentChatEarlierParts";
+import { EvaAgentChatMenu } from "./EvaAgentChatMenu";
+import {
+  mergeEvaAgentChatRequestRows,
+  useEvaAgentChatRequestRowRenderer,
+} from "./EvaAgentChatRequests";
+import { useEvaAgentChatRequests } from "@/hooks/queries/eva-agent-chat-history-query";
+import { EvaAgentChatTimelineContext } from "@/components/thread/timeline/eva-agent-chat-timeline";
 import { isEvaAgentChatThread } from "@/hooks/agentMentionScope";
 import {
   useThreadSecondaryPanelDrawerVisibility,
@@ -1393,6 +1403,74 @@ function ThreadDetailViewInternal(
     ({ href }) => openBrowserUrl(href),
     [openBrowserUrl],
   );
+  // Agent chats: requests other agents sent this agent show as cards in the
+  // timeline at the time they came in.
+  const agentChatTarget = useMemo(
+    () => ({
+      id: threadId,
+      agentId: thread?.agentId ?? null,
+      parentThreadId: thread?.parentThreadId ?? null,
+    }),
+    [thread?.agentId, thread?.parentThreadId, threadId],
+  );
+  const isAgentChatThread = isEvaAgentChatThread(agentChatTarget);
+  const agentChatRequests = useEvaAgentChatRequests(agentChatTarget);
+  const agentChatRequestList = useMemo(
+    () => agentChatRequests.data?.requests ?? [],
+    [agentChatRequests.data],
+  );
+  const renderAgentChatRequestRow = useEvaAgentChatRequestRowRenderer(
+    agentChatRequestList,
+    {
+      projectId,
+      onOpenLink: handleOpenTimelineLink,
+      resolveMentionLink,
+    },
+  );
+  const agentChatTimelineValue = useMemo(
+    () => (isAgentChatThread ? { renderRow: renderAgentChatRequestRow } : null),
+    [isAgentChatThread, renderAgentChatRequestRow],
+  );
+  const agentChatTimeline = useMemo(
+    () =>
+      !isAgentChatThread || agentChatRequestList.length === 0
+        ? timeline
+        : {
+            ...timeline,
+            timelineRows: mergeEvaAgentChatRequestRows(
+              timeline.timelineRows,
+              agentChatRequestList,
+              {
+                chatThreadId: threadId,
+                hasOlderRows: timeline.hasOlderTimelineRows,
+              },
+            ),
+          },
+    [agentChatRequestList, isAgentChatThread, threadId, timeline],
+  );
+  // "Asked Meta for help" opens the person's chat with Meta, or starts one.
+  const openEvaAgentChat = useCallback(
+    async (agentId: string) => {
+      try {
+        const { chatThreadId } = await sdk.evaAgents.chat({
+          agentId,
+          forThreadId: threadId,
+        });
+        navigate(
+          chatThreadId === null
+            ? getPluginPanelRoutePath({
+                pluginId: "eva",
+                path: "agents",
+                subPath: `${agentId}/new`,
+              })
+            : getThreadRoutePath({ projectId, threadId: chatThreadId }),
+        );
+      } catch {
+        appToast.error("Couldn't open that chat");
+      }
+    },
+    [navigate, projectId, threadId],
+  );
   const handleTimelineTitleAction = useCallback<TimelineTitleActionResolver>(
     (action) => {
       switch (action.kind) {
@@ -1411,11 +1489,15 @@ function ThreadDetailViewInternal(
               params: { threadId: action.threadId, sourceThreadId: threadId },
             });
           };
+        case "open-eva-agent-chat":
+          return () => {
+            void openEvaAgentChat(action.agentId);
+          };
         default:
           return assertNever(action);
       }
     },
-    [openSecondaryPanelDiffFile, panel, threadId],
+    [openEvaAgentChat, openSecondaryPanelDiffFile, panel, threadId],
   );
   const metadataStorage = useMemo(
     () =>
@@ -1751,9 +1833,28 @@ function ThreadDetailViewInternal(
         }}
       />
     ) : undefined;
+  const isAgentChat = isEvaAgentChatThread(thread);
+  const openAgentSettings =
+    thread.agentId && coreAuth?.user?.role === "admin"
+      ? () =>
+          navigate(
+            getPluginPanelRoutePath({
+              pluginId: "eva",
+              path: "agents",
+              subPath: thread.agentId!,
+            }),
+          )
+      : undefined;
   const timelineHeader = (
     <ThreadDetailHeader
-      actionsMenu={({
+      canRename={!isAgentChat}
+      actionsMenu={isAgentChat ? ({ onCloseAutoFocus }) => (
+        <EvaAgentChatMenu
+          thread={threadActionTarget}
+          onOpenAgentSettings={openAgentSettings}
+          onCloseAutoFocus={onCloseAutoFocus}
+        />
+      ) : ({
         includeResponsiveActions,
         headerActions,
         requestRename,
@@ -1814,24 +1915,14 @@ function ThreadDetailViewInternal(
       }
       thread={threadActionTarget}
       ownerName={thread.ownerName}
-      onOpenAgentSettings={
-        thread.agentId && coreAuth?.user?.role === "admin"
-          ? () =>
-              navigate(
-                getPluginPanelRoutePath({
-                  pluginId: "eva",
-                  path: "agents",
-                  subPath: thread.agentId!,
-                }),
-              )
-          : undefined
-      }
+      onOpenAgentSettings={isAgentChat ? undefined : openAgentSettings}
       threadTitle={threadTitle}
       contextCardButton={<ThreadContextCardHeaderButton />}
       workspaceOpenButton={workspaceOpenButton}
     />
   );
   const threadScreen = (
+    <EvaAgentChatTimelineContext.Provider value={agentChatTimelineValue}>
     <ThreadScreen
       composer={{
         environmentCheckout: threadCheckoutDisplay,
@@ -1846,7 +1937,7 @@ function ThreadDetailViewInternal(
       projectId={projectId}
       resolveMentionLink={resolveMentionLink}
       thread={thread}
-      timeline={timeline}
+      timeline={agentChatTimeline}
       timelineHost={{
         environmentHostName: threadEnvironmentHost?.name ?? null,
         includePluginMessageActions: true,
@@ -1854,7 +1945,7 @@ function ThreadDetailViewInternal(
         onOpenLink: handleOpenTimelineLink,
         onOpenLocalFileLink: handleOpenTimelineLocalFileLink,
         onTitleAction: handleTimelineTitleAction,
-        leadingContent: isEvaAgentChatThread(thread) ? (
+        leadingContent: isAgentChat ? (
           <EvaAgentChatEarlierParts
             thread={thread}
             onOpenLink={handleOpenTimelineLink}
@@ -1866,6 +1957,7 @@ function ThreadDetailViewInternal(
       }}
       workspaceRootPath={environment?.path ?? undefined}
     />
+    </EvaAgentChatTimelineContext.Provider>
   );
   const renderSecondaryTabContent = (
     tab: SecondaryFileFixedPanelTab,

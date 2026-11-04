@@ -110,6 +110,11 @@ export type TimelineTitleAction =
   | {
       kind: "open-plugin-side-chat";
       threadId: string;
+    }
+  | {
+      /** EVA agent chats: open the chat with the agent another agent asked. */
+      kind: "open-eva-agent-chat";
+      agentId: string;
     };
 
 export interface TimelineTitle {
@@ -1620,10 +1625,40 @@ function mapParentChangeSystemTitle(
   });
 }
 
+const EVA_HANDOFF_TITLE_PATTERN = /^(Asked|Followed up with) (.+?)( for help)?$/u;
+
+/**
+ * "Asked Meta for help": the agent's name links to that agent's chat. Other
+ * titles, or a title that no longer names the agent, stay plain text.
+ */
+function mapEvaHandoffTitle(
+  row: TimelineSystemViewRow,
+  agentId: string,
+): TimelineTitle | null {
+  const match = EVA_HANDOFF_TITLE_PATTERN.exec(row.title);
+  if (match === null) return null;
+  const [, verb, name, suffix] = match;
+  return makeTitle({
+    segments: [
+      segment(verb!, { accent: "muted" }),
+      segment(name!, { em: true, truncate: true }),
+      ...(suffix ? [segment(suffix.trim(), { accent: "muted" })] : []),
+    ],
+    action: { kind: "open-eva-agent-chat", agentId },
+  });
+}
+
 function mapSystemTitle(row: TimelineSystemViewRow): TimelineTitle {
   const hasError = row.systemKind === "error" || row.status === "error";
   if (row.systemKind === "operation" && row.operationKind === "parent-change") {
     return mapParentChangeSystemTitle(row);
+  }
+  if (
+    row.systemKind === "operation" &&
+    row.experimental_evaHandoffAgentId !== undefined
+  ) {
+    const handoff = mapEvaHandoffTitle(row, row.experimental_evaHandoffAgentId);
+    if (handoff !== null) return handoff;
   }
   const isReasoning =
     row.systemKind === "operation" && row.operationKind === "reasoning";

@@ -10,7 +10,12 @@ import {
   listPushSubscriptionsOutputSchema,
 } from "./contract.js";
 import {
+  LEVELS_REQUIRING_REPLY_TEXT,
+  NOTIFICATION_KINDS_BY_LEVEL,
+  notificationLevelSchema,
   parseStoredNotificationLevel,
+  resolveThreadNotifications,
+  UNSET_THREAD_NOTIFICATIONS,
   type NotificationLevel,
 } from "./preferences.js";
 import { createPushNotificationsPlugin } from "./server.js";
@@ -1608,6 +1613,262 @@ describe("thread notification levels", () => {
       expect(host.clientSignals().at(-1)?.payload).toMatchObject({
         threadId: plainWorker.id,
         body: "Worker done again",
+      });
+    } finally {
+      await host.cleanup();
+    }
+  });
+});
+
+describe("replies level and agent chats", () => {
+  it("maps each level to the kinds it notifies on and ranks replies between input-only and all", () => {
+    expect(
+      Object.fromEntries(
+        notificationLevelSchema.options.map((level) => [
+          level,
+          [...NOTIFICATION_KINDS_BY_LEVEL[level]].sort(),
+        ]),
+      ),
+    ).toEqual({
+      all: ["pending-interaction", "thread-error", "turn-finished"],
+      replies: ["pending-interaction", "turn-finished"],
+      "input-only": ["pending-interaction", "thread-error"],
+      muted: [],
+    });
+    expect([...LEVELS_REQUIRING_REPLY_TEXT]).toEqual(["replies"]);
+    const defaults = { defaultLevel: "all", childLevel: "input-only" } as const;
+    const cap = (level: NotificationLevel, own: NotificationLevel) =>
+      resolveThreadNotifications(
+        { own, ancestorCap: { level, threadId: "parent" } },
+        { parentThreadId: "parent" },
+        defaults,
+      ).effective;
+    expect(cap("replies", "all")).toBe("replies");
+    expect(cap("replies", "input-only")).toBe("input-only");
+    expect(cap("input-only", "replies")).toBe("input-only");
+    expect(cap("all", "replies")).toBe("replies");
+  });
+
+  it.each([
+    {
+      name: "an unset agent chat defaults to replies",
+      thread: { parentThreadId: null, agentId: "sales" },
+      defaultLevel: "all",
+      expected: { effective: "replies", source: "agent-chat-default" },
+    },
+    {
+      name: "a quieter global default wins over the agent chat default",
+      thread: { parentThreadId: null, agentId: "sales" },
+      defaultLevel: "input-only",
+      expected: { effective: "input-only", source: "global" },
+    },
+    {
+      name: "a muted global default mutes agent chats",
+      thread: { parentThreadId: null, agentId: "sales" },
+      defaultLevel: "muted",
+      expected: { effective: "muted", source: "global" },
+    },
+    {
+      name: "admin threads keep the global default",
+      thread: { parentThreadId: null, agentId: "admin" },
+      defaultLevel: "all",
+      expected: { effective: "all", source: "global" },
+    },
+    {
+      name: "ordinary threads keep the global default",
+      thread: { parentThreadId: null, agentId: null },
+      defaultLevel: "all",
+      expected: { effective: "all", source: "global" },
+    },
+    {
+      name: "an agent's child thread keeps the child default",
+      thread: { parentThreadId: "root", agentId: "sales" },
+      defaultLevel: "all",
+      expected: { effective: "input-only", source: "child-default" },
+    },
+  ] as const)("$name", ({ thread, defaultLevel, expected }) => {
+    expect(
+      resolveThreadNotifications(UNSET_THREAD_NOTIFICATIONS, thread, {
+        defaultLevel,
+        childLevel: "input-only",
+      }),
+    ).toEqual({ own: "inherit", ...expected });
+    expect(
+      resolveThreadNotifications({ own: "all", ancestorCap: null }, thread, {
+        defaultLevel,
+        childLevel: "input-only",
+      }),
+    ).toEqual({ own: "all", effective: "all", source: "self" });
+  });
+
+  it("notifies replies and questions but not errors or turns without a reply", async () => {
+    const host = await setup();
+    try {
+      const thread = host.setThread({ id: "replies" });
+      await host.setLevel(thread.id, "replies");
+      await expect(host.getLevel(thread.id)).resolves.toEqual({
+        own: "replies",
+        effective: "replies",
+        source: "self",
+      });
+
+      for (const lastAssistantText of [null, "", "  \n "]) {
+        await host.harness.behavior.emitThreadEvent("thread.idle", {
+          thread,
+          lastAssistantText,
+        });
+        await waitForCoalesce();
+      }
+      const failing = { ...thread, status: "error" as const };
+      host.threads.set(thread.id, failing);
+      await host.harness.behavior.emitThreadEvent("thread.failed", {
+        thread: failing,
+        error: "Provider crashed",
+      });
+      await waitForCoalesce();
+      expect(host.clientSignals()).toEqual([]);
+
+      host.threads.set(thread.id, thread);
+      await host.harness.behavior.emitThreadEvent("thread.idle", {
+        thread,
+        lastAssistantText: "Here is the answer",
+      });
+      await waitForCoalesce();
+      host.threads.set(thread.id, { ...thread, status: "active" });
+      const question = pendingQuestion(thread.id, "Ship it?");
+      host.interactions.set(thread.id, [question]);
+      await host.harness.behavior.emitThreadEvent("interaction.pending", {
+        thread,
+        interaction: question,
+      });
+      await waitForCoalesce();
+      expect(host.clientSignals().map((signal) => signal.payload)).toEqual([
+        expect.objectContaining({
+          threadId: thread.id,
+          body: "Here is the answer",
+        }),
+        expect.objectContaining({ threadId: thread.id, body: "Ship it?" }),
+      ]);
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("accepts replies from the CLI and the settings", async () => {
+    const host = await setup();
+    try {
+      const root = host.setThread({ id: "root" });
+      await expect(
+        host.harness.behavior.runCli(["thread", root.id, "--level", "replies"]),
+      ).resolves.toMatchObject({
+        exitCode: 0,
+        stdout: "Notifications for root: replies (set on this thread)",
+      });
+      expect(host.storedLevel(root.id)).toBe("replies");
+      await host.setLevel(root.id, "inherit");
+      await host.harness.behavior.setSettings({ defaultLevel: "replies" });
+      await expect(host.getLevel(root.id)).resolves.toEqual({
+        own: "inherit",
+        effective: "replies",
+        source: "global",
+      });
+      await host.harness.behavior.setSettings({ childLevel: "replies" });
+      const child = host.setThread({ id: "child", parentThreadId: root.id });
+      await expect(host.getLevel(child.id)).resolves.toEqual({
+        own: "inherit",
+        effective: "replies",
+        source: "child-default",
+      });
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("defaults agent chats to replies at send time while admin and ordinary threads keep all activity", async () => {
+    const host = await setup();
+    try {
+      const agentChat = host.setThread({ id: "agent-chat", agentId: "sales" });
+      const admin = host.setThread({ id: "admin-chat", agentId: "admin" });
+      const plain = host.setThread({ id: "plain" });
+      const agentWorker = host.setThread({
+        id: "agent-worker",
+        parentThreadId: agentChat.id,
+        agentId: "sales",
+      });
+      await expect(host.getLevel(agentChat.id)).resolves.toEqual({
+        own: "inherit",
+        effective: "replies",
+        source: "agent-chat-default",
+      });
+      await expect(
+        host.harness.behavior.runCli(["thread", agentChat.id]),
+      ).resolves.toMatchObject({
+        stdout: "Notifications for agent-chat: replies (agent chat default)",
+      });
+      await expect(host.getLevel(admin.id)).resolves.toEqual({
+        own: "inherit",
+        effective: "all",
+        source: "global",
+      });
+      await expect(host.getLevel(plain.id)).resolves.toEqual({
+        own: "inherit",
+        effective: "all",
+        source: "global",
+      });
+      await expect(host.getLevel(agentWorker.id)).resolves.toEqual({
+        own: "inherit",
+        effective: "input-only",
+        source: "child-default",
+      });
+
+      for (const thread of [agentChat, admin, plain]) {
+        await host.harness.behavior.emitThreadEvent("thread.idle", {
+          thread,
+          lastAssistantText: null,
+        });
+      }
+      await waitForCoalesce();
+      expect(
+        host
+          .clientSignals()
+          .map((signal) => (signal.payload as { threadId: string }).threadId),
+      ).toEqual([admin.id, plain.id]);
+
+      for (const thread of [agentChat, admin, plain]) {
+        host.threads.set(thread.id, { ...thread, status: "error" });
+        await host.harness.behavior.emitThreadEvent("thread.failed", {
+          thread,
+          error: "Provider crashed",
+        });
+      }
+      await waitForCoalesce();
+      expect(
+        host
+          .clientSignals()
+          .map((signal) => (signal.payload as { threadId: string }).threadId),
+      ).toEqual([admin.id, plain.id, admin.id, plain.id]);
+
+      host.threads.set(agentChat.id, agentChat);
+      await host.harness.behavior.emitThreadEvent("thread.idle", {
+        thread: agentChat,
+        lastAssistantText: "Quarterly numbers are ready",
+      });
+      await waitForCoalesce();
+      expect(host.clientSignals().at(-1)?.payload).toMatchObject({
+        threadId: agentChat.id,
+        body: "Quarterly numbers are ready",
+      });
+
+      await host.setLevel(agentChat.id, "all");
+      host.threads.set(agentChat.id, { ...agentChat, status: "error" });
+      await host.harness.behavior.emitThreadEvent("thread.failed", {
+        thread: agentChat,
+        error: "Now loud",
+      });
+      await waitForCoalesce();
+      expect(host.clientSignals().at(-1)?.payload).toMatchObject({
+        threadId: agentChat.id,
+        body: "Now loud",
       });
     } finally {
       await host.cleanup();

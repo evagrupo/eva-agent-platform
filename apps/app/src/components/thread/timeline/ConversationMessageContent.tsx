@@ -148,7 +148,18 @@ interface ConversationMessageContentAssistantProps
   mobileActionDisplay: "inline" | "overflow";
   streaming: boolean;
   workspaceRootPath?: string;
+  /**
+   * EVA agent chats: a turn's final answer stands out as a bubble, and the
+   * agent's progress messages before it stay quiet.
+   */
+  agentChatTone?: AgentChatMessageTone;
 }
+
+export type AgentChatMessageTone = "answer" | "progress";
+
+const AGENT_CHAT_ANSWER_CLASS_NAME =
+  "w-fit max-w-full rounded-2xl border border-border-seam bg-surface-raised px-4 py-3 shadow-xs";
+const AGENT_CHAT_PROGRESS_CLASS_NAME = "text-muted-foreground";
 
 type ConversationMessageContentProps =
   | ConversationMessageContentUserProps
@@ -202,6 +213,7 @@ interface AssistantConversationMessageProps extends AssistantMessageRowIdentity 
   text: string;
   timestamp: number;
   workspaceRootPath?: string;
+  agentChatTone?: AgentChatMessageTone;
 }
 
 interface CollapsibleMessageTextProps {
@@ -529,6 +541,7 @@ function AssistantConversationMessage({
   threadId,
   turnId,
   workspaceRootPath,
+  agentChatTone,
 }: AssistantConversationMessageProps) {
   useLayoutEffect(() => {
     if (streaming) {
@@ -650,27 +663,38 @@ function AssistantConversationMessage({
         PROSE_COLUMN_INSET_CLASS,
       )}
       data-message-column=""
+      data-agent-chat-tone={agentChatTone}
     >
-      <SelectableMessageProse onSelect={onSelectProse}>
-        {codeFenceRendererRegistry === null ? (
-          markdown
-        ) : (
-          <CodeFenceRendererHost
-            registry={codeFenceRendererRegistry}
-            message={codeFenceMessage}
-            streaming={streaming}
-          >
-            {markdown}
-          </CodeFenceRendererHost>
-        )}
-      </SelectableMessageProse>
-      <ConversationAttachments
-        filePaths={attachmentItems.filePaths}
-        fileDetails={attachmentItems.fileDetails}
-        imageItems={attachmentItems.imageItems}
-        onOpenLocalFileLink={onOpenLocalFileLink}
-        projectId={projectId}
-      />
+      <div
+        className={
+          agentChatTone === "answer"
+            ? AGENT_CHAT_ANSWER_CLASS_NAME
+            : agentChatTone === "progress"
+              ? AGENT_CHAT_PROGRESS_CLASS_NAME
+              : "contents"
+        }
+      >
+        <SelectableMessageProse onSelect={onSelectProse}>
+          {codeFenceRendererRegistry === null ? (
+            markdown
+          ) : (
+            <CodeFenceRendererHost
+              registry={codeFenceRendererRegistry}
+              message={codeFenceMessage}
+              streaming={streaming}
+            >
+              {markdown}
+            </CodeFenceRendererHost>
+          )}
+        </SelectableMessageProse>
+        <ConversationAttachments
+          filePaths={attachmentItems.filePaths}
+          fileDetails={attachmentItems.fileDetails}
+          imageItems={attachmentItems.imageItems}
+          onOpenLocalFileLink={onOpenLocalFileLink}
+          projectId={projectId}
+        />
+      </div>
       {showActions ? (
         <MessageActionBar
           timestamp={timestamp}
@@ -775,6 +799,7 @@ export function ConversationMessageContent(
       threadId={props.threadId}
       turnId={props.turnId}
       workspaceRootPath={props.workspaceRootPath}
+      agentChatTone={props.agentChatTone}
     />
   );
 }

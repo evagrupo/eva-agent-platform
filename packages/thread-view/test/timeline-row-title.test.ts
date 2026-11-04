@@ -1867,3 +1867,62 @@ describe("buildTimelineRowTitle question rows", () => {
     ]);
   });
 });
+
+describe("EVA hand-off notes", () => {
+  function handoffRow(
+    title: string,
+    agentId: string | undefined,
+  ): TimelineSystemRow {
+    return {
+      ...baseRow("handoff-1"),
+      kind: "system",
+      systemKind: "operation",
+      operationKind: "generic",
+      title,
+      detail: null,
+      status: "completed",
+      completedAt: 1,
+      ...(agentId === undefined
+        ? {}
+        : { experimental_evaHandoffAgentId: agentId }),
+    };
+  }
+
+  it("links the agent's name to that agent's chat", () => {
+    const title = buildTimelineRowTitle(
+      handoffRow("Asked Meta Ads for help", "meta"),
+      DEFAULT_OPTIONS,
+    );
+    expect(title.plain).toBe("Asked Meta Ads for help");
+    expect(title.segments.map((segment) => [segment.text, segment.em])).toEqual(
+      [
+        ["Asked", false],
+        ["Meta Ads", true],
+        ["for help", false],
+      ],
+    );
+    expect(title.action).toEqual({
+      kind: "open-eva-agent-chat",
+      agentId: "meta",
+    });
+    expect(
+      buildTimelineRowTitle(
+        handoffRow("Followed up with Meta Ads", "meta"),
+        DEFAULT_OPTIONS,
+      ).action,
+    ).toEqual({ kind: "open-eva-agent-chat", agentId: "meta" });
+  });
+
+  it("keeps other notes plain", () => {
+    expect(
+      buildTimelineRowTitle(
+        handoffRow("Asked another agent for help", undefined),
+        DEFAULT_OPTIONS,
+      ).action,
+    ).toBeNull();
+    expect(
+      buildTimelineRowTitle(handoffRow("Scheduled: Daily", "meta"), DEFAULT_OPTIONS)
+        .action,
+    ).toBeNull();
+  });
+});

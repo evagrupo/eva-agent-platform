@@ -152,10 +152,11 @@ export function createPushNotificationsPlugin(
         type: "select",
         label: "Default notifications",
         description:
-          "For threads you haven't set. Needs input only skips finished turns.",
+          "For threads you haven't set. Replies only skips errors and turns without a reply; Needs input only skips finished turns. Agent chats you haven't set use Replies only unless this is quieter.",
         options: [...notificationLevelSchema.options],
         experimental_optionLabels: {
           all: NOTIFICATION_LEVEL_LABELS.all,
+          replies: NOTIFICATION_LEVEL_LABELS.replies,
           "input-only": NOTIFICATION_LEVEL_LABELS["input-only"],
           muted: NOTIFICATION_LEVEL_LABELS.muted,
         },
@@ -171,6 +172,7 @@ export function createPushNotificationsPlugin(
         experimental_optionLabels: {
           inherit: NOTIFICATION_LEVEL_LABELS.inherit,
           all: NOTIFICATION_LEVEL_LABELS.all,
+          replies: NOTIFICATION_LEVEL_LABELS.replies,
           "input-only": NOTIFICATION_LEVEL_LABELS["input-only"],
           muted: NOTIFICATION_LEVEL_LABELS.muted,
         },
@@ -506,7 +508,7 @@ export function createPushNotificationsPlugin(
           thread: cliCommand({
             summary: "Show or set a thread's notification level",
             description:
-              "Without --level, prints the resolved level and where it comes from. A thread uses its own level, else childLevel if it has a parent, else defaultLevel; every ancestor's own level caps it.",
+              "Without --level, prints the resolved level and where it comes from. A thread uses its own level, else childLevel if it has a parent, else replies for an agent chat (unless defaultLevel is quieter), else defaultLevel; every ancestor's own level caps it.",
             positionals: [
               {
                 name: "thread",

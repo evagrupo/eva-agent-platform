@@ -55,7 +55,7 @@ import {
 } from "../../agents/eva-agent-registry.js";
 import { getEvaAgentWorkspaceInstructions } from "../../agents/eva-agent-scaffold.js";
 import {
-  EVA_AGENT_COLLABORATION_INSTRUCTIONS,
+  evaAgentCollaborationInstructions,
   EVA_AGENT_MEMORY_TOOLS,
   EVA_AGENT_TOOLS,
   isEvaAgentDelegator,
@@ -465,7 +465,9 @@ export async function resolveThreadRuntimeCommandConfig(
     instructionSections.push(builtInAgentInstructions);
   }
   if (evaDelegatorThread && hasEvaAgentTools) {
-    instructionSections.push(EVA_AGENT_COLLABORATION_INSTRUCTIONS);
+    instructionSections.push(
+      evaAgentCollaborationInstructions(effectiveAgentId),
+    );
   }
   for (const contribution of dynamicToolContributions) {
     if (!contribution.instructions) continue;

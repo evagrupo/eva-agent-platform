@@ -710,6 +710,26 @@ describe("ThreadDetailHeader", () => {
     expect(screen.getByText("Focused thread")).not.toBeNull();
   });
 
+  it("does not rename an agent chat, whose title is the agent's name", async () => {
+    render(
+      <PaneContext.Provider value={PANE_CONTEXT}>
+        <ThreadDetailHeader
+          canRename={false}
+          actionsMenu={null}
+          isSecondaryPanelOpen={false}
+          onToggleSecondaryPanel={vi.fn()}
+          thread={THREAD_TARGET}
+          threadTitle="Meta Ads"
+        />
+      </PaneContext.Provider>,
+    );
+
+    fireEvent.doubleClick(screen.getByText("Meta Ads"));
+    await Promise.resolve();
+    expect(screen.queryByRole("textbox", { name: "Thread name" })).toBeNull();
+    expect(screen.getByText("Meta Ads")).not.toBeNull();
+  });
+
   it("discards an unsaved header draft when switching threads", async () => {
     const header = (threadId: string, threadTitle: string) => (
       <PaneContext.Provider value={PANE_CONTEXT}>

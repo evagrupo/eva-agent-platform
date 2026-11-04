@@ -1,7 +1,12 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
-export const notificationLevelSchema = z.enum(["all", "input-only", "muted"]);
+export const notificationLevelSchema = z.enum([
+  "all",
+  "replies",
+  "input-only",
+  "muted",
+]);
 export const ownNotificationLevelSchema = z.enum([
   "inherit",
   ...notificationLevelSchema.options,
@@ -12,6 +17,7 @@ export const notificationSourceSchema = z.enum([
   "ancestor",
   "global",
   "child-default",
+  "agent-chat-default",
 ]);
 
 export const threadNotificationInputsSchema = z
@@ -53,6 +59,7 @@ export const UNSET_THREAD_NOTIFICATIONS: ThreadNotificationInputs = {
 export const NOTIFICATION_LEVEL_LABELS: Record<OwnNotificationLevel, string> = {
   inherit: "Same as default",
   all: "All activity",
+  replies: "Replies only",
   "input-only": "Needs input only",
   muted: "Muted",
 };
@@ -67,15 +74,50 @@ export const NOTIFICATION_KINDS_BY_LEVEL: Record<
   ReadonlySet<PushNotificationKind>
 > = {
   all: new Set(["pending-interaction", "thread-error", "turn-finished"]),
+  // "turn-finished" here only covers turns that produced assistant text; see
+  // LEVELS_REQUIRING_REPLY_TEXT.
+  replies: new Set(["pending-interaction", "turn-finished"]),
   "input-only": new Set(["pending-interaction", "thread-error"]),
   muted: new Set(),
 };
 
+/** Levels that drop a finished turn unless it ended with assistant text. */
+export const LEVELS_REQUIRING_REPLY_TEXT: ReadonlySet<NotificationLevel> =
+  new Set(["replies"]);
+
+/**
+ * Loudness order used for ancestor caps. "replies" and "input-only" are not
+ * strict subsets of each other (replies drops errors, input-only drops
+ * replies), so ranking replies between input-only and all is an
+ * approximation: a "replies" ancestor caps an "all" descendant to "replies",
+ * and an "input-only" ancestor caps a "replies" descendant to "input-only".
+ */
 const LEVEL_RANK: Record<NotificationLevel, number> = {
   muted: 0,
   "input-only": 1,
-  all: 2,
+  replies: 2,
+  all: 3,
 };
+
+/** The admin agent's threads behave like ordinary threads. */
+const ADMIN_AGENT_ID = "admin";
+
+export const AGENT_CHAT_DEFAULT_LEVEL: NotificationLevel = "replies";
+
+/**
+ * An EVA agent chat: a top-level thread assigned to a non-admin agent.
+ */
+export function isAgentChat(thread: {
+  parentThreadId: string | null;
+  agentId?: string | null;
+}): boolean {
+  return (
+    thread.parentThreadId === null &&
+    typeof thread.agentId === "string" &&
+    thread.agentId.length > 0 &&
+    thread.agentId !== ADMIN_AGENT_ID
+  );
+}
 
 function isQuieter(
   candidate: NotificationLevel,
@@ -86,7 +128,7 @@ function isQuieter(
 
 export function resolveThreadNotifications(
   stored: ThreadNotificationInputs,
-  thread: { parentThreadId: string | null },
+  thread: { parentThreadId: string | null; agentId?: string | null },
   defaults: NotificationDefaults,
 ): ThreadNotifications {
   const { own, ancestorCap } = stored;
@@ -95,7 +137,10 @@ export function resolveThreadNotifications(
       ? { level: own, source: "self" }
       : thread.parentThreadId !== null && defaults.childLevel !== "inherit"
         ? { level: defaults.childLevel, source: "child-default" }
-        : { level: defaults.defaultLevel, source: "global" };
+        : isAgentChat(thread) &&
+            !isQuieter(defaults.defaultLevel, AGENT_CHAT_DEFAULT_LEVEL)
+          ? { level: AGENT_CHAT_DEFAULT_LEVEL, source: "agent-chat-default" }
+          : { level: defaults.defaultLevel, source: "global" };
   if (ancestorCap === null || !isQuieter(ancestorCap.level, base.level)) {
     return { own, effective: base.level, source: base.source };
   }
@@ -112,6 +157,7 @@ export function describeNotificationSource(row: ThreadNotifications): string {
   if (row.source === "parent") return "limited by parent";
   if (row.source === "ancestor") return "limited by an ancestor";
   if (row.source === "child-default") return "child-thread default";
+  if (row.source === "agent-chat-default") return "agent chat default";
   return "default";
 }
 
@@ -161,6 +207,7 @@ export interface NotificationPreferences {
   effectiveLevel(thread: {
     id: string;
     parentThreadId: string | null;
+    agentId?: string | null;
   }): Promise<NotificationLevel>;
   publishSubtree(threadId: string): Promise<void>;
 }
@@ -254,7 +301,15 @@ export function createNotificationPreferences(args: {
         requireInputs(threadId),
         getDefaults(),
       ]);
-      return resolveThreadNotifications(inputs, { parentThreadId }, defaults);
+      const agentId = await bb.sdk.threads
+        .get({ threadId })
+        .then((thread) => thread.agentId ?? null)
+        .catch(() => null);
+      return resolveThreadNotifications(
+        inputs,
+        { parentThreadId, agentId },
+        defaults,
+      );
     },
     async set(threadId, level) {
       await requireInputs(threadId);
@@ -273,7 +328,7 @@ export function createNotificationPreferences(args: {
       ]);
       return resolveThreadNotifications(
         resolved.get(thread.id)?.inputs ?? UNSET_THREAD_NOTIFICATIONS,
-        { parentThreadId: thread.parentThreadId },
+        { parentThreadId: thread.parentThreadId, agentId: thread.agentId },
         defaults,
       ).effective;
     },

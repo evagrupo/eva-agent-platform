@@ -10,6 +10,7 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import { pushNotificationsRpcContract } from "./contract.js";
 import {
+  isAgentChat,
   NOTIFICATION_LEVEL_LABELS,
   notificationLevelSchema,
   ownNotificationLevelSchema,
@@ -114,9 +115,27 @@ function useThreadNotificationsData({
 
 const LEVEL_ICONS: Record<NotificationLevel, string> = {
   all: "push-notifications/ringing",
+  replies: "MessageSquare",
   "input-only": "BellDot",
   muted: "push-notifications/off",
 };
+
+/** The only choices an agent chat offers; each stores that own level. */
+const AGENT_CHAT_LEVELS: readonly NotificationLevel[] = [
+  "replies",
+  "all",
+  "muted",
+];
+
+function resolutionThread(thread: {
+  parentThreadId: string | null;
+  experimental_agentId?: string | null;
+}): { parentThreadId: string | null; agentId: string | null } {
+  return {
+    parentThreadId: thread.parentThreadId,
+    agentId: thread.experimental_agentId ?? null,
+  };
+}
 
 function capHint(row: ThreadNotifications): string | undefined {
   if (row.source === "parent") return "Limited by a parent thread";
@@ -135,14 +154,12 @@ export const notificationsThreadAction: PluginThreadActionRegistration<ThreadNot
     item: ({ thread, data }) => {
       if (thread.archivedAt !== null) return null;
       const stored = data.levels.get(thread.id) ?? UNSET_THREAD_NOTIFICATIONS;
+      const target = resolutionThread(thread);
+      const agentChat = isAgentChat(target);
       const resolved =
         data.defaults === null
           ? null
-          : resolveThreadNotifications(
-              stored,
-              { parentThreadId: thread.parentThreadId },
-              data.defaults,
-            );
+          : resolveThreadNotifications(stored, target, data.defaults);
       const unavailable = data.unloadedThreadIds?.has(thread.id) ?? false;
       const hint =
         data.error ?? (resolved === null ? undefined : capHint(resolved));
@@ -159,11 +176,18 @@ export const notificationsThreadAction: PluginThreadActionRegistration<ThreadNot
           items: [
             ...(unavailable
               ? []
-              : ownNotificationLevelSchema.options.map((id) => ({
-                  id,
-                  label: NOTIFICATION_LEVEL_LABELS[id],
-                  selected: id === stored.own,
-                }))),
+              : agentChat
+                ? AGENT_CHAT_LEVELS.map((id) => ({
+                    id,
+                    label:
+                      id === "muted" ? "Mute" : NOTIFICATION_LEVEL_LABELS[id],
+                    selected: id === resolved?.effective,
+                  }))
+                : ownNotificationLevelSchema.options.map((id) => ({
+                    id,
+                    label: NOTIFICATION_LEVEL_LABELS[id],
+                    selected: id === stored.own,
+                  }))),
             ...(data.error === null ? [] : [{ id: "retry", label: "Retry" }]),
           ],
         },
@@ -195,7 +219,7 @@ export const notificationsThreadAction: PluginThreadActionRegistration<ThreadNot
           : active.map((thread, index) =>
               resolveThreadNotifications(
                 stored[index] ?? UNSET_THREAD_NOTIFICATIONS,
-                { parentThreadId: thread.parentThreadId },
+                resolutionThread(thread),
                 defaults,
               ),
             );

@@ -385,6 +385,14 @@ function ownerNameForThread(
     return undefined;
   }
   if (!thread.ownerUserId) return null;
+  // An agent chat is the viewer's own conversation with the agent; only an
+  // administrator monitoring someone else's chat needs to see whose it is.
+  if (
+    isEvaAgentChatThread(thread) &&
+    thread.ownerUserId === authContext.userId
+  ) {
+    return undefined;
+  }
   return (
     listAuthUserNamesByIds(db, [thread.ownerUserId]).get(thread.ownerUserId) ??
     null

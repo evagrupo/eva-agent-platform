@@ -174,6 +174,59 @@ describe("EVA user-facing chat timeline", () => {
     expect(JSON.stringify(visible)).not.toContain("cat secrets");
   });
 
+  it("keeps hand-off notes after the turn completes and links them to the other agent", () => {
+    const delegate = row({
+      id: "d1",
+      threadId: "thr_chat",
+      turnId: "turn1",
+      kind: "work",
+      workKind: "tool",
+      toolName: "mcp__bb-bridge__eva_delegate_to_agent",
+      toolArgs: { agent: "meta", task: "secret task text" },
+      status: "completed",
+      startedAt: 1,
+      createdAt: 1,
+      completedAt: 2,
+      sourceSeqStart: 1,
+      sourceSeqEnd: 2,
+    });
+    const unknownAgent = row({
+      id: "d2",
+      threadId: "thr_chat",
+      turnId: "turn1",
+      kind: "work",
+      workKind: "tool",
+      toolName: "eva_delegate_to_agent",
+      toolArgs: { agent: "ghost", task: "x" },
+      status: "completed",
+      startedAt: 1,
+      createdAt: 1,
+      completedAt: 2,
+      sourceSeqStart: 1,
+      sourceSeqEnd: 2,
+    });
+    const turn = row({
+      id: "t1",
+      kind: "turn",
+      children: [delegate, unknownAgent],
+    });
+
+    const visible = toEvaUserFacingTimelineRows([turn], (agentId) =>
+      agentId === "meta" ? "Meta" : null,
+    );
+
+    expect(visible).toHaveLength(2);
+    expect(visible[0]).toMatchObject({
+      id: "d1:handoff",
+      kind: "system",
+      title: "Asked Meta for help",
+      experimental_evaHandoffAgentId: "meta",
+    });
+    expect(visible[1]).toMatchObject({ title: "Asked another agent for help" });
+    expect(visible[1]).not.toHaveProperty("experimental_evaHandoffAgentId");
+    expect(JSON.stringify(visible)).not.toContain("secret task text");
+  });
+
   it("shows a scheduled run as a short note instead of its raw prompt", () => {
     const due = row({
       id: "due1",

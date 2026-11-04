@@ -73,6 +73,22 @@ export const EVA_MAX_DELEGATION_DEPTH = 3;
 export const EVA_AGENT_COLLABORATION_INSTRUCTIONS =
   "Any EVA agent may collaborate with the other EVA agents through the EVA collaboration tools: ask another agent a question, hand off work that belongs to its mandate, or delegate a bounded task. The Master Orchestrator manages all agents and routes work between them. When the user tags an agent with @ and gives a task or question, ask that agent. Delegate on your own initiative only when a request clearly belongs to another agent's mandate. Before you hand off, tell the user in one short sentence which agent you are asking and why. Delegated work runs in inspectable BB child threads: read the child's result before you report it, and send follow-ups when needed. Do not hand work back to an agent that asked you, and do not create long hand-off chains. Use collaboration tools only for agents and tools permitted by the current policy, keep each task within the target agent's mandate, preserve human-approval boundaries, and never expose server filesystem paths or credentials. The Admin agent answers questions about what an agent does by inspecting its files directly instead of delegating.";
 
+/**
+ * Collaboration guidance for agent chats. The Admin development agent keeps
+ * {@link EVA_AGENT_COLLABORATION_INSTRUCTIONS} unchanged; chat agents do not
+ * announce each hand-off because the chat already shows a short note.
+ */
+export const EVA_AGENT_CHAT_COLLABORATION_INSTRUCTIONS =
+  "Any EVA agent may collaborate with the other EVA agents through the EVA collaboration tools: ask another agent a question, hand off work that belongs to its mandate, or delegate a bounded task. The Master Orchestrator manages all agents and routes work between them. When the user tags an agent with @ and gives a task or question, ask that agent. Delegate on your own initiative only when a request clearly belongs to another agent's mandate. Do not announce routine hand-offs to the user; the chat already shows a small note when you ask another agent for help. If you will be waiting on another agent for a while, one short progress message is enough. Delegated work runs in inspectable BB child threads: read the child's result before you report it, and send follow-ups when needed. Do not hand work back to an agent that asked you, and do not create long hand-off chains. Use collaboration tools only for agents and tools permitted by the current policy, keep each task within the target agent's mandate, preserve human-approval boundaries, and never expose server filesystem paths or credentials. The Admin agent answers questions about what an agent does by inspecting its files directly instead of delegating.";
+
+export function evaAgentCollaborationInstructions(
+  agentId: string | null | undefined,
+): string {
+  return agentId === "admin"
+    ? EVA_AGENT_COLLABORATION_INSTRUCTIONS
+    : EVA_AGENT_CHAT_COLLABORATION_INSTRUCTIONS;
+}
+
 const evaAgentIdInputSchema = z
   .string()
   .trim()

@@ -325,7 +325,14 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
                 composer.onChangeMessage(event.currentTarget.value, [])
               }
             />
-            <button type="button" onClick={() => composer.onSubmit()}>
+            <button
+              type="button"
+              onClick={() => {
+                // The real composer shows a failed submit inline; the harness
+                // swallows it so a rejected send is not an unhandled error.
+                void Promise.resolve(composer.onSubmit()).catch(() => undefined);
+              }}
+            >
               Submit composer
             </button>
             {composer.canModifierSubmit ? (

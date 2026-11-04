@@ -107,6 +107,9 @@ function handoffNote(
     detail: null,
     status: row.status,
     completedAt: row.completedAt,
+    ...(agentId !== null && agentName !== null
+      ? { experimental_evaHandoffAgentId: agentId }
+      : {}),
   };
 }
 
@@ -164,9 +167,9 @@ function userFacingRows(
         break;
       }
       case "work": {
-        const note = includePendingInteractionsOnly
-          ? null
-          : handoffNote(row, resolveAgentName);
+        // Hand-off notes stay visible after the turn completes so the person
+        // can still open the other agent's chat from here.
+        const note = handoffNote(row, resolveAgentName);
         if (note !== null) {
           visible.push(note);
           break;
@@ -183,9 +186,9 @@ function userFacingRows(
         }
         break;
       case "turn":
-        // A completed turn groups the agent's work. Only an interaction that
-        // still waits for the user is lifted out of it; everything else in
-        // the group stays with administrators.
+        // A completed turn groups the agent's work. Only hand-off notes and an
+        // interaction that still waits for the user are lifted out of it;
+        // everything else in the group stays with administrators.
         visible.push(
           ...userFacingRows(row.children ?? [], true, resolveAgentName),
         );

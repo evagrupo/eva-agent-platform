@@ -18,6 +18,7 @@ import {
 } from "./contract.js";
 import { notificationPreviewText, truncate } from "./notification-text.js";
 import {
+  LEVELS_REQUIRING_REPLY_TEXT,
   NOTIFICATION_KINDS_BY_LEVEL,
   type NotificationLevel,
   type PushNotificationKind,
@@ -170,6 +171,7 @@ export interface CreatePushSenderArgs {
   getNotificationLevel(thread: {
     id: string;
     parentThreadId: string | null;
+    agentId?: string | null;
   }): Promise<NotificationLevel>;
   getDeliverySettings(): Promise<{
     mobileEnabled: boolean;
@@ -278,7 +280,10 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
     const existing = pending.get(threadId);
     if (existing) {
       existing.kinds.add(kind);
-      existing.bodies.set(kind, body);
+      // A later empty event must not erase a reply that is still pending.
+      if (body.trim().length > 0 || !existing.bodies.has(kind)) {
+        existing.bodies.set(kind, body);
+      }
       existing.eventAt = Math.max(existing.eventAt, eventAt);
       return;
     }
@@ -306,11 +311,19 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
   async function resolvePush(
     thread: ThreadResponse,
     entry: PendingThreadPush,
-    allowedKinds: ReadonlySet<PushNotificationKind>,
+    level: NotificationLevel,
   ): Promise<{ kind: PushNotificationKind; body: string } | null> {
+    const allowedKinds = NOTIFICATION_KINDS_BY_LEVEL[level];
     const kinds = new Set(
       [...entry.kinds].filter((kind) => allowedKinds.has(kind)),
     );
+    if (
+      kinds.has("turn-finished") &&
+      LEVELS_REQUIRING_REPLY_TEXT.has(level) &&
+      (entry.bodies.get("turn-finished") ?? "").trim().length === 0
+    ) {
+      kinds.delete("turn-finished");
+    }
     if (kinds.size === 0) return null;
     let interaction: PendingInteraction | null = null;
     if (kinds.has("pending-interaction")) {
@@ -371,11 +384,7 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
       return;
     }
     const level = await args.getNotificationLevel(thread);
-    const resolved = await resolvePush(
-      thread,
-      entry,
-      NOTIFICATION_KINDS_BY_LEVEL[level],
-    );
+    const resolved = await resolvePush(thread, entry, level);
     if (resolved === null) return;
     const preview = await notificationPreviewText(
       resolved.body,

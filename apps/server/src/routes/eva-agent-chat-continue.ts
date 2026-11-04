@@ -30,6 +30,7 @@ import {
   listEarlierEvaAgentChatThreadIds,
   type EvaAgentChatThreadRow,
 } from "../agents/eva-agent-chat-continuation.js";
+import { listEvaAgentChatIncomingRequests } from "../agents/eva-agent-chat-requests.js";
 
 const AGENT_PERMISSION_MODE: PermissionMode = "full";
 
@@ -41,6 +42,7 @@ const continueChatSchema = z
     reasoningLevel: reasoningLevelSchema.optional(),
     serviceTier: serviceTierSchema.optional(),
     input: z.array(promptInputSchema).min(1).max(64),
+    fresh: z.boolean().optional(),
   })
   .strict();
 
@@ -185,6 +187,7 @@ export function registerEvaAgentChatContinueRoutes(
       serviceTier: input.serviceTier,
       permissionMode: execution.permissionMode,
       input: input.input,
+      fresh: input.fresh === true,
     });
     return context.json({ threadId: thread.id }, 201);
   });
@@ -208,6 +211,32 @@ export function registerEvaAgentChatContinueRoutes(
     return context.json({
       threadIds: listEarlierEvaAgentChatThreadIds(deps.db, thread, canRead),
       latestThreadId: findLatestEvaAgentChatThreadId(deps.db, thread, canRead),
+    });
+  });
+
+  // Requests other agents delegated to this agent for the chat's owner, shown
+  // in this chat as compact cards. Owner or administrator only.
+  app.get("/eva/agents/:agentId/chat/requests", (context) => {
+    const authContext = getCoreAuthContext(context);
+    const agent = requireChatAgent(
+      deps,
+      context,
+      authContext,
+      context.req.param("agentId"),
+    );
+    const threadId = context.req.query("threadId");
+    if (!threadId) {
+      throw new ApiError(400, "invalid_request", "threadId is required");
+    }
+    const thread = requireAuthorizedThread(deps.db, context, threadId, "read");
+    requireAgentChatThread(thread, agent.id, authContext);
+    return context.json({
+      requests: listEvaAgentChatIncomingRequests(
+        deps.db,
+        thread,
+        (agentId) => getEvaAgentForDb(deps.db, agentId)?.displayName ?? null,
+        (candidate) => canReadThread(deps.db, authContext, candidate),
+      ),
     });
   });
 }

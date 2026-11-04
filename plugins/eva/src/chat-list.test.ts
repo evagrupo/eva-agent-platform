@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isSidebarAgentChatThread,
   agentColor,
   chatPreviewLine,
   chatTimeLabel,
@@ -41,5 +42,21 @@ describe("chat list helpers", () => {
     expect(
       sortChatAgents([{ slug: "a" }, { slug: "b" }, { slug: "c" }], previews),
     ).toEqual([{ slug: "c" }, { slug: "b" }, { slug: "a" }]);
+  });
+
+  it("treats only top-level non-Admin agent chats as agent chat rows", () => {
+    expect(
+      isSidebarAgentChatThread({ experimental_agentId: "meta", parentThreadId: null }),
+    ).toBe(true);
+    expect(
+      isSidebarAgentChatThread({ experimental_agentId: "admin", parentThreadId: null }),
+    ).toBe(false);
+    expect(
+      isSidebarAgentChatThread({ experimental_agentId: "meta", parentThreadId: "thr_parent" }),
+    ).toBe(false);
+    expect(
+      isSidebarAgentChatThread({ experimental_agentId: null, parentThreadId: null }),
+    ).toBe(false);
+    expect(isSidebarAgentChatThread({ parentThreadId: null })).toBe(false);
   });
 });

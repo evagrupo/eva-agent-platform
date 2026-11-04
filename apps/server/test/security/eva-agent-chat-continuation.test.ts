@@ -17,6 +17,7 @@ import { ensureEvaAgentCanonicalChat } from "../../src/agents/eva-agent-chat.js"
 import {
   EVA_CHAT_PLUGIN_ID,
   evaAgentChatContinuationText,
+  evaAgentChatFreshStartText,
 } from "../../src/agents/eva-agent-chat-continuation.js";
 import {
   reportNextEnvironmentAttachSuccess,
@@ -424,5 +425,221 @@ describe("EVA agent chat continuation", () => {
         }),
       ).toBe(threadId);
     });
+  });
+
+  it("starts a fresh chat part that keeps earlier parts visible without carrying context", async () => {
+    await withChatFixture(async ({ harness, owner, chatThreadId }) => {
+      const response = await continueChat(harness, owner, "people", {
+        fromThreadId: chatThreadId,
+        providerId: "codex",
+        model: "gpt-5.6-luna",
+        fresh: true,
+      });
+      expect(response.status, await response.clone().text()).toBe(201);
+      const { threadId } = (await response.json()) as { threadId: string };
+      expect(
+        getThreadPluginMetadata(harness.db, threadId, EVA_CHAT_PLUGIN_ID),
+      ).toEqual({
+        metadata: { previousThreadId: chatThreadId, fresh: true },
+        corrupt: false,
+      });
+      expect(
+        ensureEvaAgentCanonicalChat(harness.db, {
+          agentId: "people",
+          ownerUserId: "chat-owner",
+        }),
+      ).toBe(threadId);
+      expect(await segments(harness, owner, threadId)).toEqual({
+        status: 200,
+        body: { threadIds: [chatThreadId], latestThreadId: null },
+      });
+
+      await reportNextEnvironmentAttachSuccess(harness, threadId);
+      const start = await waitForQueuedCommand(
+        harness,
+        ({ command }) =>
+          command.type === "thread.start" && command.threadId === threadId,
+      );
+      if (start.command.type !== "thread.start") {
+        throw new Error("Expected thread.start");
+      }
+      expect(start.command.input[0]).toEqual({
+        type: "text",
+        text: evaAgentChatFreshStartText(chatThreadId),
+        mentions: [],
+        visibility: "agent-only",
+      });
+      expect(evaAgentChatFreshStartText(chatThreadId)).toContain(
+        "saved memories still apply",
+      );
+      expect(evaAgentChatFreshStartText(chatThreadId)).toContain(
+        "starts without their context",
+      );
+    });
+  });
+
+  it("rejects a malformed fresh flag", async () => {
+    await withChatFixture(async ({ harness, owner, chatThreadId }) => {
+      const response = await continueChat(harness, owner, "people", {
+        fromThreadId: chatThreadId,
+        fresh: "yes",
+      });
+      expect(response.status).toBe(400);
+    });
+  });
+});
+
+async function chatRequests(
+  harness: TestAppHarness,
+  headers: { cookie: string },
+  threadId: string,
+): Promise<{ status: number; body: unknown }> {
+  const response = await harness.app.request(
+    `/api/v1/eva/agents/people/chat/requests?threadId=${threadId}`,
+    { headers },
+  );
+  return { status: response.status, body: await response.json() };
+}
+
+describe("EVA agent chat header owner", () => {
+  it("shows the owner only to an administrator monitoring someone else's chat", async () => {
+    await withChatFixture(async ({ harness, admin, owner, chatThreadId }) => {
+      const project = getPersonalProject(harness.db)!;
+      const ownChat = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        ownerUserId: "chat-admin",
+        agentId: "people",
+        providerId: "codex",
+        status: "idle",
+        visibility: "visible",
+      });
+      const adminThread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        ownerUserId: "chat-admin",
+        agentId: "admin",
+        providerId: "codex",
+        status: "idle",
+        visibility: "visible",
+      });
+      const read = async (headers: { cookie: string }, threadId: string) => {
+        const response = await harness.app.request(
+          `/api/v1/threads/${threadId}`,
+          { headers },
+        );
+        expect(response.status).toBe(200);
+        return (await response.json()) as { ownerName?: string | null };
+      };
+      expect((await read(admin, chatThreadId)).ownerName).toBe("chat-owner");
+      expect((await read(admin, ownChat.id)).ownerName).toBeUndefined();
+      expect((await read(admin, adminThread.id)).ownerName).toBe("chat-admin");
+      expect((await read(owner, chatThreadId)).ownerName).toBeUndefined();
+    });
+  });
+});
+
+describe("EVA agent chat incoming requests", () => {
+  it("lists requests other agents delegated for the same owner, oldest first", async () => {
+    await withChatFixture(
+      async ({ harness, owner, admin, stranger, chatThreadId }) => {
+        const project = getPersonalProject(harness.db)!;
+        const orchestratorChat = createThread(harness.db, harness.hub, {
+          projectId: project.id,
+          ownerUserId: "chat-owner",
+          agentId: "orchestrator",
+          providerId: "codex",
+          status: "idle",
+          visibility: "visible",
+        });
+        const done = createThread(harness.db, harness.hub, {
+          projectId: project.id,
+          ownerUserId: "chat-owner",
+          agentId: "people",
+          providerId: "codex",
+          status: "idle",
+          parentThreadId: orchestratorChat.id,
+          title: "Check   vacation\nbalances",
+          visibility: "hidden",
+        });
+        const working = createThread(harness.db, harness.hub, {
+          projectId: project.id,
+          ownerUserId: "chat-owner",
+          agentId: "people",
+          providerId: "codex",
+          status: "active",
+          parentThreadId: orchestratorChat.id,
+          title: "Draft the onboarding plan",
+          visibility: "visible",
+        });
+        // Not listed: self-delegation, another owner, another agent's work.
+        createThread(harness.db, harness.hub, {
+          projectId: project.id,
+          ownerUserId: "chat-owner",
+          agentId: "people",
+          providerId: "codex",
+          status: "idle",
+          parentThreadId: chatThreadId,
+          title: "Own sub-task",
+          visibility: "visible",
+        });
+        const foreignParent = createThread(harness.db, harness.hub, {
+          projectId: project.id,
+          ownerUserId: "chat-stranger",
+          agentId: "orchestrator",
+          providerId: "codex",
+          status: "idle",
+          visibility: "visible",
+        });
+        createThread(harness.db, harness.hub, {
+          projectId: project.id,
+          ownerUserId: "chat-stranger",
+          agentId: "people",
+          providerId: "codex",
+          status: "idle",
+          parentThreadId: foreignParent.id,
+          title: "Someone else's request",
+          visibility: "visible",
+        });
+        createThread(harness.db, harness.hub, {
+          projectId: project.id,
+          ownerUserId: "chat-owner",
+          agentId: "orchestrator",
+          providerId: "codex",
+          status: "idle",
+          parentThreadId: chatThreadId,
+          title: "Request to another agent",
+          visibility: "visible",
+        });
+
+        const listed = await chatRequests(harness, owner, chatThreadId);
+        expect(listed.status).toBe(200);
+        const body = listed.body as {
+          requests: Array<Record<string, unknown>>;
+        };
+        expect(body.requests.map((request) => request.threadId)).toEqual([
+          done.id,
+          working.id,
+        ]);
+        expect(body.requests[0]).toMatchObject({
+          fromAgentId: "orchestrator",
+          summary: "Check vacation balances",
+          status: "done",
+        });
+        expect(typeof body.requests[0]!.fromAgentName).toBe("string");
+        expect(body.requests[1]).toMatchObject({ status: "working" });
+
+        expect((await chatRequests(harness, admin, chatThreadId)).body).toEqual(
+          body,
+        );
+        expect((await chatRequests(harness, stranger, chatThreadId)).status).toBe(
+          403,
+        );
+        expect((await chatRequests(harness, owner, done.id)).status).toBe(404);
+        const missing = await harness.app.request(
+          "/api/v1/eva/agents/people/chat/requests",
+          { headers: owner },
+        );
+        expect(missing.status).toBe(400);
+      },
+    );
   });
 });

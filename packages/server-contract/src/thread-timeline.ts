@@ -211,6 +211,11 @@ export const timelineGenericOperationSystemRowSchema =
     systemKind: z.literal("operation"),
     operationKind: timelineGenericSystemOperationKindSchema,
     reasoningId: z.string().optional(),
+    /**
+     * EVA agent chats: the agent another agent asked for help. Lets the app
+     * link a hand-off note to that agent's chat.
+     */
+    experimental_evaHandoffAgentId: z.string().optional(),
     completedAt: z.number().nullable(),
     ...timelineContentDeferredField,
   });

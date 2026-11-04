@@ -259,7 +259,9 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
       "A command row carries an output preview only when its output was truncated and the full text may still be fetchable, and a row is marked contentDeferred only when its expandable content was left out to be loaded on expand; absence means the row's fields hold the whole content.",
     fields: [
       "threadTimelineResponseSchema.rows.contentDeferred",
+      "threadTimelineResponseSchema.rows.experimental_evaHandoffAgentId",
       "threadTimelineResponseSchema.timelinePage.olderRowUpdates.contentDeferred",
+      "threadTimelineResponseSchema.timelinePage.olderRowUpdates.experimental_evaHandoffAgentId",
       "threadTimelineResponseSchema.rows.outputPreview",
       "threadTimelineResponseSchema.timelinePage.olderRowUpdates.outputPreview",
     ],

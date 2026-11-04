@@ -18,10 +18,10 @@ bb push-notifications add --token <expo-push-token> --platform <ios|android> --l
 bb push-notifications remove <id> [--json]
 bb push-notifications test <web|desktop> [--json]
 bb push-notifications send --title <text> [--body <text>] [--thread <thread>] [--json]
-bb push-notifications thread <thread> [--level inherit|all|input-only|muted]
+bb push-notifications thread <thread> [--level inherit|all|replies|input-only|muted]
 bb plugin config push-notifications set <mobileEnabled|webEnabled|desktopEnabled> <true|false>
-bb plugin config push-notifications set defaultLevel <all|input-only|muted>
-bb plugin config push-notifications set childLevel <inherit|all|input-only|muted>
+bb plugin config push-notifications set defaultLevel <all|replies|input-only|muted>
+bb plugin config push-notifications set childLevel <inherit|all|replies|input-only|muted>
 bb plugin config push-notifications set expoPushUrl <url>
 ```
 
@@ -44,10 +44,15 @@ bb plugin config push-notifications set expoPushUrl <url>
 - `thread` prints a thread's resolved notification level and its source;
   `--level` sets the thread's own level. A thread uses its own level, else
   `childLevel` if it has a parent (default `input-only`; `inherit` follows
-  `defaultLevel`), else `defaultLevel` (default `all`). Every ancestor's own
-  level also caps its child threads. `all` notifies on finished turns too,
-  `input-only` keeps questions, approvals, and errors only, and `muted` sends
-  nothing.
+  `defaultLevel`), else `replies` for an EVA agent chat (a top-level thread
+  whose agent is not `admin`; source `agent chat default`) unless
+  `defaultLevel` is quieter, else `defaultLevel` (default `all`). Every
+  ancestor's own level also caps its child threads, ranked `muted` <
+  `input-only` < `replies` < `all` (an approximation, since `replies` drops
+  errors that `input-only` keeps). `all` notifies on finished turns too,
+  `replies` keeps questions, approvals, and finished turns that ended with an
+  assistant reply but no errors, `input-only` keeps questions, approvals, and
+  errors only, and `muted` sends nothing.
 
 A plugin sends the same notification from its server code with:
 

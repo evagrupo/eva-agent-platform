@@ -73,6 +73,8 @@ export interface ThreadDetailHeaderActionsMenuArgs {
 }
 
 interface ThreadDetailHeaderProps {
+  /** False for EVA agent chats, whose title is the agent's name. */
+  canRename?: boolean;
   actionsMenu: ((args: ThreadDetailHeaderActionsMenuArgs) => ReactNode) | null;
   contextCardButton?: ReactNode;
   isSecondaryPanelOpen: boolean;
@@ -87,6 +89,7 @@ interface ThreadDetailHeaderProps {
 }
 
 export function ThreadDetailHeader({
+  canRename = true,
   actionsMenu,
   isSecondaryPanelOpen,
   onClosePane,
@@ -124,10 +127,12 @@ export function ThreadDetailHeader({
   const requestRenameDialog = useDefaultRequestRename();
   const pendingMenuRename = useRef(false);
   const requestRename = (id: string) => {
+    if (!canRename) return;
     if (isCompactViewport || isPointerCoarse) requestRenameDialog(id);
     else startEditing();
   };
   const requestRenameFromMenu = (id: string) => {
+    if (!canRename) return;
     if (isCompactViewport || isPointerCoarse) requestRenameDialog(id);
     else pendingMenuRename.current = true;
   };
@@ -152,7 +157,7 @@ export function ThreadDetailHeader({
     secondaryPanelHost,
   } = usePaneContext();
   useAppCommandHandler("thread.rename", () => {
-    if (!isFocused) return false;
+    if (!isFocused || !canRename) return false;
     requestRename(threadId);
     return true;
   });
@@ -194,7 +199,7 @@ export function ThreadDetailHeader({
     beginPaneDrag(event, threadTitle);
   };
   const handleTitleDoubleClick = () => {
-    if (isEditing || isPointerCoarse) {
+    if (isEditing || isPointerCoarse || !canRename) {
       return;
     }
     startEditing();

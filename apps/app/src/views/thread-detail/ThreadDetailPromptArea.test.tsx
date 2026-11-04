@@ -46,6 +46,11 @@ import { LazyQueuedMessagesList } from "@/components/promptbox/banner/LazyQueued
 import { workflowRow } from "@/test/fixtures/thread-timeline-rows";
 import type { PromptDraftAttachment } from "@bb/client-core";
 import { BbHttpError, sdk } from "@/lib/sdk";
+import {
+  cancelFreshEvaAgentChat,
+  isFreshEvaAgentChatRequested,
+  requestFreshEvaAgentChat,
+} from "@/lib/eva-fresh-chat";
 import { makeProviderInfo } from "@bb/test-helpers/domain-fixtures";
 import type { ExperimentalComposerSelection } from "@get-bb/plugin-sdk";
 import { setComposerTextEffect } from "@/lib/composer-text-effects";
@@ -2188,6 +2193,73 @@ describe("EVA agent chat provider switch", () => {
     );
     expect(continueChat).not.toHaveBeenCalled();
     expect(mocks.createThreadMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("starts a fresh chat part with the next message after the person asked for one", async () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "full",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.promptDraft.text = "New topic";
+    const continueChat = vi
+      .spyOn(sdk.evaAgents, "continueChat")
+      .mockResolvedValue({ threadId: "thr_fresh" });
+    requestFreshEvaAgentChat("thr_chat");
+    try {
+      renderPromptArea({ thread: makeAgentChat() });
+      fireEvent.click(screen.getByRole("button", { name: "Submit composer" }));
+
+      await waitFor(() =>
+        expect(continueChat).toHaveBeenCalledWith(
+          expect.objectContaining({
+            agentId: "people",
+            fromThreadId: "thr_chat",
+            providerId: "codex",
+            fresh: true,
+            input: [{ type: "text", text: "New topic", mentions: [] }],
+          }),
+        ),
+      );
+      await waitFor(() =>
+        expect(mocks.navigate).toHaveBeenCalledWith(
+          getThreadRoutePath({
+            projectId: PERSONAL_PROJECT_ID,
+            threadId: "thr_fresh",
+          }),
+          { replace: true },
+        ),
+      );
+      expect(isFreshEvaAgentChatRequested("thr_chat")).toBe(false);
+      expect(mocks.sendMessageMutateAsync).not.toHaveBeenCalled();
+    } finally {
+      cancelFreshEvaAgentChat("thr_chat");
+    }
+  });
+
+  it("ignores a fresh chat request outside agent chats", async () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "full",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.promptDraft.text = "Hello";
+    const continueChat = vi.spyOn(sdk.evaAgents, "continueChat");
+    requestFreshEvaAgentChat("thr_chat");
+    try {
+      renderPromptArea({ thread: makeAgentChat({ agentId: "admin" }) });
+      fireEvent.click(screen.getByRole("button", { name: "Submit composer" }));
+      await waitFor(() =>
+        expect(mocks.sendMessageMutateAsync).toHaveBeenCalled(),
+      );
+      expect(continueChat).not.toHaveBeenCalled();
+    } finally {
+      cancelFreshEvaAgentChat("thr_chat");
+    }
   });
 
   it.each([

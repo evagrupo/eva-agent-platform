@@ -2114,6 +2114,11 @@ export interface PluginThreadActionTarget {
   isUnread: boolean;
   status: ThreadStatus;
   /**
+   * The EVA agent assigned to this thread; null or absent for ordinary
+   * threads. See `PluginSidebarThread.experimental_agentId`.
+   */
+  experimental_agentId?: string | null;
+  /**
    * The thread's environment when a new thread can reuse it, null otherwise.
    * `path` is the checkout path, null when the environment has none.
    */

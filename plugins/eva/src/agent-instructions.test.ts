@@ -52,10 +52,16 @@ describe("agentReplyStyleInstructions", () => {
     expect(instructions).toContain("messaging app");
     expect(instructions).toContain("plain everyday words");
     expect(instructions).toContain("never overrides your mandate");
-    expect(instructions).toContain("one-sentence progress update");
+    expect(instructions).toContain("send only the final answer");
+    expect(instructions).toContain("more than about two minutes");
+    expect(instructions).toContain("at most one every few minutes");
+    expect(instructions).toContain("stuck waiting on the user or another agent");
+    expect(instructions).toContain("Do not announce routine steps or each hand-off");
+    expect(instructions).not.toContain("at important steps");
+    expect(instructions).not.toContain("whenever you ask or hand work");
     expect(instructions).toContain("bb automation create");
     expect(instructions).toContain("scheduled run");
-    expect(instructions).toContain("commentary messages");
+    expect(instructions).toContain("commentary message");
     expect(instructions).toContain("Markdown file in $BB_THREAD_STORAGE");
     expect(instructions).toContain("side panel");
     expect(instructions).toContain("Generated UI must help the user");

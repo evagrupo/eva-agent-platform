@@ -52,6 +52,7 @@ import {
   chatPreviewLine,
   chatTimeLabel,
   sortChatAgents,
+  isSidebarAgentChatThread,
 } from "./src/chat-list";
 import { AgentMemories } from "./src/AgentMemories";
 
@@ -1512,9 +1513,11 @@ function SidebarThreadRow({
         <span className="flex items-center justify-center transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
           <StatusGlyph thread={thread} colored />
         </span>
-        <span className="absolute inset-[-4px] opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100">
-          <ThreadOverflowMenu thread={thread} />
-        </span>
+        {isSidebarAgentChatThread(thread) ? null : (
+          <span className="absolute inset-[-4px] opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100">
+            <ThreadOverflowMenu thread={thread} />
+          </span>
+        )}
       </span>
     </li>
   );

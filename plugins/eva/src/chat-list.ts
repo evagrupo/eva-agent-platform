@@ -96,3 +96,20 @@ export function sortChatAgents<T extends { slug: string }>(
     })
     .map(({ agent }) => agent);
 }
+
+/**
+ * An agent's chat (top-level, any agent but Admin) is reached from its agent
+ * row and offers no thread actions; its header has the agent menu instead.
+ */
+export function isSidebarAgentChatThread(thread: {
+  experimental_agentId?: string | null;
+  parentThreadId: string | null;
+}): boolean {
+  const agentId = thread.experimental_agentId;
+  return (
+    typeof agentId === "string" &&
+    agentId.length > 0 &&
+    agentId !== "admin" &&
+    thread.parentThreadId === null
+  );
+}

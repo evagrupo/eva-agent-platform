@@ -19,6 +19,10 @@ import { TimelineStatusIndicator } from "./TimelineStatusIndicator.js";
 import type { TimelineTitleActionResolver } from "./TimelineTitleView.js";
 import { TimelineReasoningExpansionProvider } from "./TimelineReasoningExpansion.js";
 import { TimelineWorkingIndicator } from "./TimelineWorkingIndicator.js";
+import {
+  EVA_AGENT_CHAT_WORKING_LABEL,
+  useEvaAgentChatTimeline,
+} from "./eva-agent-chat-timeline.js";
 import type {
   ThreadTimelineForkMessageHandler,
   ThreadTimelineEditMessageHandler,
@@ -160,7 +164,7 @@ export function ThreadTimelineSurface({
   projectId,
   resolveMentionLink,
   showOngoingIndicator,
-  ongoingIndicatorLabel,
+  ongoingIndicatorLabel: ongoingIndicatorLabelProp,
   isStopping = false,
   stoppingAnchorAt = 0,
   timelineErrorClassName = "mt-6 text-destructive",
@@ -172,6 +176,12 @@ export function ThreadTimelineSurface({
   unreadDividerPlacement,
   workspaceRootPath,
 }: ThreadTimelineSurfaceProps) {
+  // Agent chats show one subtle "Working on it…" while the agent runs,
+  // without the agent's live thinking.
+  const isAgentChat = useEvaAgentChatTimeline() !== null;
+  const ongoingIndicatorLabel =
+    ongoingIndicatorLabelProp ??
+    (isAgentChat ? EVA_AGENT_CHAT_WORKING_LABEL : undefined);
   const showCatchUpIndicator =
     isCatchingUpTimeline &&
     !isThreadTimelinePending &&

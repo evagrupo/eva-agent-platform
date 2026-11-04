@@ -17,6 +17,7 @@ export function toThreadActionTarget(
     isUnread: !isThreadRead(thread),
     status: thread.status,
     environment,
+    experimental_agentId: thread.agentId ?? null,
   };
 }
 

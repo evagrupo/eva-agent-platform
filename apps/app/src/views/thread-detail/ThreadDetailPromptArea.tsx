@@ -113,6 +113,11 @@ import {
 } from "@/hooks/mutations/thread-runtime-mutations";
 import { useContinueEvaAgentChat } from "@/hooks/mutations/eva-agent-chat-mutations";
 import {
+  cancelFreshEvaAgentChat,
+  useIsFreshEvaAgentChatRequested,
+} from "@/lib/eva-fresh-chat";
+import { EvaAgentFreshChatNotice } from "./EvaAgentFreshChatNotice";
+import {
   useRestoreThreadEnvironment,
   useUnarchiveThread,
 } from "@/hooks/mutations/thread-state-mutations";
@@ -731,9 +736,12 @@ export function ThreadDetailPromptArea({
   const isAgentChat = isEvaAgentChatThread(thread);
   const continuesAgentChatAcrossProviders =
     isAgentChat && thread.projectId === PERSONAL_PROJECT_ID;
+  const isFreshAgentChatRequested =
+    useIsFreshEvaAgentChatRequested(thread.id) &&
+    continuesAgentChatAcrossProviders;
   const isAgentChatContinuation =
     continuesAgentChatAcrossProviders &&
-    selectedProviderId !== thread.providerId;
+    (selectedProviderId !== thread.providerId || isFreshAgentChatRequested);
   const isFallbackModelActive =
     !isHandoffSelection &&
     selectedProviderId === thread.providerId &&
@@ -1296,7 +1304,9 @@ export function ThreadDetailPromptArea({
           reasoningLevel,
           ...(supportsServiceTier && serviceTier ? { serviceTier } : {}),
           input,
+          ...(isFreshAgentChatRequested ? { fresh: true } : {}),
         });
+        cancelFreshEvaAgentChat(thread.id);
         navigate(
           getThreadRoutePath({
             projectId: thread.projectId,
@@ -1315,6 +1325,7 @@ export function ThreadDetailPromptArea({
     [
       continueAgentChat,
       effectiveSelectedModel,
+      isFreshAgentChatRequested,
       navigate,
       promptDraft,
       reasoningLevel,
@@ -2196,6 +2207,11 @@ export function ThreadDetailPromptArea({
   const promptStack = useMemo(
     () => (
       <>
+        {isFreshAgentChatRequested && !shouldHideComposer ? (
+          <EvaAgentFreshChatNotice
+            onCancel={() => cancelFreshEvaAgentChat(thread.id)}
+          />
+        ) : null}
         <ThreadWorkflowStack
           workflows={activeWorkflows}
           isStackExpanded={isWorkflowStackExpanded}
@@ -2313,6 +2329,7 @@ export function ThreadDetailPromptArea({
       </>
     ),
     [
+      isFreshAgentChatRequested,
       queueExpanded,
       setQueueExpanded,
       childThreadsBannerKey,
