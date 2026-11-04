@@ -24,6 +24,7 @@ import {
   type DbQueryConnection,
 } from "@bb/db";
 import {
+  CORE_RENDER_PLUGIN_IDS,
   CORE_SHELL_PLUGIN_IDS,
   modelPermits,
   permissionModeValues,
@@ -2259,6 +2260,24 @@ export function isPluginAllowed(
   return (
     authContext === null ||
     isPluginAllowedByPolicy(authContext.policy, pluginId)
+  );
+}
+
+/**
+ * True when a chat reader may load a render-only plugin's frontend (to draw
+ * generated UI in their chats) without having full access to the plugin.
+ */
+export function isPluginRenderOnlyForReader(
+  context: CoreRequestContext,
+  pluginId: string,
+): boolean {
+  const authContext = getCoreAuthContext(context);
+  if (authContext === null || !CORE_RENDER_PLUGIN_IDS.has(pluginId)) {
+    return false;
+  }
+  return (
+    hasCoreCapability(authContext.policy, "threadOwnRead") ||
+    hasCoreCapability(authContext.policy, "threadAllRead")
   );
 }
 

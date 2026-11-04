@@ -35,6 +35,7 @@ import { extname, join, resolve } from "node:path";
 import { Hono } from "hono";
 import { getThread } from "@bb/db";
 import {
+  CORE_RENDER_PLUGIN_IDS,
   CORE_SHELL_PLUGIN_IDS,
   type RealtimeSubscriptionTarget,
 } from "@bb/domain";
@@ -297,7 +298,7 @@ function allowsAdminPluginManagementRequest(
 // Plugin ids are slugs (letters, digits, dashes), so they need no escaping.
 const CORE_SHELL_PLUGIN_PATTERN = `(?:${[...CORE_SHELL_PLUGIN_IDS].join("|")})`;
 const CORE_SHELL_PLUGIN_ASSET_PATH = new RegExp(
-  `^/plugins/${CORE_SHELL_PLUGIN_PATTERN}/assets/`,
+  `^/plugins/(?:${[...CORE_SHELL_PLUGIN_IDS, ...CORE_RENDER_PLUGIN_IDS].join("|")})/assets/`,
   "u",
 );
 const CORE_SHELL_PLUGIN_RPC_PATH = new RegExp(

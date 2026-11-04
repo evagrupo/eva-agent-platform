@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   defaultUserPolicy,
   isPluginAllowedByPolicy,
+  isPluginRenderOnlyForReader,
   runWithCoreAuthRequest,
   type CoreAuthContext,
 } from "../../src/access-policy.js";
@@ -77,5 +78,13 @@ describe("EVA agent list for regular users", () => {
         toUserVisibleEvaAgentDetail({}, { agent: { slug: "meta" }, threads: [] }),
       ),
     ).toThrow("EVA agent not found");
+  });
+
+  it("lets readers load the generated UI renderer without full plugin access", () => {
+    runWithCoreAuthRequest(user, "GET", () => {
+      expect(isPluginRenderOnlyForReader({}, "genui")).toBe(true);
+      expect(isPluginRenderOnlyForReader({}, "bb--git")).toBe(false);
+    });
+    expect(isPluginAllowedByPolicy(defaultUserPolicy, "genui")).toBe(false);
   });
 });

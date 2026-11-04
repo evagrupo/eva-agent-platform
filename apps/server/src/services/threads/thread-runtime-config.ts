@@ -479,8 +479,15 @@ export async function resolveThreadRuntimeCommandConfig(
       evaAgentCollaborationInstructions(effectiveAgentId),
     );
   }
+  const friendlyChat =
+    typeof args.thread.agentId === "string" &&
+    args.thread.agentId !== "admin" &&
+    getEvaAgentForDb(deps.db, args.thread.agentId) !== null;
   for (const contribution of dynamicToolContributions) {
     if (!contribution.instructions) continue;
+    // Agent chats get the short, simple UI guide below instead of the
+    // generated UI plugin's full developer reference.
+    if (friendlyChat && contribution.pluginId === "genui") continue;
     if (contribution.pluginId === null) {
       instructionSections.push(contribution.instructions);
     } else {
@@ -490,10 +497,6 @@ export async function resolveThreadRuntimeCommandConfig(
       );
     }
   }
-  const friendlyChat =
-    typeof args.thread.agentId === "string" &&
-    args.thread.agentId !== "admin" &&
-    getEvaAgentForDb(deps.db, args.thread.agentId) !== null;
   for (const contribution of listPluginInstructionContributions(
     allowedPluginIds,
   )) {
@@ -525,13 +528,15 @@ export async function resolveThreadRuntimeCommandConfig(
     );
   }
   for (const contribution of filteredConditionalConfiguration.dynamicInstructions) {
+    if (friendlyChat && contribution.pluginId === "genui") continue;
     instructionSections.push(
       `The following dynamic instructions come from an approved EVA integration "${contribution.pluginId}":`,
-      friendlyChat && contribution.pluginId === "genui"
-        ? EVA_CHAT_UI_INSTRUCTIONS
-        : contribution.text,
+      contribution.text,
     );
   }
+  // Every agent chat may show a small UI, whoever owns it: the chat renders
+  // it for all readers, and the guide keeps it to simple inline data.
+  if (friendlyChat) instructionSections.push(EVA_CHAT_UI_INSTRUCTIONS);
   if (dataDirAgentInstructions) {
     instructionSections.push(
       `The following user instructions come from <dataDir>/${DATA_DIR_AGENT_INSTRUCTIONS_RELATIVE_PATH}:`,

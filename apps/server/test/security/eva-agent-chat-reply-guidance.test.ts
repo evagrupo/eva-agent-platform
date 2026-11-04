@@ -41,6 +41,14 @@ describe("agent chat reply guidance", () => {
     expect(EVA_CHAT_UI_INSTRUCTIONS).toContain("side panel");
   });
 
+  it("keeps chat UIs small, inline, and below the reply", () => {
+    expect(EVA_CHAT_UI_INSTRUCTIONS).toContain("At most one ```ui block per reply");
+    expect(EVA_CHAT_UI_INSTRUCTIONS).toContain("at most 8 rows and 4 columns");
+    expect(EVA_CHAT_UI_INSTRUCTIONS).toContain("Never use Load()");
+    expect(EVA_CHAT_UI_INSTRUCTIONS).toContain("shown on its own below it");
+    expect(EVA_CHAT_UI_INSTRUCTIONS).toContain("instead of a Markdown table or a numbered list");
+  });
+
   it("does not ask chat agents to announce hand-offs, but keeps Admin unchanged", () => {
     expect(EVA_AGENT_CHAT_COLLABORATION_INSTRUCTIONS).not.toContain(
       "Before you hand off",

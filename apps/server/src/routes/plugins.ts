@@ -66,6 +66,7 @@ import {
   isPluginAllowedByPolicy,
   requireAuthorizedThread,
   isPluginAllowed,
+  isPluginRenderOnlyForReader,
 } from "../access-policy.js";
 import type { CoreAuthService } from "../core-auth.js";
 import { isEvaAgentId } from "../agents/eva-agent-registry.js";
@@ -363,7 +364,11 @@ function filterInstalledPlugins(
   context: Context,
   entries: readonly InstalledPlugin[],
 ): InstalledPlugin[] {
-  return entries.filter((entry) => isPluginAllowed(context, entry.id));
+  return entries.filter(
+    (entry) =>
+      isPluginAllowed(context, entry.id) ||
+      isPluginRenderOnlyForReader(context, entry.id),
+  );
 }
 
 function filterPluginContributions<T extends { pluginId: string }>(
@@ -571,7 +576,18 @@ export function registerPluginRoutes(
 ): void {
   const assertPluginRouteAccess = (context: Context): void => {
     if (isPluginAggregateRoutePath(context.req.path)) return;
-    assertPluginAllowed(context, context.req.param("id"));
+    const pluginId = context.req.param("id");
+    // Render-only plugins serve their static frontend to chat readers;
+    // everything else they offer keeps the normal plugin check.
+    if (
+      context.req.method === "GET" &&
+      /\/plugins\/[^/]+\/assets\//u.test(context.req.path) &&
+      pluginId !== undefined &&
+      isPluginRenderOnlyForReader(context, pluginId)
+    ) {
+      return;
+    }
+    assertPluginAllowed(context, pluginId);
   };
   app.use("/plugins/:id", (context, next) => {
     assertPluginRouteAccess(context);
@@ -950,7 +966,9 @@ export function registerPluginRoutes(
         404,
       );
     }
-    assertPluginAllowed(context, asset.pluginId);
+    if (!isPluginRenderOnlyForReader(context, asset.pluginId)) {
+      assertPluginAllowed(context, asset.pluginId);
+    }
     const hostTailwind =
       spec.kind === "css" &&
       context.req.query("host-tailwind") === HOST_TAILWIND_VERSION;

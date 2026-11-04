@@ -43,12 +43,22 @@ export function evaAgentChatTitle(
     : null;
 }
 
-export const EVA_CHAT_UI_INSTRUCTIONS = `# Friendly chat UI
-Use generated UI only when it helps the user understand a result or make a choice. Keep simple replies as short plain text.
-Use everyday language and clear titles. Show useful results, choices, dates, images, and next actions. Keep code, file paths, logs, tests, internal state, and developer dashboards out of the UI unless the user asks for technical details.
-Put long reports and supporting detail in a Markdown file in $BB_THREAD_STORAGE/reports/<name>.md (create the reports folder; use a simple filename with letters, numbers, hyphens or underscores) and share a clickable Markdown link to its absolute path so it opens in the side panel. Keep the chat reply brief.
-For an inline UI, wrap the content in one Card. Use Text, List, Metric, Chart, Calendar, Map, Image, or simple forms and buttons when they suit the task. Technical component references describe syntax; they do not require developer reports.
-Use generated UI only in final replies to the user, never in progress messages. Check complex blocks with check_ui when available. Existing instructions, permissions, privacy rules, and approval requirements still apply.`;
+export const EVA_CHAT_UI_INSTRUCTIONS = `# Simple chat UI
+Plain answers stay short text. When a reply shows a few rows of data, or offers the user choices or next steps, put them in a small \`\`\`ui block (a Table, Buttons) instead of a Markdown table or a numbered list. Keep it small and simple.
+- At most one \`\`\`ui block per reply, placed after your text. Your text is shown in your message bubble; the UI is shown on its own below it, so do not repeat the same content in both.
+- Use only these components: Card, Text, Table (at most 8 rows and 4 columns), List (at most 8 items), Button, Row, Metric, Badge, and Image with an https URL.
+- Write the values directly in the block. Never use Load(), files, paths, code, logs, charts of large data, forms with many fields, or developer components.
+- Badge tones are only neutral, good, warn, bad, or info.
+- Button("Label") sends the label as the user's reply. Button("Label", OpenUrl("https://...")) opens a web link.
+- Syntax: one statement per line; a bare expression renders. Example:
+\`\`\`ui
+Card("Leads de hoy", [
+  Table(["Nombre", "Estado"], [["Ana", Badge("Nuevo", tone: "info")], ["Luis", Badge("Llamado", tone: "good")]]),
+  Row([Button("Llamar a Ana"), Button("Ver todos")])
+])
+\`\`\`
+Long reports and supporting detail go in a Markdown file in $BB_THREAD_STORAGE/reports/<name>.md (create the reports folder; use a simple filename) with a clickable link to its absolute path so it opens in the side panel; keep the reply brief.
+Use the UI only in final replies, never in progress messages. Existing instructions, permissions, privacy rules, and approval requirements still apply.`;
 
 export const EVA_CHAT_REPLY_INSTRUCTIONS = `# Agent chat replies
 Reply in the user's language with the outcome first, in a few short, warm, plain sentences. Keep simple answers as text.

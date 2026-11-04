@@ -11,3 +11,11 @@ export const CORE_SHELL_PLUGIN_IDS: ReadonlySet<string> = new Set([
   "eva",
   "spanish-localization",
 ]);
+
+/**
+ * Plugins that only draw content inside chats (generated UI cards). Anyone
+ * who can read threads loads their frontend so agent replies render, but
+ * their calls, tools, panels, and file access still need the plugin
+ * capability.
+ */
+export const CORE_RENDER_PLUGIN_IDS: ReadonlySet<string> = new Set(["genui"]);

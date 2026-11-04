@@ -697,6 +697,27 @@ describe("EVA admin chat monitoring and per-user chat isolation", () => {
     });
   });
 
+  it("lets a regular user load the generated UI renderer but not its file loading", async () => {
+    await withTestHarness({ authRequired: true }, async (harness) => {
+      await seedIdentity(harness.db, { userId: "render-user", role: "user" });
+      const user = await signIn(harness, "render-user");
+      const load = await postJson(
+        harness,
+        "/api/v1/plugins/genui/rpc/load_data",
+        user,
+        { threadId: "thr_someone_else", path: "/tmp/secret.json" },
+      );
+      expect(load.status).toBe(403);
+      const gallery = await postJson(
+        harness,
+        "/api/v1/plugins/genui/rpc/gallery_list",
+        user,
+        {},
+      );
+      expect(gallery.status).toBe(403);
+    });
+  });
+
   it("keeps the EVA plugin registry and its settings administrator-only even with broad plugin access", async () => {
     await withTestHarness({ authRequired: true }, async (harness) => {
       await seedIdentity(harness.db, { userId: "plugin-user", role: "user" });

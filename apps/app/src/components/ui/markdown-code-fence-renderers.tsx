@@ -322,6 +322,10 @@ const CodeFenceMount = memo(function CodeFenceMount({
         code={code}
         language={language}
         status={status}
+        // Older renderers (such as generated UI 0.1) read a boolean instead
+        // of the status; without it a block that fails to compile waits
+        // forever instead of showing its error.
+        {...{ complete: status === "closed" }}
         index={index}
         message={message}
         Original={CodeFenceOriginal}

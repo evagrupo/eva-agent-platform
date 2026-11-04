@@ -81,6 +81,7 @@ import type { ThreadTimelinePluginMessageAction } from "./types.js";
 import type { PromptDraftAttachment } from "@bb/client-core";
 import { buildMarkdownMessageLinkRouting } from "@/components/ui/markdown-message-link-routing";
 import { markStreamTrace } from "@/lib/stream-trace";
+import { splitAgentChatGeneratedUi } from "./eva-agent-chat-generated-ui";
 
 interface ConversationMessageContentBaseProps {
   actionMetadata?: ReactNode;
@@ -552,9 +553,19 @@ function AssistantConversationMessage({
       });
     }
   }, [id, streaming, text, threadId]);
+  // Agent chats keep the reply's text in the bubble and show its generated
+  // UI on its own below it, once the reply has finished.
+  const agentChatParts = useMemo(
+    () =>
+      agentChatTone === undefined ? null : splitAgentChatGeneratedUi(text),
+    [agentChatTone, text],
+  );
+  const bubbleText = agentChatParts === null ? text : agentChatParts.prose;
+  const generatedUi =
+    agentChatParts === null || streaming ? "" : agentChatParts.generatedUi;
   const { split: streamingSplit, liveMarkdown } = useMemo(
-    () => resolveStreamingMarkdown(text, streaming),
-    [streaming, text],
+    () => resolveStreamingMarkdown(bubbleText, streaming),
+    [streaming, bubbleText],
   );
   const linkRouting = useMemo(
     () =>
@@ -656,6 +667,18 @@ function AssistantConversationMessage({
     </>
   );
 
+  const generatedUiMarkdown =
+    generatedUi.length === 0 ? null : (
+      <MarkdownPreview
+        allowHtml
+        content={generatedUi}
+        incrementalBlocks
+        linkRouting={linkRouting}
+        messageDirectives={messageDirectives}
+        threadMentions={ASSISTANT_THREAD_MENTIONS}
+      />
+    );
+
   return (
     <div
       className={cn(
@@ -667,11 +690,13 @@ function AssistantConversationMessage({
     >
       <div
         className={
-          agentChatTone === "answer"
-            ? AGENT_CHAT_ANSWER_CLASS_NAME
-            : agentChatTone === "progress"
-              ? AGENT_CHAT_PROGRESS_CLASS_NAME
-              : "contents"
+          bubbleText.length === 0 && agentChatParts !== null
+            ? "hidden"
+            : agentChatTone === "answer"
+              ? AGENT_CHAT_ANSWER_CLASS_NAME
+              : agentChatTone === "progress"
+                ? AGENT_CHAT_PROGRESS_CLASS_NAME
+                : "contents"
         }
       >
         <SelectableMessageProse onSelect={onSelectProse}>
@@ -695,6 +720,21 @@ function AssistantConversationMessage({
           projectId={projectId}
         />
       </div>
+      {generatedUiMarkdown === null ? null : (
+        <div className="mt-2 w-full" data-agent-chat-generated-ui="">
+          {codeFenceRendererRegistry === null ? (
+            generatedUiMarkdown
+          ) : (
+            <CodeFenceRendererHost
+              registry={codeFenceRendererRegistry}
+              message={codeFenceMessage}
+              streaming={false}
+            >
+              {generatedUiMarkdown}
+            </CodeFenceRendererHost>
+          )}
+        </div>
+      )}
       {showActions ? (
         <MessageActionBar
           timestamp={timestamp}

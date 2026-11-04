@@ -2375,19 +2375,22 @@ describe("thread runtime config", () => {
           expect(config.dynamicTools.map((tool) => tool.name)).toContain(
             "check_ui",
           );
-          expect(config.instructions).toContain("UI grammar: Card and Text");
           expect(config.instructions).toContain(
             "Other integration instructions",
           );
           if (agentId === "meta") {
-            expect(config.instructions).toContain("# Friendly chat UI");
+            // Agent chats get the short simple-UI guide instead of the
+            // plugin's full grammar and developer guidance.
+            expect(config.instructions).toContain("# Simple chat UI");
             expect(config.instructions).toContain("side panel");
+            expect(config.instructions).not.toContain("UI grammar: Card and Text");
             expect(config.instructions).not.toContain("Developer-only");
             expect(config.instructions).not.toContain("Developer examples");
           } else {
+            expect(config.instructions).toContain("UI grammar: Card and Text");
             expect(config.instructions).toContain("Developer-only");
             expect(config.instructions).toContain("Developer examples");
-            expect(config.instructions).not.toContain("# Friendly chat UI");
+            expect(config.instructions).not.toContain("# Simple chat UI");
           }
         });
       },
