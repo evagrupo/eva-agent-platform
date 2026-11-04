@@ -21,6 +21,7 @@ import { TimelineReasoningExpansionProvider } from "./TimelineReasoningExpansion
 import { TimelineWorkingIndicator } from "./TimelineWorkingIndicator.js";
 import {
   EVA_AGENT_CHAT_WORKING_LABEL,
+  isEvaAgentChatTechnicalNotice,
   useEvaAgentChatTimeline,
 } from "./eva-agent-chat-timeline.js";
 import type {
@@ -198,8 +199,15 @@ export function ThreadTimelineSurface({
     showActiveThinking && activeThinking
       ? activeThinking.id
       : (ongoingIndicatorLabel ?? "working");
+  const visibleTimelineRows = useMemo(
+    () =>
+      isAgentChat
+        ? timelineRows.filter((row) => !isEvaAgentChatTechnicalNotice(row))
+        : timelineRows,
+    [isAgentChat, timelineRows],
+  );
   const timelineRowsWithPendingStop = useTimelineRowsWithPendingStop({
-    rows: timelineRows,
+    rows: visibleTimelineRows,
     isStopping,
     stoppingAnchorAt,
     threadId,

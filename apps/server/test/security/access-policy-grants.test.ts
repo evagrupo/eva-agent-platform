@@ -27,6 +27,7 @@ import {
   resolveEvaAgentExecutionDefaults,
   type CoreAuthContext,
   type CorePolicy,
+  policyAllowsAgent,
 } from "../../src/access-policy.js";
 import { createTestDb } from "../helpers/test-app.js";
 import { availableModelFixture } from "../helpers/available-models.js";
@@ -1077,5 +1078,38 @@ describe("agent-bound execution policy", () => {
     expect(
       reasoningLevelsAllowedByPolicyForAgent(policy, "creative", "p1", "m2"),
     ).toEqual(["high"]);
+  });
+});
+
+describe("grants outside the user's policy", () => {
+  it("are ignored instead of locking the account out", () => {
+    const policy: CorePolicy = {
+      ...defaultUserPolicy,
+      allowedAgentIds: ["crm"],
+    };
+    expect(policyAllowsAgent(policy, "crm")).toBe(true);
+    expect(policyAllowsAgent(policy, "meta")).toBe(false);
+    expect(policyAllowsAgent({ ...policy, allowedAgentIds: [] }, "meta")).toBe(
+      true,
+    );
+  });
+  it("keeps a user signed in with the grants their policy allows", () => {
+    const db = createTestDb();
+    insertUser(db, "mixed-user");
+    const grant = {
+      providerIds: ["p-fixed"],
+      modelPatterns: ["m-fixed"],
+      reasoningLevels: ["medium"],
+      fixedExecution: true,
+      permissionMode: "auto" as const,
+      toolIds: ["tool-fixed"],
+    };
+    insertGrant(db, { id: "ok", userId: "mixed-user", agentId: "people", ...grant });
+    insertGrant(db, { id: "outside", userId: "mixed-user", agentId: "meta", ...grant });
+    const resolved = resolveCorePolicy(db, "mixed-user");
+    expect(resolved).not.toBeNull();
+    expect(
+      resolved?.policy.agentExecutionTuples?.map((tuple) => tuple.agentId),
+    ).toEqual(["people"]);
   });
 });

@@ -34,6 +34,7 @@ import {
   type CoreStatus,
   resolveCorePolicy,
   terminalAccessSchema,
+  policyAllowsAgent,
 } from "./access-policy.js";
 import { permissionModeValues, reasoningLevelSchema } from "@bb/domain";
 import type { ProviderRegistryService } from "./services/providers/provider-registry.js";
@@ -833,6 +834,31 @@ function principalOrThrow(db: DbQueryConnection, userId: string) {
   return row;
 }
 
+/**
+ * A user grant only works for agents the user's policy admits; anything else
+ * would silently give no access. Reject it with a clear message instead.
+ */
+function assertAgentsAllowedForUser(
+  db: DbQueryConnection,
+  userId: string,
+  agentIds: readonly string[],
+): void {
+  const { principal } = userAndPrincipalOrThrow(db, userId);
+  const policy = ensurePolicy(
+    JSON.parse(
+      policyRowOrThrow(db, principal.policyId, principal.role).policyJson,
+    ),
+  );
+  if (principal.role === "admin") return;
+  for (const agentId of agentIds) {
+    if (!policyAllowsAgent(policy, agentId)) {
+      invalid(
+        `The "${principal.policyId}" policy doesn't allow the ${agentId} agent. Add it to the policy's agents first.`,
+      );
+    }
+  }
+}
+
 function userAndPrincipalOrThrow(db: DbQueryConnection, userId: string) {
   const user = db
     .select()
@@ -1272,6 +1298,7 @@ export function createAccessManagementService(args: {
         for (const agentId of uniqueAgentIds) {
           if (!agentIsRegistered(tx, agentId)) invalid("Agent is unknown");
         }
+        assertAgentsAllowedForUser(tx, input.userId, uniqueAgentIds);
         for (const grant of current) {
           if (!desired.has(grant.agentId) || keptByAgent.has(grant.agentId)) {
             tx.delete(authAgentGrants)
@@ -1665,8 +1692,10 @@ export function createAccessManagementService(args: {
       validateFixedGrant(input);
       const createdAt = Date.now();
       db.transaction((tx) => {
-        if (input.userId !== undefined)
+        if (input.userId !== undefined) {
           userAndPrincipalOrThrow(tx, input.userId);
+          assertAgentsAllowedForUser(tx, input.userId, [input.agentId]);
+        }
         if (
           input.groupId !== undefined &&
           tx
@@ -1731,6 +1760,11 @@ export function createAccessManagementService(args: {
         .get();
       if (current === undefined)
         throw new ApiError(404, "not_found", "Grant not found");
+      if (current.userId !== null) {
+        assertAgentsAllowedForUser(db, current.userId, [
+          input.agentId ?? current.agentId,
+        ]);
+      }
       const next = {
         agentId: input.agentId ?? current.agentId,
         providerIds:

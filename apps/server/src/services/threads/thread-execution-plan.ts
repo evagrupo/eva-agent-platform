@@ -1,4 +1,8 @@
 import {
+  isProviderModelSupported,
+  providerFallbackModel,
+} from "../providers/provider-model-rules.js";
+import {
   getAppSettings,
   getProjectExecutionDefaults,
   getQueuedThreadStartMessage,
@@ -349,11 +353,20 @@ export async function resolveExistingThreadExecutionPlan(
     parentThread !== null
       ? getLastExecutionOptions(deps, parentThread.id)
       : null;
+  // An explicitly requested model is validated as-is. Inherited models the
+  // provider no longer allows (e.g. a GPT model recorded on a Cursor thread)
+  // are skipped in favour of the provider's allowed fallback.
+  const inheritedModel = (candidate: string | undefined) =>
+    candidate !== undefined &&
+    isProviderModelSupported(thread.providerId, candidate)
+      ? candidate
+      : undefined;
   const model = resolveRequiredField<string>([
     args.input.model?.value,
-    thread.modelOverride ?? undefined,
-    lastExecution?.model,
-    projectExecution?.model,
+    inheritedModel(thread.modelOverride ?? undefined),
+    inheritedModel(lastExecution?.model),
+    inheritedModel(projectExecution?.model),
+    providerFallbackModel(thread.providerId),
   ]);
   if (!model) {
     throw createMissingThreadExecutionModelError(args.threadId);

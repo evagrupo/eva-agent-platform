@@ -856,6 +856,15 @@ function buildAgentExecutionTuple(
   return tuple;
 }
 
+/** Whether a policy's agent list admits an agent (empty or "*" admits all). */
+export function policyAllowsAgent(policy: CorePolicy, agentId: string): boolean {
+  return (
+    policy.allowedAgentIds.length === 0 ||
+    policy.allowedAgentIds.includes("*") ||
+    policy.allowedAgentIds.includes(agentId)
+  );
+}
+
 function applyAgentGrants(
   policy: CorePolicy,
   grants: readonly CoreAgentGrant[],
@@ -863,16 +872,16 @@ function applyAgentGrants(
   if (grants.length === 0) return policy;
   const agentExecutionTuples: CoreAgentExecutionTuple[] = [];
   for (const grant of grants) {
-    if (
-      policy.allowedAgentIds.length > 0 &&
-      !policy.allowedAgentIds.includes("*") &&
-      !policy.allowedAgentIds.includes(grant.agentId)
-    ) {
-      return null;
-    }
+    // A grant for an agent outside the user's policy grants nothing. It is
+    // ignored rather than locking the whole account out. A malformed grant
+    // (no usable execution tuple) still fails closed.
+    if (!policyAllowsAgent(policy, grant.agentId)) continue;
     const tuple = buildAgentExecutionTuple(policy, grant);
     if (tuple === null) return null;
     agentExecutionTuples.push(tuple);
+  }
+  if (agentExecutionTuples.length === 0) {
+    return { ...policy, allowedAgentIds: [], agentExecutionTuples: [] };
   }
   const maxPermissionMode = agentExecutionTuples.reduce(
     (current, tuple) => lowerPermissionMode(current, tuple.maxPermissionMode),

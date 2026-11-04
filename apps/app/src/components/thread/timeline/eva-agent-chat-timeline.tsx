@@ -45,3 +45,29 @@ export function findEvaAgentChatFinalAnswerIds(
   for (const id of lastByTurn.values()) answers.add(id);
   return answers;
 }
+
+const TECHNICAL_OPERATION_KINDS = new Set([
+  "warning",
+  "deprecation",
+  "provider-unhandled",
+  "thread-provisioning",
+]);
+
+/**
+ * Provider and runtime notices (configuration warnings, model resume notes,
+ * debug and reconnect lines) are hidden in agent chats for everyone, admins
+ * included. Errors stay visible. The Admin agent and other threads keep them.
+ */
+export function isEvaAgentChatTechnicalNotice(row: {
+  kind: string;
+  systemKind?: string;
+  operationKind?: string;
+}): boolean {
+  if (row.kind !== "system") return false;
+  if (row.systemKind === "debug" || row.systemKind === "reconnect") return true;
+  return (
+    row.systemKind === "operation" &&
+    row.operationKind !== undefined &&
+    TECHNICAL_OPERATION_KINDS.has(row.operationKind)
+  );
+}

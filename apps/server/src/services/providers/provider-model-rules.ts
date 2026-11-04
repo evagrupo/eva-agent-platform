@@ -18,3 +18,15 @@ export function isProviderModelSupported(
   const modelId = model.slice(model.lastIndexOf("/") + 1);
   return rule(modelId);
 }
+
+/**
+ * The model to use when a thread's inherited model is not allowed on its
+ * provider (for example older Cursor threads that recorded a GPT model).
+ */
+const PROVIDER_FALLBACK_MODELS: Readonly<Record<string, string>> = {
+  "acp-cursor": "grok-4.7",
+};
+
+export function providerFallbackModel(providerId: string): string | undefined {
+  return PROVIDER_FALLBACK_MODELS[providerId];
+}

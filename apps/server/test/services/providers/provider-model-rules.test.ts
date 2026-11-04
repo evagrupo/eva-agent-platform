@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isProviderModelSupported } from "../../../src/services/providers/provider-model-rules.js";
+import {
+  isProviderModelSupported,
+  providerFallbackModel,
+} from "../../../src/services/providers/provider-model-rules.js";
 
 describe("isProviderModelSupported", () => {
   it("allows only Composer and Grok models on Cursor", () => {
@@ -20,5 +23,14 @@ describe("isProviderModelSupported", () => {
   it("leaves other providers' models alone", () => {
     expect(isProviderModelSupported("codex", "gpt-6.1-terra")).toBe(true);
     expect(isProviderModelSupported("claude-code", "claude-opus-5")).toBe(true);
+  });
+});
+
+describe("providerFallbackModel", () => {
+  it("gives Cursor an allowed model when an inherited one is not allowed", () => {
+    const fallback = providerFallbackModel("acp-cursor");
+    expect(fallback).toBe("grok-4.7");
+    expect(isProviderModelSupported("acp-cursor", fallback!)).toBe(true);
+    expect(providerFallbackModel("codex")).toBeUndefined();
   });
 });
