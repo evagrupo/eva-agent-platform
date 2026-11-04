@@ -706,8 +706,16 @@ describe("EVA admin chat monitoring and per-user chat isolation", () => {
         .where(eq(authPolicies.id, "user"))
         .run();
       const user = await signIn(harness, "plugin-user");
+      // A regular user may load their own (filtered) agent list for the
+      // chat sidebar; it passes the administrator gate.
+      const agentList = await postJson(
+        harness,
+        "/api/v1/plugins/eva/rpc/agents_list",
+        user,
+        null,
+      );
+      expect(agentList.status).not.toBe(403);
       for (const [method, input] of [
-        ["agents_list", null],
         ["agents_get", { slug: "meta" }],
         ["agents_update", { slug: "meta", instructions: "Replace" }],
         [

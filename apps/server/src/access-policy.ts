@@ -2261,11 +2261,23 @@ export function isPluginAllowed(
   );
 }
 
+const CORE_SHELL_PLUGIN_IDS: ReadonlySet<string> = new Set([
+  "thread-list",
+  "navigation",
+  "bb--composer",
+  "eva",
+  "spanish-localization",
+]);
+
 export function isPluginAllowedByPolicy(
   policy: CorePolicy,
   pluginId: string,
 ): boolean {
-  if (pluginId === "thread-list") {
+  // The app shell's own plugins (sidebar navigation and thread list, the
+  // composer, the EVA chat list, and the language switcher) are part of the
+  // product for everyone who can read their chats. Their data stays guarded
+  // by the routes they call (e.g. EVA plugin RPCs are filtered per user).
+  if (CORE_SHELL_PLUGIN_IDS.has(pluginId)) {
     return (
       hasCoreCapability(policy, "threadOwnRead") ||
       hasCoreCapability(policy, "threadAllRead")

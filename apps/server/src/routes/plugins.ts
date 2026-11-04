@@ -231,6 +231,51 @@ function localAuthProblem(
   });
 }
 
+function isCurrentAdministrator(context: object): boolean {
+  const authContext = getCoreAuthContext(context);
+  return authContext === null || authContext.role === "admin";
+}
+
+/**
+ * The EVA agent list for a regular user: only agents their policy allows,
+ * with no thread ids, counts, activity, or instructions (those reveal other
+ * users' conversations or administrator content).
+ */
+export function toUserVisibleEvaAgentList(
+  context: object,
+  result: unknown,
+): unknown {
+  const authContext = getCoreAuthContext(context);
+  if (authContext === null || typeof result !== "object" || result === null) {
+    return result;
+  }
+  const list = result as { agents?: unknown; summary?: unknown };
+  const agents = Array.isArray(list.agents) ? list.agents : [];
+  return {
+    ...list,
+    agents: agents
+      .filter(
+        (agent): agent is Record<string, unknown> =>
+          typeof agent === "object" &&
+          agent !== null &&
+          typeof (agent as { slug?: unknown }).slug === "string" &&
+          isAgentAllowedByPolicy(
+            authContext.policy,
+            (agent as { slug: string }).slug,
+          ),
+      )
+      .map((agent) => ({
+        ...agent,
+        instructions: "",
+        skills: [],
+        threadIds: [],
+        threadCount: 0,
+        lastActivityAt: null,
+      })),
+    summary: { conversationsThisWeek: 0 },
+  };
+}
+
 function assertEvaPluginAdministrator(context: Context): void {
   const authContext = getCoreAuthContext(context);
   if (authContext !== null && authContext.role !== "admin") {
@@ -1271,7 +1316,11 @@ export function registerPluginRoutes(
     const id = context.req.param("id");
     const method = context.req.param("method");
     assertPluginRouteAccess(context);
-    if (id === "eva") assertEvaPluginAdministrator(context);
+    // Regular users may load their own agent list for the chat sidebar;
+    // every other EVA plugin call stays administrator-only.
+    const evaUserRead =
+      id === "eva" && method === "agents_list" && !isCurrentAdministrator(context);
+    if (id === "eva" && !evaUserRead) assertEvaPluginAdministrator(context);
     context.header("Cache-Control", "no-store");
     const problem = localAuthProblem(context, deps);
     if (problem) {
@@ -1362,6 +1411,11 @@ export function registerPluginRoutes(
         )[outcome.error.code],
       );
     }
-    return context.json({ ok: true, result: outcome.result });
+    return context.json({
+      ok: true,
+      result: evaUserRead
+        ? toUserVisibleEvaAgentList(context, outcome.result)
+        : outcome.result,
+    });
   });
 }
