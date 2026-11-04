@@ -7,7 +7,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import type { ThreadEvent } from "@bb/domain";
 import { createAgentRuntime } from "./runtime.js";
 import { createProviderForId } from "./provider-registry.js";
@@ -32,7 +40,11 @@ import {
   type ScriptedEchoLaunchScript,
 } from "./test/runtime-test-harness.js";
 import { promptTextInput } from "./test/prompt-input.js";
-import type { AgentRuntimeBridgeLaunch, AgentRuntimeOptions } from "./types.js";
+import type {
+  AgentRuntimeBridgeLaunch,
+  AgentRuntimeOptions,
+  AgentRuntimeProcessExitInfo,
+} from "./types.js";
 
 interface CreateProviderProcessManagerArgs {
   adapterProcessEnv?: Record<string, string>;
@@ -143,6 +155,7 @@ describe("createAgentRuntime process lifecycle", () => {
         identityRegistry.createProviderState({ providerId }),
       env: args.env,
       getNextRequestId: () => nextRequestId++,
+      handleDeferredEvents: () => {},
       handleStdoutLine: ({ line, providerProcess }) => {
         args.handleStdoutLine?.(line, providerProcess.child.pid);
         const parsed = parseJsonRpcLine(line);
@@ -349,6 +362,11 @@ describe("createAgentRuntime process lifecycle", () => {
     });
     expect(starts).toBe(2);
     const replacementProcess = manager.requireProviderProcess(MANAGER_PROVIDER);
+    onTestFinished(async () => {
+      await replacementProcess.stop();
+    });
+    const exited = vi.fn();
+    replacementProcess.child.once("exit", exited);
     const fullShutdown = manager.shutdown();
     const operations = Promise.all([
       retirement,
@@ -370,7 +388,7 @@ describe("createAgentRuntime process lifecycle", () => {
       undefined,
     ]);
     expect(completedPromptly).toBe(true);
-    expect(processIsAlive(replacementProcess.child.pid ?? 0)).toBe(false);
+    expect(exited).toHaveBeenCalledOnce();
     await manager.ensureProvider(MANAGER_PROVIDER);
     expect(manager.listRunningProviders()).toEqual([]);
   });
@@ -761,18 +779,20 @@ describe("createAgentRuntime process lifecycle", () => {
     env?: Record<string, string>;
   }) {
     const processLog = createScriptedEchoProcessLog();
+    const processExits: AgentRuntimeProcessExitInfo[] = [];
     const runtime = createScriptedEchoRuntime({
       runtime: {
         workspacePath: tmpDir,
         env: { ...processLog.env, ...args.env },
         onEvent: (event) => args.events.push(event),
+        onProcessExit: (info) => processExits.push(info),
       },
       launch: {
         pluginId: "provider-codex",
         scripted: { ...CODEX_SCRIPT, ...args.scripted },
       },
     });
-    return { processLog, runtime };
+    return { processLog, processExits, runtime };
   }
 
   it("runs every codex thread on one provider process", async () => {
@@ -1000,7 +1020,9 @@ describe("createAgentRuntime process lifecycle", () => {
 
   it("reaps an idle codex session and resumes it on a new process", async () => {
     const events: ThreadEvent[] = [];
-    const { processLog, runtime } = createCodexRuntime({ events });
+    const { processLog, processExits, runtime } = createCodexRuntime({
+      events,
+    });
     try {
       await runtime.startThread({
         environmentId: "env-1",
@@ -1033,7 +1055,7 @@ describe("createAgentRuntime process lifecycle", () => {
       });
       expect(belowThresholdResult.reapedSessions).toEqual([]);
       expect(runtime.hasThread("t1")).toBe(true);
-      expect(stoppedProcessPids(processLog.read())).toHaveLength(0);
+      expect(processExits).toHaveLength(0);
 
       const result = await runtime.reapIdleProviderSessions({
         idleForMs: 30 * 60 * 1000,
@@ -1053,6 +1075,9 @@ describe("createAgentRuntime process lifecycle", () => {
       expect(runtime.hasThread("t1")).toBe(false);
       expect(runtime.getProviderSession("t1")).toBeNull();
       expect(runtime.listRunningProviders()).toEqual([]);
+      expect(processExits).toEqual([
+        expect.objectContaining({ providerId: "codex", expected: true }),
+      ]);
 
       await runtime.resumeThread({
         environmentId: "env-1",
@@ -1079,7 +1104,7 @@ describe("createAgentRuntime process lifecycle", () => {
       expect(logLines.filter((line) => line.startsWith("spawn:"))).toHaveLength(
         2,
       );
-      expect(stoppedProcessPids(logLines)).toHaveLength(1);
+      expect(processExits).toHaveLength(1);
       expect(
         logLines.some(
           (line) =>

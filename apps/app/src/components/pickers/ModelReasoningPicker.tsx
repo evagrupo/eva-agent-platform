@@ -36,9 +36,11 @@ import { LIST_HOVER_TRANSITION } from "@bb/shared-ui/motion";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
   prefetchSystemExecutionOptions,
-  useSystemExecutionOptions,
+  useProviderPreviewExecutionOptions,
 } from "@/hooks/queries/system-queries";
 import { resolveModelCatalogSelection } from "@/hooks/thread-creation-options/model-catalog-selection";
+import { formatModelLabel as formatFallbackModelLabel } from "@/hooks/thread-creation-options/selection-state";
+import { reasoningLevelLabel } from "@/lib/reasoning-labels";
 import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
 import {
   OPTION_BASE_CLASS_NAME,
@@ -46,15 +48,17 @@ import {
   OPTION_MUTED_CLASS_NAME,
   OPTION_TRIGGER_CONTENT_CLASS_NAME,
 } from "@bb/shared-ui/option-display";
-import { type PickerOption } from "./OptionPicker";
+import type { PickerOption } from "./OptionPicker";
 import type { ModelPickerOption } from "./model-picker-option";
 import {
   MODEL_PICKER_MENU_WIDTH_CLASS_NAME,
   splitModelLabelTag,
 } from "./model-picker-menu";
 import { ModelReasoningMenu } from "./ModelReasoningMenuSplit";
-import { searchPickerOptions } from "./picker-search";
-import { useResetPickerScroll } from "./useResetPickerScroll";
+import { searchPickerOptions } from "@bb/shared-ui/picker-search";
+import {
+  useResetPickerScroll,
+} from "@bb/shared-ui/hooks/use-reset-picker-scroll";
 import { formatModelLoadErrorText } from "./model-load-error-message";
 import {
   useAppCommandContext,
@@ -79,6 +83,13 @@ import {
   nextCycleValue,
   previousCycleValue,
 } from "./modelPickerCycle";
+import type {
+  SessionOptionChoice,
+  SessionOptionMenuSection,
+} from "./SessionOptionsMenu";
+
+const NO_AGENT_SECTIONS: readonly SessionOptionMenuSection[] = [];
+function ignoreAgentOptionChange(): void {}
 
 interface ResolvedProviderPreview {
   providerId: string;
@@ -188,6 +199,8 @@ interface ModelReasoningPickerProps {
   serviceTierValue: ServiceTier | undefined;
   serviceTierOptions: readonly ProviderOptionDescriptor[];
   onServiceTierChange: (value: ServiceTier) => void;
+  agentSections?: readonly SessionOptionMenuSection[];
+  onAgentOptionChange?: (optionId: string, value: SessionOptionChoice) => void;
   commandShortcutsEnabled?: boolean;
   serviceTierSupportByProvider?: Record<string, boolean>;
   className?: string;
@@ -222,6 +235,8 @@ export function ModelReasoningPicker({
   serviceTierValue,
   serviceTierOptions,
   onServiceTierChange,
+  agentSections = NO_AGENT_SECTIONS,
+  onAgentOptionChange = ignoreAgentOptionChange,
   commandShortcutsEnabled = true,
   serviceTierSupportByProvider,
   className,
@@ -282,8 +297,13 @@ export function ModelReasoningPicker({
   );
   const ProviderIcon = selectedProvider?.icon;
   const selectedModelOption = modelOptions.find((m) => m.value === modelValue);
-  const selectedModelLabel = selectedModelOption?.label ?? modelValue;
+  const selectedModelLabel =
+    selectedModelOption?.label ??
+    (modelIsLoading
+      ? (formatModelLabel ?? formatFallbackModelLabel)(modelValue)
+      : modelValue);
   const hasSelectedModel = selectedModelLabel.trim().length > 0;
+  const showLoadingTrigger = modelIsLoading && !hasSelectedModel;
   const selectedProviderLabel = selectedProvider?.label ?? selectedProviderId;
   const selectedModelLoadErrorMatches =
     modelLoadError?.providerId === selectedProviderId;
@@ -294,35 +314,17 @@ export function ModelReasoningPicker({
     onSelectedProviderChange !== undefined &&
     providerOptions.length > 1;
   const queryClient = useQueryClient();
-  const prefetchRoutingEnvironmentId = providerRouting?.environmentId;
-  const prefetchRoutingHostId = providerRouting?.hostId;
-  const siblingIdsKey = providerOptions
-    .map((option) => option.value)
-    .filter((id) => id !== selectedProviderId)
-    .join("\0");
-  useEffect(() => {
-    if (!open || !canSwitchProviders || siblingIdsKey.length === 0) {
+  const prefetchProviderTab = (providerId: string) => {
+    if (providerId === selectedProviderId) {
       return;
     }
     prefetchSystemExecutionOptions(queryClient, {
-      routing: {
-        environmentId: prefetchRoutingEnvironmentId,
-        hostId: prefetchRoutingHostId,
-      },
-      providerIds: siblingIdsKey.split("\0"),
+      routing: providerRouting ?? {},
+      providerId,
       ...(agentId === undefined ? {} : { agentId }),
       ...(unassigned ? { unassigned: true } : {}),
     });
-  }, [
-    canSwitchProviders,
-    agentId,
-    unassigned,
-    open,
-    prefetchRoutingEnvironmentId,
-    prefetchRoutingHostId,
-    queryClient,
-    siblingIdsKey,
-  ]);
+  };
   const hasAlternateSelectionPath =
     modelOptions.length > 0 ||
     (selectedModelLoadErrorMatches && canSwitchProviders);
@@ -333,7 +335,7 @@ export function ModelReasoningPicker({
           providerLabel: selectedProviderLabel,
         })
       : "Could not load models.";
-  const triggerModelLabel = modelIsLoading
+  const triggerModelLabel = showLoadingTrigger
     ? "Loading models..."
     : hasSelectedModel
       ? stripModelBrandPrefix(selectedModelLabel, selectedProvider?.brandPrefix)
@@ -355,12 +357,13 @@ export function ModelReasoningPicker({
     (r) => r.value === reasoningValue,
   );
   const triggerReasoningLabel = hasSelectedModel
-    ? (selectedReasoningOption?.label ?? null)
+    ? (selectedReasoningOption?.label ??
+      (modelIsLoading ? reasoningLevelLabel(reasoningValue, undefined) : null))
     : null;
 
   const isPreviewing =
     previewProviderId !== null && previewProviderId !== selectedProviderId;
-  const previewQuery = useSystemExecutionOptions({
+  const previewQuery = useProviderPreviewExecutionOptions({
     enabled: isPreviewing,
     ...providerRouting,
     providerId: isPreviewing ? previewProviderId : undefined,
@@ -743,7 +746,9 @@ export function ModelReasoningPicker({
     MODEL_CYCLE_COMMANDS,
     (index, { target }) => {
       if (!ownsCycleChord(target)) return false;
-      const options = handoffMode ? activeModelOptions : modelOptions;
+      const options = (handoffMode ? activeModelOptions : modelOptions).filter(
+        (option) => option.disabled !== true,
+      );
       const value =
         handoffMode && isPreviewing
           ? (previewSelection?.selectedModel ?? "")
@@ -887,6 +892,7 @@ export function ModelReasoningPicker({
         if (!row) return;
         event.preventDefault();
         if (row.kind === "model") {
+          if (row.option.disabled === true) return;
           handleModelSelect(row.option.value);
         } else {
           toggleShowMoreModels();
@@ -904,7 +910,7 @@ export function ModelReasoningPicker({
 
   const TriggerIcon =
     hasSelectedModel || modelIsLoading ? ProviderIcon : undefined;
-  const triggerTitleModelLabel = modelIsLoading
+  const triggerTitleModelLabel = showLoadingTrigger
     ? "Loading models..."
     : selectedModelLoadFailed
       ? selectedModelLoadErrorText
@@ -942,7 +948,7 @@ export function ModelReasoningPicker({
       )}
     >
       <span className={OPTION_TRIGGER_CONTENT_CLASS_NAME} title={triggerTitle}>
-        {modelIsLoading ? (
+        {showLoadingTrigger ? (
           <>
             {TriggerIcon ? (
               <TriggerIcon className="size-4 shrink-0" />
@@ -967,13 +973,13 @@ export function ModelReasoningPicker({
           </>
         ) : selectedServiceTierOption ? (
           <Icon
-            name="Zap"
+            name={selectedServiceTierOption.icon ?? "Zap"}
             className="size-3.5 shrink-0 fill-current text-subtle-foreground"
           />
         ) : TriggerIcon ? (
           <TriggerIcon className="size-4 shrink-0" />
         ) : null}
-        {modelIsLoading ? null : (
+        {showLoadingTrigger ? null : (
           <>
             <span
               className={cn(
@@ -1069,6 +1075,8 @@ export function ModelReasoningPicker({
                       : provider.label
                   }
                   onMouseDown={(event) => event.preventDefault()}
+                  onPointerEnter={() => prefetchProviderTab(provider.value)}
+                  onFocus={() => prefetchProviderTab(provider.value)}
                   onClick={() => {
                     if (provider.value === activeProviderId) {
                       return;
@@ -1148,6 +1156,8 @@ export function ModelReasoningPicker({
           serviceTierOptions={activeServiceTierOptions}
           serviceTierValue={serviceTierValue}
           onServiceTierChange={onServiceTierChange}
+          agentSections={isPreviewing ? NO_AGENT_SECTIONS : agentSections}
+          onAgentOptionChange={onAgentOptionChange}
           onStartHandoff={
             handoff !== undefined && !handoffMode && providerOptions.length > 0
               ? startHandoffMode

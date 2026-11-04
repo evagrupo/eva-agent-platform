@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { SidebarBootstrapResponse } from "@bb/server-contract";
 import {
   buildProjectMentionSuggestions,
@@ -35,7 +35,8 @@ import { buildPromptMentionResults } from "./promptMentionCandidates";
 
 const PROMPT_MENTION_SOURCE_LIMIT = 8;
 
-interface UsePromptMentionsOptions {
+export interface PromptMentionSource {
+  projectId: string | undefined;
   currentThreadId?: string;
   threadStorageThreadId?: string;
   environmentId: string | null;
@@ -43,15 +44,15 @@ interface UsePromptMentionsOptions {
   agentId?: string | null;
 }
 
+interface PromptMentionQuery {
+  text: string;
+  trigger: PluginMentionTrigger;
+}
+
 interface UsePromptMentionsResult {
-  query: string | null;
-  triggers: readonly PluginMentionTrigger[];
-  setQuery: (
-    query: string | null,
-    trigger: PluginMentionTrigger | null,
-  ) => void;
   results: OrderedMentionSuggestions;
   isLoading: boolean;
+  isRefreshing: boolean;
   isError: boolean;
   /** True in EVA agent chats, where @ suggests only agents. */
   agentsOnly: boolean;
@@ -110,29 +111,21 @@ function buildPluginMentionTriggers(
   );
 }
 
-export function usePromptMentions(
-  projectId: string | undefined,
-  options: UsePromptMentionsOptions,
-): UsePromptMentionsResult {
-  const [activeMention, setActiveMention] = useState<{
-    query: string;
-    trigger: PluginMentionTrigger;
-  } | null>(null);
-  const setQuery = useCallback(
-    (query: string | null, trigger: PluginMentionTrigger | null) => {
-      if (query === null) {
-        setActiveMention(null);
-        return;
-      }
-      setActiveMention({
-        query,
-        trigger: trigger ?? DEFAULT_PLUGIN_MENTION_TRIGGER,
-      });
-    },
-    [],
+export function usePromptMentionTriggers(): readonly PluginMentionTrigger[] {
+  const mentionProviders = usePluginContributions().data?.mentionProviders;
+  return useMemo(
+    () => buildPluginMentionTriggers(mentionProviders ?? []),
+    [mentionProviders],
   );
-  const query = activeMention?.query ?? null;
-  const trigger = activeMention?.trigger ?? DEFAULT_PLUGIN_MENTION_TRIGGER;
+}
+
+export function usePromptMentions(
+  options: PromptMentionSource,
+  mention: PromptMentionQuery | null,
+): UsePromptMentionsResult {
+  const projectId = options.projectId;
+  const query = mention?.text ?? null;
+  const trigger = mention?.trigger ?? DEFAULT_PLUGIN_MENTION_TRIGGER;
   // A follow-up composer knows only its thread; read the thread's agent from
   // the (already cached) thread detail when no agent was passed in.
   const currentThreadQuery = useThread(options.currentThreadId ?? "", {
@@ -176,13 +169,6 @@ export function usePromptMentions(
       (provider) =>
         provider.pluginId === "bb-eva" && provider.triggers.includes(trigger),
     ) ?? false;
-  const mentionTriggers = useMemo(
-    () =>
-      buildPluginMentionTriggers(
-        pluginContributions.data?.mentionProviders ?? [],
-      ),
-    [pluginContributions.data?.mentionProviders],
-  );
   const debouncedQuery = useDebouncedValue(
     trimmedQuery,
     PATH_SUGGESTION_DEBOUNCE_MS,
@@ -321,39 +307,44 @@ export function usePromptMentions(
     ],
   );
 
-  const isLoading =
-    (hasQuery || (agentsOnly && query !== null)) &&
-    results.suggestions.length === 0 &&
-    ((includeBuiltInSources &&
+  // In agent chats a bare "@" already lists every agent.
+  const searchesAgents = hasQuery || (agentsOnly && query !== null);
+  const isSearching =
+    (includeBuiltInSources &&
       (pathSearch.isDebouncing ||
         pathSearch.isLoading ||
+        pathSearch.isRefreshing ||
+        projectNamesQuery.isLoading ||
+        projectNamesQuery.isFetching ||
         threadsQuery.isLoading ||
         threadsQuery.isFetching)) ||
-      (hasPluginMentionProviders &&
-        (!pluginSearchMatchesInput ||
-          pluginSearch.isLoading ||
-          pluginSearch.isFetching)) ||
-      (hasEvaAgentMentionProvider &&
-        (!pluginSearchMatchesInput ||
-          evaAgentSearch.isLoading ||
-          evaAgentSearch.isFetching)));
-  const isThreadError =
-    includeBuiltInSources &&
-    hasQuery &&
-    threadsQuery.isError &&
-    !threadsQuery.isLoading &&
-    !threadsQuery.isFetching;
+    (hasPluginMentionProviders &&
+      (!pluginSearchMatchesInput ||
+        pluginSearch.isLoading ||
+        pluginSearch.isFetching)) ||
+    (hasEvaAgentMentionProvider &&
+      (!pluginSearchMatchesInput ||
+        evaAgentSearch.isLoading ||
+        evaAgentSearch.isFetching));
+  const isLoading =
+    searchesAgents && results.suggestions.length === 0 && isSearching;
+  const isRefreshing =
+    searchesAgents && results.suggestions.length > 0 && isSearching;
   const isError =
-    (includeBuiltInSources && pathSearch.isError) ||
-    isThreadError ||
-    evaAgentSearch.isError;
+    searchesAgents &&
+    results.suggestions.length === 0 &&
+    !isSearching &&
+    ((includeBuiltInSources &&
+      (pathSearch.isError ||
+        threadsQuery.isError ||
+        projectNamesQuery.isError)) ||
+      (hasPluginMentionProviders && pluginSearch.isError) ||
+      (hasEvaAgentMentionProvider && evaAgentSearch.isError));
 
   return {
-    query,
-    triggers: mentionTriggers,
-    setQuery,
     results,
     isLoading,
+    isRefreshing,
     isError,
     agentsOnly,
   };

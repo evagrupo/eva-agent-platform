@@ -13,7 +13,8 @@ import {
   type Mock,
 } from "vitest";
 import type { PluginMessageDirectiveProps } from "@get-bb/plugin-sdk";
-import { useBbNavigate } from "@/lib/plugin-sdk-hooks";
+import { experimental_useAppPanel } from "@/lib/plugin-sdk-hooks";
+import { AppNavigationHostProvider } from "@/lib/app-navigation-host";
 import { MarkdownPreview } from "./markdown-preview";
 import {
   buildMessageDirectiveRegistry,
@@ -76,13 +77,17 @@ function WorkspaceFileVis(props: PluginMessageDirectiveProps) {
 }
 
 function ThreadPanelVis(_props: PluginMessageDirectiveProps) {
-  const navigate = useBbNavigate();
+  const panel = experimental_useAppPanel();
   return (
     <button
       type="button"
       onClick={() =>
-        navigate.openThreadPanel({
-          actionId: "document",
+        panel.openTab({
+          tab: {
+            id: "document",
+            context: { kind: "thread" },
+            availability: "action",
+          },
           title: "Plan",
           params: { path: "plan.md" },
         })
@@ -446,30 +451,43 @@ describe("MarkdownPreview message directives", () => {
   });
 
   it("hands null turn and project ids to the directive without substituting a value", () => {
+    const received: PluginMessageDirectiveProps["message"][] = [];
+    function MessageCaptureVis(props: PluginMessageDirectiveProps) {
+      received.push(props.message);
+      return null;
+    }
     const registry = buildMessageDirectiveRegistry([
-      slot({ id: "inline-vis", pluginId: "demo", component: InlineVis }),
+      slot({
+        id: "inline-vis",
+        pluginId: "demo",
+        component: MessageCaptureVis,
+      }),
     ]);
     render(
-      <MarkdownPreview
-        content={'::inline-vis{file="demo.html"}'}
-        messageDirectives={{
-          registry,
-          message: {
-            id: "msg_2",
-            threadId: "thr_2",
-            turnId: null,
-            projectId: null,
-          },
-          openWorkspaceFile: null,
-        }}
-      />,
+      <MemoryRouter>
+        <RouteNavigationProvider>
+          <MessageDirectiveRegistryProvider registry={registry}>
+            <ConversationMessageContent
+              role="assistant"
+              attachments={null}
+              id="msg_2"
+              threadId="thr_2"
+              turnId={null}
+              showActions={false}
+              text={'::inline-vis{file="demo.html"}'}
+              timestamp={0}
+            />
+          </MessageDirectiveRegistryProvider>
+        </RouteNavigationProvider>
+      </MemoryRouter>,
     );
-    expect(
-      screen.getByTestId("inline-vis").getAttribute("data-project-id"),
-    ).toBe("");
-    expect(screen.getByTestId("inline-vis").getAttribute("data-turn-id")).toBe(
-      "",
-    );
+
+    expect(received.at(-1)).toEqual({
+      id: "msg_2",
+      threadId: "thr_2",
+      turnId: null,
+      projectId: null,
+    });
   });
 
   it.each([false, true])(
@@ -627,7 +645,11 @@ describe("ConversationMessageContent assistant directives", () => {
   });
 
   it("scopes directive thread-panel actions to the registering plugin", () => {
-    const onOpenPluginPanel = vi.fn(() => true);
+    const panel = {
+      openTab: vi.fn(() => true),
+      toggleTab: vi.fn(() => true),
+      close: vi.fn(() => true),
+    };
     const registry = buildMessageDirectiveRegistry([
       slot({
         id: "inline-vis",
@@ -639,31 +661,32 @@ describe("ConversationMessageContent assistant directives", () => {
       <QueryClientProvider client={new QueryClient()}>
         <MemoryRouter>
           <RouteNavigationProvider>
-            <MessageDirectiveRegistryProvider registry={registry}>
-              <ConversationMessageContent
-                role="assistant"
-                attachments={null}
-                id="msg_a"
-                threadId="thr_a"
-                turnId="turn_a"
-                showActions={false}
-                text={'::inline-vis{file="plan.md"}'}
-                timestamp={0}
-                projectId="proj_a"
-                onOpenPluginPanel={onOpenPluginPanel}
-              />
-            </MessageDirectiveRegistryProvider>
+            <AppNavigationHostProvider capabilities={{ panel }}>
+              <MessageDirectiveRegistryProvider registry={registry}>
+                <ConversationMessageContent
+                  role="assistant"
+                  attachments={null}
+                  id="msg_a"
+                  threadId="thr_a"
+                  turnId="turn_a"
+                  showActions={false}
+                  text={'::inline-vis{file="plan.md"}'}
+                  timestamp={0}
+                  projectId="proj_a"
+                />
+              </MessageDirectiveRegistryProvider>
+            </AppNavigationHostProvider>
           </RouteNavigationProvider>
         </MemoryRouter>
       </QueryClientProvider>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Open thread panel" }));
-    expect(onOpenPluginPanel).toHaveBeenCalledWith({
-      pluginId: "demo",
-      actionId: "document",
-      title: "Plan",
+    expect(panel.openTab).toHaveBeenCalledWith({
+      tab: { ownerId: "plugin-thread:demo", tabId: "document" },
+      availability: "action",
       params: { path: "plan.md" },
+      title: "Plan",
     });
   });
 

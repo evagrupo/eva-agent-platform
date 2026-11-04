@@ -2122,16 +2122,7 @@ export default definePluginApp((app) => {
     title: "Agents",
     icon: "Network",
     component: AgentsHome,
-    fixedTabs: [
-      {
-        panelId: "agents",
-        id: "agent-navigation",
-        title: "Agents",
-        icon: "Network",
-        component: AgentNavigation,
-        layout: "padded",
-      },
-    ],
+    experimental_sidebar: AgentNavigation,
   });
   app.slots.experimental_threadList({
     id: "eva-agent-threads",

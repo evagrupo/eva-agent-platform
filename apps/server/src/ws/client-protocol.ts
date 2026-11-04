@@ -1,8 +1,11 @@
-import { clientMessageSchema, type PongMessage } from "@bb/domain";
+import {
+  clientMessageSchema,
+  realtimeSubscriptionTargetKey,
+  type PongMessage,
+} from "@bb/domain";
 import type { DbConnection } from "@bb/db";
 import { parseSocketMessage } from "./decode-payload.js";
 import type { ClientRealtimeAccess, NotificationHub } from "./hub.js";
-import type { WatchInterestCoordinator } from "./watch-interests.js";
 import {
   canAccessRealtimeTarget,
   type CoreAuthContext,
@@ -17,6 +20,12 @@ interface ClientSocket {
   send(data: string): void;
 }
 
+/** EVA access checks applied to realtime subscriptions. */
+export interface ClientSocketAccessDeps {
+  db?: DbConnection;
+  coreAuth?: Pick<CoreAuthService, "resolveSessionId">;
+}
+
 export function onClientSocketOpen(
   hub: NotificationHub,
   socket: ClientSocket,
@@ -28,21 +37,14 @@ export function onClientSocketOpen(
 }
 
 export function onClientSocketMessage(
-  deps: {
-    db?: DbConnection;
-    hub: NotificationHub;
-    coreAuth?: CoreAuthService;
-    watchInterests: Pick<
-      WatchInterestCoordinator,
-      "subscribe" | "unsubscribe" | "releaseSocket"
-    >;
-  },
+  hub: NotificationHub,
   socket: ClientSocket,
   raw: unknown,
+  accessDeps: ClientSocketAccessDeps = {},
 ): void {
   let authContext = clientAuthContexts.get(socket) ?? null;
-  if (authContext !== null && deps.coreAuth !== undefined) {
-    authContext = deps.coreAuth.resolveSessionId(authContext.sessionId);
+  if (authContext !== null && accessDeps.coreAuth !== undefined) {
+    authContext = accessDeps.coreAuth.resolveSessionId(authContext.sessionId);
     if (authContext === null) {
       socket.close(4401, "Unauthorized");
       return;
@@ -55,23 +57,42 @@ export function onClientSocketMessage(
   }
 
   switch (parsed.type) {
-    case "subscribe":
+    case "subscribe": {
+      const targets =
+        parsed.targets ?? (parsed.target ? [parsed.target] : []);
+      const db = accessDeps.db;
       if (
-        deps.db !== undefined &&
-        !canAccessRealtimeTarget(deps.db, authContext, parsed.target)
+        db !== undefined &&
+        targets.some(
+          (target) => !canAccessRealtimeTarget(db, authContext, target),
+        )
       ) {
         socket.close(4403, "Forbidden");
         return;
       }
-      deps.hub.subscribe(socket, parsed.target);
-      deps.watchInterests.subscribe(socket, parsed.target);
+      for (const target of targets) {
+        hub.subscribe(
+          socket,
+          target,
+          parsed.timelineTags === undefined
+            ? undefined
+            : (parsed.timelineTags[realtimeSubscriptionTargetKey(target)] ??
+                null),
+        );
+      }
       break;
+    }
     case "unsubscribe":
-      deps.hub.unsubscribe(socket, parsed.target);
-      deps.watchInterests.unsubscribe(socket, parsed.target);
+      for (const target of parsed.targets ??
+        (parsed.target ? [parsed.target] : [])) {
+        hub.unsubscribe(socket, target);
+      }
       break;
     case "ping":
       socket.send(JSON.stringify(PONG_MESSAGE));
+      break;
+    case "visibility":
+      hub.setClientVisible(socket, parsed.visible);
       break;
     default: {
       const _exhaustive: never = parsed;
@@ -81,13 +102,9 @@ export function onClientSocketMessage(
 }
 
 export function onClientSocketClose(
-  deps: {
-    hub: NotificationHub;
-    watchInterests: Pick<WatchInterestCoordinator, "releaseSocket">;
-  },
+  hub: NotificationHub,
   socket: ClientSocket,
 ): void {
   clientAuthContexts.delete(socket);
-  deps.watchInterests.releaseSocket(socket);
-  deps.hub.unregisterClient(socket);
+  hub.unregisterClient(socket);
 }

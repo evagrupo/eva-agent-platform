@@ -20,8 +20,16 @@ import {
   toEvaUserFacingTimelineRows,
 } from "../../src/services/threads/eva-user-facing-timeline.js";
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
-import { turnScope } from "@bb/domain";
-import { seedEvent, seedTurnStarted } from "../helpers/seed.js";
+import { turnScope, type ThreadTimelineSubscriptionTarget } from "@bb/domain";
+import { eq } from "drizzle-orm";
+import { threads } from "@bb/db";
+import { ensureEvaAgentRegistry } from "../../src/agents/eva-agent-registry.js";
+import { createMockHubSocket } from "../helpers/mock-hub-socket.js";
+import {
+  seedEvent,
+  seedThreadFixture,
+  seedTurnStarted,
+} from "../helpers/seed.js";
 
 async function seedIdentity(
   db: DbConnection,
@@ -466,6 +474,85 @@ describe("EVA user-facing chat timeline", () => {
         role: "assistant",
         text: "Scheduled: Daily ads summary",
       });
+    });
+  });
+
+  it("pushes only the user-facing conversation to regular users over the live timeline", async () => {
+    await withTestHarness(async (harness) => {
+      ensureEvaAgentRegistry(harness.db);
+      const { environment, thread } = seedThreadFixture(harness);
+      harness.db
+        .update(threads)
+        .set({ agentId: "meta" })
+        .where(eq(threads.id, thread.id))
+        .run();
+      const turn = {
+        threadId: thread.id,
+        environmentId: environment.id,
+        providerThreadId: "p1",
+        scope: turnScope("turn-1"),
+      } as const;
+      seedEvent(harness.deps, {
+        ...turn,
+        sequence: 1,
+        type: "turn/started",
+        data: {},
+      });
+      const target: ThreadTimelineSubscriptionTarget = {
+        kind: "thread-timeline",
+        threadId: thread.id,
+        segmentLimit: null,
+        deferContent: false,
+      };
+      const access = (hides: boolean) => ({
+        canReadThread: () => true,
+        canUsePlugin: () => true,
+        hidesAgentWorkDetails: () => hides,
+      });
+      const userSocket = createMockHubSocket();
+      const adminSocket = createMockHubSocket();
+      harness.deps.hub.registerClient(userSocket, access(true));
+      harness.deps.hub.registerClient(adminSocket, access(false));
+      harness.deps.hub.subscribe(userSocket, target);
+      harness.deps.hub.subscribe(adminSocket, target);
+
+      seedEvent(harness.deps, {
+        ...turn,
+        sequence: 2,
+        type: "item/completed",
+        data: {
+          item: {
+            type: "commandExecution",
+            id: "cmd-1",
+            command: "cat /srv/private.txt",
+            cwd: "/srv",
+            status: "completed",
+            approvalStatus: null,
+          },
+        },
+      });
+      seedEvent(harness.deps, {
+        ...turn,
+        sequence: 3,
+        type: "item/completed",
+        data: {
+          item: { type: "agentMessage", id: "msg-1", text: "All set!" },
+        },
+      });
+      harness.deps.hub.notifyThread(thread.id, ["events-appended"]);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const pushed = (messages: readonly string[]) =>
+        messages
+          .map((message) => JSON.parse(message) as { type: string })
+          .filter((message) => message.type === "thread-timeline")
+          .map((message) => JSON.stringify(message))
+          .join("\n");
+      const userPushes = pushed(userSocket.messages);
+      const adminPushes = pushed(adminSocket.messages);
+      expect(userPushes).toContain("All set!");
+      expect(userPushes).not.toContain("/srv/private.txt");
+      expect(adminPushes).toContain("/srv/private.txt");
     });
   });
 });

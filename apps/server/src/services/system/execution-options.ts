@@ -19,9 +19,11 @@ import { getHostPermissionCeiling } from "../hosts/permission-ceiling.js";
 import {
   requireConnectedHostSession,
   requireEnvironment,
+  requireProject,
 } from "../lib/entity-lookup.js";
 import { expectedFallbackErrorLogFields } from "../lib/error-log-fields.js";
 import { isSuspendedHostUnavailableError } from "../lib/lifecycle-api-errors.js";
+import { projectCheckoutPathOnHost } from "../projects/project-workspace.js";
 import {
   createProviderListingBudget,
   type ProviderListingBudget,
@@ -354,6 +356,7 @@ function buildCustomModel(
     model: customModel.model,
     displayName: customModel.displayName ?? customModel.model,
     description: "Custom model from config.json",
+    reasoningDiscovery: "known",
     supportedReasoningEfforts: reasoningEffortsForLevels(
       getSupportedReasoningLevelsForProvider(registry, customModel.providerId),
     ),
@@ -417,7 +420,10 @@ export function resolveSystemExecutionOptions(
   return resolveExecutionOptions(
     deps,
     query,
-    { kind: "picker" },
+    {
+      kind: "picker",
+      selectedModel: query.selectedModel,
+    },
     options?.isPreferredProvider,
   );
 }
@@ -444,12 +450,17 @@ async function resolveExecutionOptions(
   } else {
     await deps.providerRegistry.whenProviderRegistered(query.providerId);
   }
-  const cwd =
-    query.environmentId === undefined
-      ? undefined
-      : (requireEnvironment(deps.db, query.environmentId).path ?? undefined);
+  if (query.projectId !== undefined) {
+    requireProject(deps.db, query.projectId);
+  }
   const { hostId, hostLookupError, providersPromise } =
     resolveSystemProviderInfosPlan(deps, query);
+  const cwd =
+    query.environmentId !== undefined
+      ? (requireEnvironment(deps.db, query.environmentId).path ?? undefined)
+      : query.projectId !== undefined && hostId !== null
+        ? projectCheckoutPathOnHost(deps, query.projectId, hostId)
+        : undefined;
   const configuredRequestedProvider = query.providerId
     ? includeRequestedRegisteredProvider(
         deps,

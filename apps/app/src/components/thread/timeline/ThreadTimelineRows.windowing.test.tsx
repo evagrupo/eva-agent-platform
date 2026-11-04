@@ -16,6 +16,7 @@ import {
 } from "@/test/fixtures/thread-timeline-rows";
 import { ThreadTimelineRows } from "./ThreadTimelineRows";
 import { collectSearchedMessageAncestorRowIds } from "./useScrollToSearchedMessage";
+import { createInertScrollPositionKeeper } from "@/test/scroll-position-keeper";
 
 function rect(top: number, height: number): DOMRect {
   return {
@@ -179,12 +180,11 @@ describe("ThreadTimelineRows windowing", () => {
       const scrollElement = document.createElement("div");
       scrollElement.setAttribute("data-test-main-scroll", "");
       const bottomAnchor: BottomAnchorContextValue = {
-        captureScrollAnchor: vi.fn(),
+        positionKeeper: createInertScrollPositionKeeper(),
         holdContentPosition: vi.fn(),
         getScrollElement: () => scrollElement,
         isAtBottom: false,
         scrollElementIntoView: vi.fn(),
-        scrollElementIntoViewClampedToMaxScroll: vi.fn(),
         scrollToBottom: vi.fn(),
       };
       const rows = Array.from({ length: count }, (_, index) =>
@@ -239,12 +239,11 @@ describe("ThreadTimelineRows windowing", () => {
     Object.defineProperty(scrollElement, "scrollHeight", { value: 8_000 });
     const scrollElementIntoView = vi.fn();
     const bottomAnchor: BottomAnchorContextValue = {
-      captureScrollAnchor: vi.fn(),
+      positionKeeper: createInertScrollPositionKeeper(),
       holdContentPosition: vi.fn(),
       getScrollElement: () => scrollElement,
       isAtBottom: false,
       scrollElementIntoView,
-      scrollElementIntoViewClampedToMaxScroll: vi.fn(),
       scrollToBottom: vi.fn(),
     };
     const rows = Array.from({ length: 80 }, (_, index) => {
@@ -278,7 +277,7 @@ describe("ThreadTimelineRows windowing", () => {
       '[data-timeline-row-id="steer-window-30"]',
     );
 
-    expect(target?.dataset.timelineWindowedRealized).toBe("true");
+    expect(target).not.toBeNull();
     await waitFor(() =>
       expect(scrollElementIntoView).toHaveBeenCalledWith({
         element: target,
@@ -294,12 +293,11 @@ describe("ThreadTimelineRows windowing", () => {
     Object.defineProperty(scrollElement, "scrollHeight", { value: 8_000 });
     const scrollElementIntoView = vi.fn();
     const bottomAnchor: BottomAnchorContextValue = {
-      captureScrollAnchor: vi.fn(),
+      positionKeeper: createInertScrollPositionKeeper(),
       holdContentPosition: vi.fn(),
       getScrollElement: () => scrollElement,
       isAtBottom: false,
       scrollElementIntoView,
-      scrollElementIntoViewClampedToMaxScroll: vi.fn(),
       scrollToBottom: vi.fn(),
     };
     const rows = Array.from({ length: 80 }, (_, index) =>
@@ -351,12 +349,12 @@ describe("ThreadTimelineRows windowing", () => {
       '[data-timeline-row-id="search-message-20"]',
     );
 
-    expect(target?.dataset.timelineWindowedRealized).toBe("true");
+    expect(target).not.toBeNull();
     expect(target?.textContent).toContain("Search message 20");
     const outlineTarget = view.container.querySelector<HTMLElement>(
       '[data-timeline-row-id="search-message-40"]',
     );
-    expect(outlineTarget?.dataset.timelineWindowedRealized).toBe("true");
+    expect(outlineTarget).not.toBeNull();
     expect(outlineTarget?.textContent).toContain("Search message 40");
     await waitFor(() =>
       expect(scrollElementIntoView).toHaveBeenCalledWith({

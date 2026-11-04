@@ -33,7 +33,9 @@ const productFiles = [
   "./lib/plugin-frontend.ts",
   "./views/EvaAdminDashboardView.tsx",
   "./views/EvaAgentsView.tsx",
-  "./components/sidebar/AppNavRail.tsx",
+  "./components/sidebar/SidebarNavigationModel.tsx",
+  "./components/sidebar/NavRailSettingsButton.tsx",
+  "./components/sidebar/SidebarChrome.tsx",
 ];
 
 describe("EVA product surface", () => {

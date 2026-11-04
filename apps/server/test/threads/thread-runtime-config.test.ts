@@ -22,7 +22,7 @@ import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 import { buildPluginProviderRegistration } from "../../src/services/providers/plugin-provider-registration.js";
 import type { DiscoveredSkill } from "@bb/host-daemon-contract";
 import { setPluginAgentContributions } from "../../src/services/plugins/plugin-agent-contributions.js";
-import { readSkillTreeManifest } from "../../src/services/skills/injected-skills.js";
+import { SkillTreeRegistry } from "../../src/services/skills/injected-skills.js";
 import type { PluginAgentToolContribution } from "../../src/services/plugins/plugin-service.js";
 import { defaultUserPolicy } from "../../src/access-policy.js";
 import {
@@ -959,7 +959,8 @@ describe("thread runtime config", () => {
           sourceType: "data-dir",
           name: "release-notes",
           description: "Use release-notes when server runtime tests run.",
-          treeHash: readSkillTreeManifest(sourceRootPath).treeHash,
+          treeHash: (await new SkillTreeRegistry().readTree(sourceRootPath))
+            .treeHash,
           entryPath: "SKILL.md",
         },
       ]);
@@ -1022,8 +1023,10 @@ describe("thread runtime config", () => {
 
       const claudeCode = await build("claude-code");
       expect(claudeCode.options.providerOptions).toEqual({
+        artifactsEnabled: false,
         chromeEnabled: false,
         disable1MContext: false,
+        fullAccessApprovalsEnabled: false,
         memoryEnabled: true,
         providerSubagentsEnabled: true,
         sandboxEnabled: true,
@@ -1553,6 +1556,8 @@ describe("thread runtime config", () => {
               description: "Review code from one shared source.",
               filePath: skillFilePath,
               rootKind: "shared-project",
+              realPath: skillFilePath,
+              contentSha256: "a".repeat(64),
               linked: false,
             },
           ],

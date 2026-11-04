@@ -1,6 +1,9 @@
 import { createPluginUpdateJobs } from "./services/plugins/plugin-update-jobs.js";
 import { registerPluginUpdateJobRoutes } from "./routes/plugin-update-jobs.js";
-import { recheckEnvironmentProvisioning } from "./services/threads/thread-environment-providers.js";
+import {
+  recheckEnvironmentProvisioning,
+  recheckEnvironmentProviderCreations,
+} from "./services/threads/thread-environment-providers.js";
 import {
   enrolledInstallerScript,
   enrolledWindowsInstallerScript,
@@ -14,7 +17,17 @@ import {
   INSTALL_MACHINE_SCRIPT_PATH,
   INSTALL_MACHINE_WINDOWS_SCRIPT_PATH,
 } from "./install-machine-asset.js";
+import { getExperiments } from "@bb/db";
 import { createNodeWebSocket } from "@hono/node-ws";
+import {
+  declineWebSocketCompression,
+  WEB_SOCKET_COMPRESSION,
+} from "./ws/compression.js";
+import { createGateKeyStore } from "./services/connect-next/gate-keys.js";
+import {
+  createTunnelIngressManager,
+  type TunnelIngressManager,
+} from "./services/connect-next/tunnel-ingress.js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
@@ -41,6 +54,7 @@ import {
   runWithCoreAuthRequest,
   type CoreCapability,
 } from "./access-policy.js";
+import { shouldHideEvaAgentWorkDetailsForAuth } from "./services/threads/eva-user-facing-timeline.js";
 import { registerEnvironmentRoutes } from "./routes/environments.js";
 import { registerAccessRoutes } from "./routes/access.js";
 import { registerEvaAgentRoutes } from "./routes/eva-agents.js";
@@ -86,7 +100,6 @@ import {
   setEnvironmentProvisioningRecheckHandler,
   setPluginEnvironmentProviderBridge,
 } from "./services/plugins/plugin-environment-provider-registry.js";
-import { recheckEnvironmentProviderCreations } from "./services/threads/thread-environment-providers.js";
 import {
   setServerAccessBridge,
   setServerAccessRecheckHandler,
@@ -97,6 +110,7 @@ import { requestQueuedMessageDispatch } from "./services/threads/queued-message-
 import { registerInternalEventRoutes } from "./internal/events.js";
 import { registerInternalHostRoutes } from "./internal/hosts.js";
 import { registerInternalInteractiveRequestRoutes } from "./internal/interactive-requests.js";
+import { hostArtifactFileResponse } from "./internal/host-artifact-response.js";
 import { registerInternalPluginHostArtifactRoutes } from "./internal/plugin-host-artifacts.js";
 import { registerInternalSessionRoutes } from "./internal/session.js";
 import { registerInternalSkillRoutes } from "./internal/skills.js";
@@ -110,6 +124,7 @@ import {
   resolveRequestAppSurface,
 } from "./request-context.js";
 import { runEventLoopWork } from "./services/system/event-loop-work.js";
+import { setTurnTelemetryDeps } from "./services/system/turn-telemetry.js";
 import { runWithTelemetryAppSurface } from "./services/system/telemetry.js";
 import {
   onClientSocketClose,
@@ -138,7 +153,7 @@ import {
   type PluginCatalogService,
 } from "./services/plugin-catalog/plugin-catalog-service.js";
 import { callHostRetryableOnlineRpcForWork } from "./services/hosts/online-rpc.js";
-import { requestMatchesEntityTag } from "./services/hosts/daemon-file-response.js";
+import { requestMatchesEntityTag } from "./services/files/entity-tag.js";
 import {
   allowedAppOrigins,
   browserRequestProblem,
@@ -190,6 +205,7 @@ interface ServerApp {
   pluginService: PluginService;
   pluginCatalogService: PluginCatalogService;
   serverMove: ServerMoveCoordinator;
+  tunnelIngress: TunnelIngressManager;
 }
 
 interface CloseWebSocketServerArgs {
@@ -315,6 +331,7 @@ interface CreateAppOptions {
   slowApiRequestLogThresholdMs?: number;
   performanceDiagnosticsEnabled?: () => boolean;
   staticDir?: string;
+  tunnelIngressNow?: () => number;
 }
 
 interface StaticResponseHeadersArgs {
@@ -633,6 +650,19 @@ export function createApp(
     app,
   });
   registerMiniAppGateway(app, miniAppService, upgradeWebSocket);
+  wss.options.perMessageDeflate = WEB_SOCKET_COMPRESSION;
+  const tunnelIngressNow = options?.tunnelIngressNow ?? Date.now;
+  const tunnelIngress = createTunnelIngressManager({
+    app,
+    injectWebSocket,
+    keys: createGateKeyStore({
+      url: () => deps.config.connectGateKeysUrl,
+      logger: deps.logger,
+      now: tunnelIngressNow,
+    }),
+    loopbackOrigin: () => `http://127.0.0.1:${deps.config.serverPort}`,
+    logger: deps.logger,
+  });
   const slowApiRequestLogThresholdMs =
     options?.slowApiRequestLogThresholdMs ?? SLOW_API_REQUEST_LOG_THRESHOLD_MS;
   const bbAppArtifactService =
@@ -657,6 +687,11 @@ export function createApp(
   const pendingServerMove = serverMoveOptions.pending;
   let ready = false;
 
+  app.use("*", async (context, next) => {
+    const signal = context.req.raw.signal;
+    await next();
+    if (signal.aborted) await context.res.body?.cancel(signal.reason);
+  });
   app.use("*", async (context, next) => {
     const problem = requestHostProblem(context, deps);
     if (problem !== null) {
@@ -886,10 +921,15 @@ export function createApp(
       if (context.req.header("if-none-match") === etag) {
         return new Response(null, { headers, status: 304 });
       }
-      const tarball = await readFile(artifact.path);
-      return new Response(tarball, {
-        headers: { ...headers, "content-length": String(artifact.size) },
+      const response = await hostArtifactFileResponse({
+        path: artifact.path,
+        byteLength: artifact.size,
+        headers,
       });
+      if (response === null) {
+        throw new Error(`Host package ${artifact.path} is missing or changed`);
+      }
+      return response;
     } catch (error) {
       const diagnosticId = randomUUID();
       const code =
@@ -994,6 +1034,7 @@ export function createApp(
         }),
       ),
     callPluginHost: (args) => callPluginHostRpc(deps, args),
+    openTunnelIngress: (audience) => tunnelIngress.open(audience),
     disposePluginHost: (args) => disposePluginHostWorkers(deps, args),
     onSettingsChanged: (pluginId) => {
       deps.providerNativeRoots.invalidate(pluginId);
@@ -1023,6 +1064,7 @@ export function createApp(
       threadId,
     });
   });
+  setTurnTelemetryDeps(deps);
   setPluginThreadEventEmitter(pluginService.events);
   // Bridge the dispatch pipeline to this service's hooks. Until this runs
   // there are no hooks, which is exactly the zero-overhead path.
@@ -1228,7 +1270,7 @@ export function createApp(
   registerHostRoutes(publicApi, appDeps, pluginService);
   registerDesktopBrowserRoutes(publicApi, appDeps);
   registerTerminalRoutes(publicApi, appDeps);
-  registerEnvironmentRoutes(publicApi, appDeps);
+  registerEnvironmentRoutes(publicApi, appDeps, pluginService);
   registerThreadRoutes(publicApi, appDeps);
   registerQueueRoutes(publicApi, appDeps);
   registerSystemRoutes(publicApi, appDeps, pluginService);
@@ -1308,6 +1350,9 @@ export function createApp(
       ) {
         throw new ApiError(401, "unauthorized", "Unauthorized");
       }
+      if (!getExperiments(deps.db).websocketCompression) {
+        declineWebSocketCompression(context);
+      }
       const realtimeAccess =
         authContext === null
           ? undefined
@@ -1337,13 +1382,24 @@ export function createApp(
                   ? canAccessRealtimeTarget(deps.db, current, target)
                   : false;
               },
+              hidesAgentWorkDetails: (thread: {
+                agentId?: string | null;
+              }): boolean =>
+                shouldHideEvaAgentWorkDetailsForAuth(
+                  coreAuth.resolveSessionId(authContext.sessionId) ??
+                    authContext,
+                  thread,
+                ),
             };
       return {
         onOpen: (_event, socket) =>
           onClientSocketOpen(deps.hub, socket, authContext, realtimeAccess),
         onMessage: (event, socket) =>
-          onClientSocketMessage({ ...deps, coreAuth }, socket, event.data),
-        onClose: (_event, socket) => onClientSocketClose(deps, socket),
+          onClientSocketMessage(deps.hub, socket, event.data, {
+            db: deps.db,
+            coreAuth,
+          }),
+        onClose: (_event, socket) => onClientSocketClose(deps.hub, socket),
       };
     }),
   );
@@ -1359,6 +1415,7 @@ export function createApp(
       ) {
         throw new ApiError(401, "unauthorized", "Unauthorized");
       }
+      declineWebSocketCompression(context);
       const terminalId = context.req.param("terminalId");
       const authorizeTerminal =
         authContext === null
@@ -1429,6 +1486,7 @@ export function createApp(
   app.get(
     "/internal/ws",
     upgradeWebSocket(async (context) => {
+      declineWebSocketCompression(context);
       const websocketContext = await validateDaemonWebSocket(deps, {
         authorizationHeader: context.req.header("authorization"),
         protocolHeader: context.req.header("sec-websocket-protocol"),
@@ -1479,5 +1537,6 @@ export function createApp(
     pluginCatalogService,
     serverMove,
     coreAuth,
+    tunnelIngress,
   };
 }

@@ -32,8 +32,8 @@ import { cn } from "@bb/shared-ui/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@bb/shared-ui/popover";
 import { appToast } from "@/components/ui/app-toast";
 import { PageShell } from "@/components/ui/page-shell.js";
-import { searchPickerOptions } from "@/components/pickers/picker-search";
-import { useResetPickerScroll } from "@/components/pickers/useResetPickerScroll";
+import { searchPickerOptions } from "@bb/shared-ui/picker-search";
+import { useResetPickerScroll } from "@bb/shared-ui/hooks/use-reset-picker-scroll";
 import {
   coreCapabilityNames,
   useCoreAuth,

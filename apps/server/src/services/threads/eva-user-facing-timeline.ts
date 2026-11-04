@@ -2,7 +2,10 @@ import type {
   ThreadTimelineResponse,
   TimelineRow,
 } from "@bb/server-contract";
-import { getCoreAuthContext } from "../../access-policy.js";
+import {
+  getCoreAuthContext,
+  type CoreAuthContext,
+} from "../../access-policy.js";
 
 /**
  * The Admin agent is EVA's development workspace. Its conversations keep the
@@ -24,11 +27,21 @@ const FRIENDLY_ERROR_TITLE =
  */
 export function shouldHideEvaAgentWorkDetails(
   context: object,
-  thread: { agentId: string | null },
+  thread: { agentId?: string | null },
 ): boolean {
-  if (thread.agentId === null) return false;
+  return shouldHideEvaAgentWorkDetailsForAuth(
+    getCoreAuthContext(context),
+    thread,
+  );
+}
+
+/** Same rule as {@link shouldHideEvaAgentWorkDetails} for a resolved session. */
+export function shouldHideEvaAgentWorkDetailsForAuth(
+  authContext: Pick<CoreAuthContext, "role"> | null,
+  thread: { agentId?: string | null },
+): boolean {
+  if (thread.agentId === null || thread.agentId === undefined) return false;
   if (thread.agentId === EVA_DEVELOPMENT_AGENT_ID) return false;
-  const authContext = getCoreAuthContext(context);
   return authContext !== null && authContext.role !== "admin";
 }
 
@@ -251,11 +264,13 @@ export function withNoReplyFallback(
   ];
 }
 
-export function toEvaUserFacingTimelineResponse(
-  response: ThreadTimelineResponse,
+export function toEvaUserFacingTimelineResponse<
+  T extends Omit<ThreadTimelineResponse, "tag">,
+>(
+  response: T,
   resolveAgentName: EvaAgentNameResolver = noAgentNames,
   threadStatus?: string,
-): ThreadTimelineResponse {
+): T {
   const { contextWindowUsage: _contextWindowUsage, ...rest } = response;
   const page = response.timelinePage;
   return {
@@ -283,7 +298,7 @@ export function toEvaUserFacingTimelineResponse(
               resolveAgentName,
             ),
           },
-  };
+  } as unknown as T;
 }
 
 const USER_FACING_EVENT_TYPES = new Set([

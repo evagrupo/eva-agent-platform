@@ -10,7 +10,9 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -20,7 +22,11 @@ import { toast } from "sonner";
 import { buildAgentThreadGroups } from "../model/agent-thread-groups.js";
 import { useEvaAgents } from "../model/eva-agents.js";
 import type { SidebarThread } from "../model/sidebar-thread.js";
-import { useBbNavigate, useSdk } from "@get-bb/plugin-sdk/app";
+import {
+  experimental_useProviders,
+  useBbNavigate,
+  useSdk,
+} from "@get-bb/plugin-sdk/app";
 import {
   SidebarRenameProvider,
   useSidebarRename,
@@ -28,6 +34,7 @@ import {
 } from "../rows/SidebarInlineRename.js";
 import { useDialogState } from "@/components/ui/use-dialog-state";
 import { ThreadRowNavigationProvider } from "../rows/threadRowNavigation.js";
+import { SidebarProvidersContext } from "../rows/ThreadRow.js";
 import {
   buildProjectThreadGroups,
   getProjectThreadItemDescendants,
@@ -120,6 +127,7 @@ import { useSidebarModeSectionOrder } from "./useSidebarModeSectionOrder.js";
 import { useReadStatusGrouping } from "./useReadStatusGrouping.js";
 import { haveSameOrder } from "../model/stored-order.js";
 import {
+  SidebarProjectsContext,
   useSidebarData,
   useSidebarMachineHosts,
   type SidebarProject,
@@ -1638,6 +1646,7 @@ function ProjectListComponent({
 }: ProjectListProps) {
   const sdk = useSdk();
   const navigate = useBbNavigate();
+  const { providers } = experimental_useProviders();
   const { status, sections, projects, personalProject, archived } =
     useSidebarData();
   const personalProjectId = personalProject?.id ?? null;
@@ -1679,6 +1688,10 @@ function ProjectListComponent({
     },
     [sdk],
   );
+  const latestComposeTarget = useRef({ navigate, onProjectSelect });
+  useLayoutEffect(() => {
+    latestComposeTarget.current = { navigate, onProjectSelect };
+  });
   const openRootComposeForProject = useCallback(
     (
       projectId: string | null,
@@ -1687,8 +1700,9 @@ function ProjectListComponent({
       pinned = false,
       agentId?: string,
     ) => {
-      onProjectSelect?.();
-      navigate.toCompose({
+      const target = latestComposeTarget.current;
+      target.onProjectSelect?.();
+      target.navigate.toCompose({
         ...(projectId !== null ? { projectId } : {}),
         placement: { sectionId: sectionId ?? null, pinned },
         ...(hostId ? { hostId } : {}),
@@ -1696,7 +1710,7 @@ function ProjectListComponent({
         ...(agentId ? { experimental_agentId: agentId } : {}),
       });
     },
-    [navigate, onProjectSelect],
+    [],
   );
   const handleCreateProjectThread = useCallback(
     (projectId: string) => {
@@ -1907,14 +1921,11 @@ function ProjectListComponent({
   );
   const sortDirection = useAtomValue(sidebarSortDirectionAtom);
   const activeRename = useSidebarRenameState();
+  const sortRename = chronologicalSort === "alpha" ? activeRename : null;
   const baseThreadComparator = useMemo<ThreadComparator>(
     () =>
-      getSidebarThreadComparator(
-        chronologicalSort,
-        sortDirection,
-        activeRename,
-      ),
-    [chronologicalSort, sortDirection, activeRename],
+      getSidebarThreadComparator(chronologicalSort, sortDirection, sortRename),
+    [chronologicalSort, sortDirection, sortRename],
   );
   const {
     comparator: sidebarThreadComparator,
@@ -2058,7 +2069,7 @@ function ProjectListComponent({
     );
   }
 
-  return (
+  const content = (
     <SidebarHeaderActionsProvider
       value={{
         onNewSection: handleOpenCreateSectionDialog,
@@ -2217,6 +2228,13 @@ function ProjectListComponent({
       {sectionCreateDialog}
       {sectionDeleteDialogContent}
     </SidebarHeaderActionsProvider>
+  );
+  return (
+    <SidebarProjectsContext.Provider value={projects}>
+      <SidebarProvidersContext.Provider value={providers}>
+        {content}
+      </SidebarProvidersContext.Provider>
+    </SidebarProjectsContext.Provider>
   );
 }
 

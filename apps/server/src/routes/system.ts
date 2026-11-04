@@ -581,15 +581,23 @@ export function registerSystemRoutes(
         : undefined;
     const updatedSettings = appSettingsSchema.parse({
       ...settings,
+      idleProviderSessionTimeoutMinutes:
+        settings.idleProviderSessionTimeoutMinutes === undefined
+          ? current.idleProviderSessionTimeoutMinutes
+          : settings.idleProviderSessionTimeoutMinutes,
       allowFastServiceTier:
         settings.allowFastServiceTier ?? current.allowFastServiceTier,
       telemetryEnabled: settings.telemetryEnabled ?? current.telemetryEnabled,
-      showGitChanges: settings.showGitChanges ?? current.showGitChanges,
+      terminalCopyOnSelect:
+        settings.terminalCopyOnSelect ?? current.terminalCopyOnSelect,
       keepHistoryAfterContextClear:
         settings.keepHistoryAfterContextClear ??
         current.keepHistoryAfterContextClear,
+      summarizeShellCommands:
+        settings.summarizeShellCommands ?? current.summarizeShellCommands,
       confirmThreadArchive:
         settings.confirmThreadArchive ?? current.confirmThreadArchive,
+      earlyAdopter: settings.earlyAdopter ?? current.earlyAdopter,
       onboardingCompletedAt:
         settings.onboardingCompletedAt === undefined
           ? current.onboardingCompletedAt
@@ -610,6 +618,11 @@ export function registerSystemRoutes(
     return context.json(compatibleGeneralSettings());
   });
 
+  post(routes.recordTelemetryEvent, (context, payload) => {
+    deps.telemetry.capture(payload);
+    return context.json({ ok: true });
+  });
+
   put(routes.keyboardSettings, (context, payload) => {
     assertCoreCapability(context, "settings");
     requireAdministratorForMutation(context);
@@ -621,7 +634,7 @@ export function registerSystemRoutes(
   put(routes.experiments, (context, payload) => {
     assertCoreCapability(context, "settings");
     requireAdministratorForMutation(context);
-    setExperiments(deps.db, { ...getExperiments(deps.db), ...payload });
+    setExperiments(deps.db, payload);
     deps.hub.notifySystem(["config-changed"]);
     return context.json(getExperiments(deps.db));
   });
@@ -1101,6 +1114,32 @@ export function registerSystemRoutes(
       await deps.appUpdate.acknowledgeResult({ id: body.id }),
     );
   });
+
+  get(routes.cliCommand, async (context) =>
+    context.json(await deps.cliCommand.getStatus()),
+  );
+
+  post(routes.installCliCommand, async (context) => {
+    assertCliCommandChangeAllowed(context);
+    return context.json(await deps.cliCommand.install());
+  });
+
+  post(routes.removeCliCommand, async (context) => {
+    assertCliCommandChangeAllowed(context);
+    return context.json(await deps.cliCommand.remove());
+  });
+}
+
+function assertCliCommandChangeAllowed(
+  context: Parameters<typeof getGateAuthKind>[0],
+): void {
+  if (getGateAuthKind(context) === "machine") {
+    throw new ApiError(
+      403,
+      "forbidden",
+      "Machine credentials cannot change the bb command on the bb server's computer",
+    );
+  }
 }
 
 function assertAppUpdateAllowed(

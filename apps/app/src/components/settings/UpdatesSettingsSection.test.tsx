@@ -33,6 +33,8 @@ import {
   resetProviderCliInstallStoreForTests,
 } from "@/components/provider-cli/provider-cli-install-store";
 import { appToast } from "@/components/ui/app-toast";
+import { makePluginListItem } from "@/test/fixtures/plugins";
+import { buildUpdateInventoryPlugins } from "@/hooks/useUpdateInventory";
 import { sdk } from "@/lib/sdk";
 import { useDesktopUpdateInfo } from "@/hooks/useDesktopUpdateInfo";
 import {
@@ -86,7 +88,8 @@ vi.mock("@/lib/ws", () => ({
   wsManager: { subscribe: vi.fn(), unsubscribe: vi.fn() },
 }));
 
-vi.mock("@/hooks/useUpdateInventory", () => ({
+vi.mock("@/hooks/useUpdateInventory", async (original) => ({
+  ...(await original<typeof import("@/hooks/useUpdateInventory")>()),
   useUpdateInventory: vi.fn(),
 }));
 
@@ -121,6 +124,23 @@ vi.mock("@/hooks/mutations/host-mutations", () => ({
 }));
 
 const startInstallMock = vi.fn();
+
+const startPluginUpdateMock = vi.hoisted(() => vi.fn());
+const pluginUpdateJobs = vi.hoisted(() => ({
+  current: [] as import("@bb/server-contract").PluginUpdateJob[],
+}));
+
+vi.mock("@/hooks/queries/plugin-catalog-queries", () => ({
+  usePluginUpdateCheck: () => ({ isFetching: false }),
+}));
+
+vi.mock("@/hooks/queries/plugin-update-job-queries", async (original) => ({
+  ...(await original<
+    typeof import("@/hooks/queries/plugin-update-job-queries")
+  >()),
+  startPluginUpdate: startPluginUpdateMock,
+  usePluginUpdateJobs: () => ({ data: pluginUpdateJobs.current }),
+}));
 
 vi.mock("@/components/provider-cli/provider-cli-install", async (original) => {
   const actual =
@@ -274,6 +294,7 @@ function makeInventory(overrides: Partial<UpdateInventory>): UpdateInventory {
         isPrimary: true,
       }),
     ],
+    plugins: { trackedCount: 0, items: [] },
     pluginAttentionCount: 0,
     actionableCount: 0,
     hasAttention: false,
@@ -346,6 +367,7 @@ function useWebApp(): void {
 
 beforeEach(() => {
   hostDaemon.localDaemonHostId = null;
+  pluginUpdateJobs.current = [];
   vi.mocked(sdk.system.appUpdate).mockResolvedValue(
     makeAppUpdateStatus({
       available: null,
@@ -1555,7 +1577,7 @@ describe("UpdatesSettingsSection", () => {
     await waitFor(() => {
       expect(checkForUpdates).toHaveBeenCalledTimes(1);
     });
-    expect(sdk.system.version).not.toHaveBeenCalled();
+    expect(sdk.system.version).toHaveBeenCalledWith({ force: true });
   });
 
   it("explains an unknown desktop release and retries through the desktop bridge", async () => {
@@ -1724,6 +1746,202 @@ describe("UpdatesSettingsSection", () => {
     expect(startInstallMock).toHaveBeenNthCalledWith(2, {
       hostId: "host_2",
       issue: homelabIssue,
+    });
+  });
+
+  it("updates tracking plugins from the Plugins section and leaves blocked ones alone", async () => {
+    useWebApp();
+    startPluginUpdateMock.mockImplementation(async (pluginId: string) => ({
+      id: `job_${pluginId}`,
+      pluginId,
+      displayName: pluginId,
+      state: "queued",
+    }));
+    useUpdateInventoryMock.mockReturnValue(
+      makeInventory({
+        plugins: buildUpdateInventoryPlugins([
+          makePluginListItem({
+            id: "notes",
+            name: "Notes",
+            source: "npm:@acme/notes@^1.0.0",
+            version: "1.0.0",
+            updateState: {
+              outcome: "update-available",
+              availableVersion: "1.2.0",
+              availableLabel: "1.2.0",
+            },
+          }),
+          makePluginListItem({
+            id: "linear",
+            name: "Linear",
+            source: "git:github.com/acme/linear@^0.8.0",
+            version: "0.8.0",
+            updateState: {
+              outcome: "update-available",
+              availableVersion: "0.8.4",
+              availableLabel: "0.8.4",
+            },
+          }),
+          makePluginListItem({
+            id: "legacy",
+            name: "Legacy",
+            source: "npm:@acme/legacy@^2.0.0",
+            version: "2.0.0",
+            updateState: {
+              outcome: "incompatible",
+              blockedVersion: "3.0.0",
+              blockedLabel: "3.0.0",
+              blockedReasons: ["engines.bb requires >=9.0.0"],
+            },
+          }),
+        ]),
+      }),
+    );
+
+    renderSection();
+
+    const legacy = document.querySelector('[data-plugin-update-row="legacy"]');
+    expect(legacy?.textContent).toContain("3.0.0: engines.bb requires >=9.0.0");
+    expect(within(legacy as HTMLElement).queryByRole("button")).toBeNull();
+    expect(
+      within(legacy as HTMLElement)
+        .getByRole("link")
+        .getAttribute("href"),
+    ).toBe("/settings/plugins/legacy?view=installed");
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Update available · Update Notes to 1.2.0",
+      }),
+    );
+    expect(startPluginUpdateMock).toHaveBeenCalledTimes(1);
+    expect(startPluginUpdateMock).toHaveBeenLastCalledWith("notes");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Update all 2 plugins" }),
+    );
+    expect(startPluginUpdateMock.mock.calls.slice(1)).toEqual([
+      ["linear"],
+      ["notes"],
+    ]);
+  });
+
+  it("tracks plugin update jobs on their rows and counts through the batch", () => {
+    useWebApp();
+    const plugin = (id: string) =>
+      makePluginListItem({
+        id,
+        name: id,
+        source: `npm:@acme/${id}@^1.0.0`,
+        updateState: {
+          outcome: "update-available",
+          availableVersion: "1.1.0",
+          availableLabel: "1.1.0",
+        },
+      });
+    useUpdateInventoryMock.mockReturnValue(
+      makeInventory({
+        plugins: buildUpdateInventoryPlugins([
+          plugin("alpha"),
+          plugin("beta"),
+          plugin("gamma"),
+        ]),
+      }),
+    );
+    const job = (
+      pluginId: string,
+      state: "queued" | "running",
+    ): import("@bb/server-contract").PluginUpdateJob =>
+      state === "queued"
+        ? { id: `job_${pluginId}`, pluginId, displayName: pluginId, state }
+        : {
+            id: `job_${pluginId}`,
+            pluginId,
+            displayName: pluginId,
+            state,
+            phase: "preparing",
+          };
+    const queryClient = new QueryClient();
+    const tree = () => (
+      <MemoryRouter>
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <UpdatesSettingsSection />
+          </QueryClientProvider>
+        </TooltipProvider>
+      </MemoryRouter>
+    );
+    const section = () =>
+      document.querySelector('[data-updates-domain="plugins"]') as HTMLElement;
+    const progress = () =>
+      section().querySelector("[data-updates-progress]")?.textContent ?? null;
+    const rowState = (id: string) =>
+      section()
+        .querySelector(`[data-plugin-update-row="${id}"] [data-update-state]`)
+        ?.getAttribute("data-update-state") ?? null;
+
+    pluginUpdateJobs.current = [
+      job("alpha", "running"),
+      job("beta", "queued"),
+      job("gamma", "queued"),
+    ];
+    const view = render(tree());
+    expect(progress()).toBe("Updating 1 of 3");
+    expect(rowState("alpha")).toBe("in-progress");
+    expect(rowState("gamma")).toBe("in-progress");
+    expect(
+      within(section()).queryByRole("button", { name: /Update all/u }),
+    ).toBeNull();
+
+    pluginUpdateJobs.current = [job("gamma", "running")];
+    view.rerender(tree());
+    expect(progress()).toBe("Updating 3 of 3");
+    expect(rowState("alpha")).toBeNull();
+    expect(
+      within(section()).getByRole("button", {
+        name: "Update available · Update alpha to 1.1.0",
+      }),
+    ).toBeDefined();
+
+    pluginUpdateJobs.current = [];
+    view.rerender(tree());
+    expect(progress()).toBeNull();
+    expect(
+      within(section()).getByRole("button", { name: "Update all 3 plugins" }),
+    ).toBeDefined();
+  });
+
+  it("toasts a plugin update the server refuses to start", async () => {
+    useWebApp();
+    startPluginUpdateMock.mockRejectedValue(
+      new Error("server move in progress"),
+    );
+    useUpdateInventoryMock.mockReturnValue(
+      makeInventory({
+        plugins: buildUpdateInventoryPlugins([
+          makePluginListItem({
+            id: "notes",
+            name: "Notes",
+            source: "npm:@acme/notes@^1.0.0",
+            updateState: {
+              outcome: "update-available",
+              availableVersion: "1.2.0",
+              availableLabel: "1.2.0",
+            },
+          }),
+        ]),
+      }),
+    );
+
+    renderSection();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Update all 1 plugin" }),
+    );
+
+    await waitFor(() => {
+      expect(appToast.error).toHaveBeenCalledWith("Plugin update failed", {
+        description: "Notes — server move in progress",
+      });
     });
   });
 
@@ -2161,7 +2379,10 @@ describe("UpdatesSettingsSection", () => {
     },
   );
 
-  function useDesktopApp(): { checkForUpdates: ReturnType<typeof vi.fn> } {
+  function useDesktopApp(): {
+    checkForUpdates: ReturnType<typeof vi.fn>;
+    installUpdate: ReturnType<typeof vi.fn>;
+  } {
     const desktopInfo: BbDesktopInfo = {
       downloadState: "idle",
       lastCheckedAt: null,
@@ -2173,15 +2394,16 @@ describe("UpdatesSettingsSection", () => {
       version: "0.0.5",
     };
     const checkForUpdates = vi.fn().mockResolvedValue(desktopInfo);
+    const installUpdate = vi.fn();
     useDesktopUpdateInfoMock.mockReturnValue({
       desktopApi: {
         checkForUpdates,
-        installUpdate: vi.fn(),
+        installUpdate,
       } as unknown as BbDesktopApi,
       desktopInfo,
       isDesktop: true,
     });
-    return { checkForUpdates };
+    return { checkForUpdates, installUpdate };
   }
 
   function desktopFleet(): UpdateInventory {
@@ -2278,7 +2500,7 @@ describe("UpdatesSettingsSection", () => {
     expect(installUpdate).toHaveBeenCalledOnce();
   });
 
-  it("keeps one desktop row when the desktop runs the server itself", async () => {
+  it("uses the Server label when the desktop runs the server itself", async () => {
     useDesktopApp();
     hostDaemon.localDaemonHostId = "host_primary";
     useUpdateInventoryMock.mockReturnValue(desktopFleet());
@@ -2291,8 +2513,8 @@ describe("UpdatesSettingsSection", () => {
     renderSection();
 
     await waitFor(() => expect(sdk.system.appUpdate).toHaveBeenCalled());
-    expect(screen.getByText("Desktop")).toBeDefined();
-    expect(screen.queryByText("Server")).toBeNull();
+    expect(screen.getByText("Server")).toBeDefined();
+    expect(screen.queryByText("Desktop")).toBeNull();
     expect(
       document.querySelectorAll('[data-bb-update-role="app"]'),
     ).toHaveLength(1);
@@ -2302,4 +2524,74 @@ describe("UpdatesSettingsSection", () => {
       }),
     ).toBeNull();
   });
+
+  it.each(["host_laptop", null])(
+    "shows a desktop-hosted server's own version when the viewing host is %s",
+    async (localHostId) => {
+      const { checkForUpdates } = useDesktopApp();
+      hostDaemon.localDaemonHostId = localHostId;
+      const inventory = desktopFleet();
+      const serverVersion = {
+        ...inventory.systemVersion!,
+        currentVersion: "0.0.4",
+        installKind: "desktop" as const,
+        updateAvailable: true,
+      };
+      useUpdateInventoryMock.mockReturnValue(
+        makeInventory({ ...inventory, systemVersion: serverVersion }),
+      );
+      vi.mocked(sdk.system.version).mockResolvedValue(serverVersion);
+      vi.mocked(sdk.system.appUpdate).mockResolvedValue(
+        makeAppUpdateStatus({
+          current: { commit: null, version: "0.0.4" },
+          support: { kind: "unsupported", reason: "desktop" },
+        }),
+      );
+
+      renderSection();
+
+      const bbCard = screen.getByRole("region", { name: "EVA" });
+      await waitFor(() => expect(checkForUpdates).toHaveBeenCalledOnce());
+      expect(within(bbCard).getByText("Server")).toBeDefined();
+      expect(within(bbCard).getByText("0.0.4")).toBeDefined();
+      expect(within(bbCard).queryByText("Desktop")).toBeNull();
+      expect(
+        within(bbCard).queryByText(/Update bb in the desktop app on/),
+      ).toBeNull();
+      expect(
+        within(bbCard).queryByRole("button", {
+          name: /Copy the upgrade command|Relaunch bb|Download the update/,
+        }),
+      ).toBeNull();
+      expect(sdk.system.version).toHaveBeenCalledWith({ force: true });
+    },
+  );
+  it.each(["host_primary", "host_laptop", null])(
+    "uses the shared server update action for a desktop-hosted server viewed from %s",
+    async (localHostId) => {
+      const { installUpdate } = useDesktopApp();
+      hostDaemon.localDaemonHostId = localHostId;
+      useUpdateInventoryMock.mockReturnValue(desktopFleet());
+      const status = makeAppUpdateStatus({
+        support: { kind: "unsupported", reason: "desktop" },
+        desktopUpdateSupported: true,
+      });
+      vi.mocked(sdk.system.appUpdate).mockResolvedValue(status);
+      vi.mocked(sdk.system.applyAppUpdate).mockResolvedValue(status);
+      renderSection();
+      const update = await screen.findByRole("button", {
+        name: "Update available · Download the update and restart EVA",
+      });
+      expect(screen.getByText("Server")).toBeDefined();
+      expect(screen.queryByText("Desktop")).toBeNull();
+      expect(screen.queryByText(/Update bb in the desktop app on/)).toBeNull();
+      fireEvent.click(update);
+      await waitFor(() =>
+        expect(sdk.system.applyAppUpdate).toHaveBeenCalledWith({
+          confirmInterruptingThreads: false,
+        }),
+      );
+      expect(installUpdate).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -1,4 +1,8 @@
 import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import {
+  isEnvironmentScopedPlugin,
+  pluginRpcEnvironmentIds,
+} from "./services/plugins/plugin-environment-access.js";
 import { isProviderModelSupported } from "./services/providers/provider-model-rules.js";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -2674,9 +2678,30 @@ export function canAccessRealtimeTarget(
   target: RealtimeSubscriptionTarget,
 ): boolean {
   if (authContext === null) return true;
-  if (target.kind === "thread-detail") {
+  if (target.kind === "thread-detail" || target.kind === "thread-timeline") {
     const thread = getThread(db, target.threadId);
     return thread !== null && canReadThread(db, authContext, thread);
+  }
+  if (target.kind === "plugin" || target.kind === "plugin-read") {
+    if (
+      target.kind === "plugin-read" &&
+      isEnvironmentScopedPlugin(target.pluginId) &&
+      !pluginRpcEnvironmentIds(
+        "input" in target.read ? target.read.input : { key: target.read.key },
+      ).every((environmentId) =>
+        canAccessResource(db, authContext, "environment", environmentId, "read"),
+      )
+    ) {
+      return false;
+    }
+    return authContext.agentCliScope !== undefined
+      ? isPluginAllowedByPolicyForAgent(
+          authContext.policy,
+          authContext.agentCliScope.agentId,
+          target.pluginId,
+          knownAgentIdsForAuthContext(authContext),
+        )
+      : isPluginAllowedByPolicy(authContext.policy, target.pluginId);
   }
   if (target.kind === "thread-list") {
     return (

@@ -11,7 +11,7 @@ import type { Hono } from "hono";
 import { and, eq, gt } from "drizzle-orm";
 import {
   permissionModeValues,
-  reasoningLevelSchema,
+  reasoningLevelValues,
   type PromptInput,
 } from "@bb/domain";
 import { PERSONAL_PROJECT_ID } from "@bb/domain";
@@ -74,7 +74,7 @@ const createAgentSchema = z
     instructions: z.string().trim().min(1).max(16_384),
     providerId: z.string().trim().min(1).max(128).optional(),
     model: z.string().trim().min(1).max(256).optional(),
-    reasoningLevel: reasoningLevelSchema.optional(),
+    reasoningLevel: z.enum(reasoningLevelValues).optional(),
     permissionMode: z.enum(permissionModeValues).optional(),
   })
   .strict();
@@ -86,7 +86,7 @@ const updateAgentSchema = z
     instructions: z.string().trim().min(1).max(16_384).optional(),
     providerId: z.string().trim().min(1).max(128).nullable().optional(),
     model: z.string().trim().min(1).max(256).optional(),
-    reasoningLevel: reasoningLevelSchema.optional(),
+    reasoningLevel: z.enum(reasoningLevelValues).optional(),
     permissionMode: z.enum(permissionModeValues).optional(),
     skills: z
       .array(evaAgentSkillInputSchema)
@@ -329,6 +329,7 @@ export function registerEvaAgentRoutes(app: Hono, deps: AppDeps): void {
           type: "host.read_file",
           path: joinHostPathSegments(rootPath, name),
           rootPath: target.storagePath,
+          followRootSymlink: false,
         },
       }).catch(remapDaemonFileRouteError),
     );

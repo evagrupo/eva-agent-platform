@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
+import type { PromptMentionLinkResolver } from "@bb/client-core";
 import { ThreadTimelineRows } from "@/components/thread/timeline/ThreadTimelineRows";
 import type { ThreadTimelineLinkHandler } from "@/components/thread/timeline/types";
 import { useImmediateRouteNavigate } from "@/components/ui/app-route-anchor";

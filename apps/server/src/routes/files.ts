@@ -152,6 +152,7 @@ async function serveRootedFile(
     timeoutMs: COMMAND_TIMEOUT_MS,
     command: {
       type: "host.read_file",
+      followRootSymlink: false,
       path: filePath,
       rootPath: root.rootPath,
       ref: root.ref,
@@ -216,28 +217,16 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
     });
   }
 
-  const runHostFileMutation = async <T>(
-    hostId: string,
-    run: () => Promise<T>,
-  ): Promise<T> => {
-    try {
-      return await run();
-    } finally {
-      deps.workspaceReadCaches.invalidateHost(hostId);
-    }
-  };
 
   const runHostFileMutationCommand = <TCommand extends HostDaemonRpcCommand>(
     hostId: string,
     command: TCommand,
   ) =>
-    runHostFileMutation(hostId, () =>
-      callHostOnlineRpcForWork(deps, {
-        hostId,
-        timeoutMs: COMMAND_TIMEOUT_MS,
-        command,
-      }),
-    );
+    callHostOnlineRpcForWork(deps, {
+      hostId,
+      timeoutMs: COMMAND_TIMEOUT_MS,
+      command,
+    });
 
   const withHostFileRoute = async <T>(
     context: { req: { path: string; raw: Request } },
@@ -270,10 +259,12 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
         timeoutMs: COMMAND_TIMEOUT_MS,
         command: {
           type: "host.read_file",
+          followRootSymlink: false,
           path: payload.path,
           ...(payload.rootPath !== undefined
             ? { rootPath: payload.rootPath }
             : {}),
+          ...(payload.ref !== undefined ? { ref: payload.ref } : {}),
         },
       });
       return context.json(requireDaemonFileContentResult(result));
@@ -304,9 +295,11 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
     withHostFileRoute(context, payload.hostId, async (hostId) => {
       const result = await callHostRetryableOnlineRpc(deps, {
         hostId,
+        signal: context.req.raw.signal,
         timeoutMs: COMMAND_TIMEOUT_MS,
         command: {
           type: "host.list_files",
+          followRootSymlink: false,
           path: payload.path,
           limit: payload.limit ?? HOST_FILE_LIST_LIMIT_DEFAULT,
           includeHidden:
@@ -326,6 +319,7 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
     withHostFileRoute(context, payload.hostId, async (hostId) => {
       const result = await callHostRetryableOnlineRpc(deps, {
         hostId,
+        signal: context.req.raw.signal,
         timeoutMs: COMMAND_TIMEOUT_MS,
         command: {
           type: "host.list_paths",

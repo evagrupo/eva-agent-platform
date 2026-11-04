@@ -37,6 +37,7 @@ const secondaryPanelMockState = vi.hoisted(() => ({
         activeBrowserTabId: string,
         pane: {
           isFocused: boolean;
+          isOpen: boolean;
           onFocusPane: () => void;
         },
       ) => ReactNode)
@@ -76,36 +77,10 @@ vi.mock("jotai", async (importOriginal) => {
   };
 });
 
-vi.mock("react-resizable-panels", async () => {
-  const React = await import("react");
-
-  const PanelGroup = React.forwardRef<
-    {
-      getLayout: () => number[];
-      setLayout: (layout: number[]) => void;
-    },
-    { children?: ReactNode }
-  >(({ children }, ref) => {
-    React.useImperativeHandle(
-      ref,
-      () => ({ getLayout: () => [50, 50], setLayout: () => {} }),
-      [],
-    );
-    return React.createElement(
-      "div",
-      { "data-testid": "panel-group" },
-      children,
-    );
-  });
-  PanelGroup.displayName = "MockPanelGroup";
-
-  const Panel = ({ children }: { children?: ReactNode }) =>
-    React.createElement("div", { "data-testid": "panel" }, children);
-  const PanelResizeHandle = ({ children }: { children?: ReactNode }) =>
-    React.createElement("div", null, children);
-
-  return { Panel, PanelGroup, PanelResizeHandle };
-});
+vi.mock(
+  "react-resizable-panels",
+  () => import("@/test/react-resizable-panels-stub"),
+);
 
 vi.mock(
   "@/components/secondary-panel/ThreadMetadataContent",
@@ -170,27 +145,20 @@ const { timelinePaneRenders } = vi.hoisted(() => ({
   timelinePaneRenders: vi.fn(),
 }));
 
-vi.mock("./ThreadTimelinePane", async (importOriginal) => {
-  const React = await import("react");
-  const actual = await importOriginal<typeof import("./ThreadTimelinePane")>();
-
-  const ThreadTimelinePane = ({
-    footer,
-    threadId,
-  }: ComponentProps<typeof actual.ThreadTimelinePane>) => {
-    timelinePaneRenders();
-    return React.createElement(
-      "div",
-      {
-        "data-testid": "thread-timeline-pane",
-        "data-thread-id": threadId,
-      },
-      footer,
-    );
-  };
-
-  return { ...actual, ThreadTimelinePane };
-});
+function TimelinePaneProbe({
+  footer,
+  threadId,
+}: {
+  footer: ReactNode;
+  threadId: string;
+}) {
+  timelinePaneRenders();
+  return (
+    <div data-testid="thread-timeline-pane" data-thread-id={threadId}>
+      {footer}
+    </div>
+  );
+}
 
 const noop = () => {};
 let publishedHostedPanel: PaneSecondaryPanelViewModel | null = null;
@@ -253,6 +221,7 @@ function makeThread(): ThreadDetailSecondaryContentProps["metadata"]["thread"] {
     originKind: null,
     originPluginId: null,
     visibility: "visible",
+    parentNotifications: "auto",
     status: "idle",
     stopRequestedAt: null,
     title: null,
@@ -267,17 +236,23 @@ function createProps(
   isConversationCollapsed = false,
 ): ThreadDetailSecondaryContentProps {
   return {
-    footer: <div data-testid="footer" />,
     header: <div data-testid="header" />,
     isBoundedPane: false,
     isConversationCollapsed,
     isMetadataLoading,
     isSecondaryPanelOpen: true,
+    main: (
+      <TimelinePaneProbe
+        footer={<div data-testid="footer" />}
+        threadId="thread-1"
+      />
+    ),
     metadata: {
       canAssignToParent: false,
       canTakeOverThread: false,
       environment: null,
       environmentProvisioningFailure: false,
+      threadEnvironmentState: null,
       environmentDisplayHost: { locality: "local", identity: null },
       isLoadingMergeBaseBranchOptions: false,
       mergeBaseBranchOptions: undefined,
@@ -291,7 +266,7 @@ function createProps(
       isLoadingParentThreads: false,
       isParentThreadsError: false,
       projectId: "proj-test",
-      pullRequest: null,
+      threadEnvironmentId: null,
       selectedMergeBaseBranch: undefined,
       thread: makeThread(),
       threadSchedules: [],
@@ -304,7 +279,6 @@ function createProps(
     renderHostedPanel: (panel) => panel,
     secondaryPanel: {
       activeTab: null,
-      canUseGitUi: false,
       tabs: [],
       fixedTabs: [],
       isOpen: true,
@@ -315,23 +289,6 @@ function createProps(
       onPanelFocus: noop,
       renderBrowserDeck: () => null,
     },
-    timeline: {
-      activeThinking: null,
-      hasOlderTimelineRows: false,
-      isLoadingOlderTimelineRows: false,
-      isThreadTimelinePending: false,
-      onLoadOlderRows: noop,
-      resolveMentionLink: () => null,
-      showOngoingIndicator: false,
-      stopRequestedAt: null,
-      threadId: "thread-1",
-      threadRuntimeDisplayStatus: "idle",
-      timelineError: false,
-      timelineRows: [],
-      unreadDividerAutoScroll: false,
-      unreadDividerPlacement: null,
-      workspaceRootPath: undefined,
-    } as unknown as ThreadDetailSecondaryContentProps["timeline"],
   };
 }
 
@@ -350,7 +307,11 @@ function renderThreadDetail(
   if (!hosted) {
     return render(
       <MemoryRouter>
-        <DefaultPaneContextProvider onRequestClose={null} navigateInPane={noop}>
+        <DefaultPaneContextProvider
+          paneId="main"
+          onRequestClose={null}
+          navigateInPane={noop}
+        >
           {content}
         </DefaultPaneContextProvider>
       </MemoryRouter>,
@@ -411,6 +372,7 @@ describe("ThreadDetailSecondaryContent", () => {
         <TooltipProvider>
           <MemoryRouter>
             <DefaultPaneContextProvider
+              paneId="main"
               onRequestClose={null}
               navigateInPane={noop}
             >
@@ -467,7 +429,11 @@ describe("ThreadDetailSecondaryContent", () => {
 
     render(
       <MemoryRouter>
-        <DefaultPaneContextProvider onRequestClose={null} navigateInPane={noop}>
+        <DefaultPaneContextProvider
+          paneId="main"
+          onRequestClose={null}
+          navigateInPane={noop}
+        >
           <CompactViewportOverrideProvider isCompactViewport={false}>
             <ThreadDetailSecondaryContent {...props} />
           </CompactViewportOverrideProvider>
@@ -483,6 +449,7 @@ describe("ThreadDetailSecondaryContent", () => {
     const onFocusPane = vi.fn();
     panelBrowserDeck("browser-split", {
       isFocused: true,
+      isOpen: true,
       onFocusPane,
     });
     expect(renderBrowserDeck).toHaveBeenLastCalledWith({
@@ -494,6 +461,7 @@ describe("ThreadDetailSecondaryContent", () => {
 
     panelBrowserDeck("browser-split", {
       isFocused: false,
+      isOpen: true,
       onFocusPane,
     });
     expect(renderBrowserDeck).toHaveBeenLastCalledWith({
@@ -508,7 +476,11 @@ describe("ThreadDetailSecondaryContent", () => {
     const props = createProps();
     const { rerender } = render(
       <MemoryRouter>
-        <DefaultPaneContextProvider onRequestClose={null} navigateInPane={noop}>
+        <DefaultPaneContextProvider
+          paneId="main"
+          onRequestClose={null}
+          navigateInPane={noop}
+        >
           <CompactViewportOverrideProvider isCompactViewport={false}>
             <ThreadDetailSecondaryContent {...props} />
           </CompactViewportOverrideProvider>
@@ -524,13 +496,23 @@ describe("ThreadDetailSecondaryContent", () => {
     const panelGroup = screen.getByTestId("panel-group");
 
     const nextProps = createProps();
-    nextProps.timeline = {
-      ...nextProps.timeline,
-      threadId: "thread-2",
-    } as ThreadDetailSecondaryContentProps["timeline"];
+    nextProps.main = (
+      <TimelinePaneProbe
+        footer={<div data-testid="footer" />}
+        threadId="thread-2"
+      />
+    );
+    nextProps.metadata = {
+      ...nextProps.metadata,
+      thread: { ...nextProps.metadata.thread, id: "thread-2" },
+    };
     rerender(
       <MemoryRouter>
-        <DefaultPaneContextProvider onRequestClose={null} navigateInPane={noop}>
+        <DefaultPaneContextProvider
+          paneId="main"
+          onRequestClose={null}
+          navigateInPane={noop}
+        >
           <CompactViewportOverrideProvider isCompactViewport={false}>
             <ThreadDetailSecondaryContent {...nextProps} />
           </CompactViewportOverrideProvider>
@@ -549,7 +531,11 @@ describe("ThreadDetailSecondaryContent", () => {
     const props = createProps();
     const { rerender } = render(
       <MemoryRouter>
-        <DefaultPaneContextProvider onRequestClose={null} navigateInPane={noop}>
+        <DefaultPaneContextProvider
+          paneId="main"
+          onRequestClose={null}
+          navigateInPane={noop}
+        >
           <CompactViewportOverrideProvider isCompactViewport={false}>
             <ThreadDetailSecondaryContent
               {...props}
@@ -572,7 +558,11 @@ describe("ThreadDetailSecondaryContent", () => {
 
     rerender(
       <MemoryRouter>
-        <DefaultPaneContextProvider onRequestClose={null} navigateInPane={noop}>
+        <DefaultPaneContextProvider
+          paneId="main"
+          onRequestClose={null}
+          navigateInPane={noop}
+        >
           <CompactViewportOverrideProvider isCompactViewport={false}>
             <ThreadDetailSecondaryContent {...props} isSecondaryPanelOpen />
           </CompactViewportOverrideProvider>
@@ -587,10 +577,19 @@ describe("ThreadDetailSecondaryContent", () => {
 
   it("does not re-render the timeline pane while the composer draft changes", async () => {
     const props = createProps();
-    props.footer = <FooterComposerHostPublisher threadId="thread-1" />;
+    props.main = (
+      <TimelinePaneProbe
+        footer={<FooterComposerHostPublisher threadId="thread-1" />}
+        threadId="thread-1"
+      />
+    );
     render(
       <MemoryRouter>
-        <DefaultPaneContextProvider onRequestClose={null} navigateInPane={noop}>
+        <DefaultPaneContextProvider
+          paneId="main"
+          onRequestClose={null}
+          navigateInPane={noop}
+        >
           <CompactViewportOverrideProvider isCompactViewport={false}>
             <ThreadDetailSecondaryContent {...props} />
           </CompactViewportOverrideProvider>

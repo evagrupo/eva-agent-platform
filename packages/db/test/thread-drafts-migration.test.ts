@@ -14,6 +14,8 @@ import {
   dropIdleLifecycleIndexes,
   rewindThreadPruningWork,
   dropEvaAgentChatAndMemoryTables,
+  dropMarketplaceSourceGitSubdirectoryColumn,
+  dropThreadParentNotificationsColumn,
   dropQueuedMessageEditHeldUntilColumn,
 } from "./helpers/rewind.js";
 
@@ -116,6 +118,8 @@ it.each([false, true])(
       dropEvaAgentChatAndMemoryTables(db);
       dropPluginEnabledFollowsDefaultColumn(db);
       dropQueuedMessageEditHeldUntilColumn(db);
+      dropMarketplaceSourceGitSubdirectoryColumn(db);
+      dropThreadParentNotificationsColumn(db);
       migrate(db);
       migrate(db);
 

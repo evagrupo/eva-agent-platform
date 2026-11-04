@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
 import {
   getEnvironment,
+  getSessionById,
   getStoredThreadTabs,
   replaceStoredThreadTabs,
 } from "@bb/db";
-import type { DesktopBrowserTab } from "@bb/host-daemon-contract";
 import {
+  hostDaemonSupportsDesktopBrokerProof,
+  type DesktopBrowserTab,
+} from "@bb/host-daemon-contract";
+import {
+  type DesktopBrowserBrokerProofRequest,
   threadTabsSchema,
   type ThreadTab,
   type ExperimentalDesktopBrowserScope,
@@ -227,6 +232,31 @@ export function removeDesktopBrowserTab(
     tabsJson: JSON.stringify(filtered),
   });
   deps.hub.notifyThread(scope.threadId, ["tabs-changed"]);
+}
+
+export async function proveDesktopBrowserBroker(
+  deps: WorkSessionDeps,
+  input: DesktopBrowserBrokerProofRequest,
+) {
+  assertResourceAccess(deps.db, {}, "host", input.hostId, "read");
+  requireNonDestroyedHostWithStatus(deps, input.hostId);
+  const sessionId = deps.hub.getDaemonSessionIdForHost(input.hostId);
+  const session = sessionId ? getSessionById(deps.db, { sessionId }) : null;
+  if (
+    session &&
+    !hostDaemonSupportsDesktopBrokerProof(session.protocolVersion)
+  ) {
+    throw new ApiError(
+      409,
+      "desktop_broker_upgrade_required",
+      "Update this machine to verify desktop browser registration",
+    );
+  }
+  return callHostOnlineRpc(deps, {
+    hostId: input.hostId,
+    timeoutMs: 5000,
+    command: { type: "desktop.broker.prove", challenge: input.challenge },
+  });
 }
 
 export async function listDesktopBrowserInstances(

@@ -4,12 +4,11 @@ import {
   authAgentGrants,
   authPrincipals,
   authUsers,
-  createConnection,
   createThread,
   evaAgentMemories,
-  migrate,
   type DbConnection,
 } from "@bb/db";
+import { createMigratedConnection } from "@bb/db/testing";
 import { reasoningLevelValues } from "@bb/domain";
 import { describe, expect, it } from "vitest";
 import {
@@ -62,9 +61,8 @@ function insertUser(db: DbConnection, userId: string): void {
 }
 
 function withMemoryDb(run: (db: DbConnection) => void): void {
-  const db = createConnection(":memory:");
+  const db = createMigratedConnection();
   try {
-    migrate(db);
     ensureEvaAgentRegistry(db);
     insertUser(db, "ana");
     insertUser(db, "luis");

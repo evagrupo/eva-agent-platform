@@ -12,13 +12,12 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
   authUsers,
-  createConnection,
   evaAgentWorkspaceSync,
   evaAgentWorkspaces,
   evaAgents,
-  migrate,
   type DbConnection,
 } from "@bb/db";
+import { createMigratedConnection } from "@bb/db/testing";
 import {
   createWorkspaceSyncService,
   isDeniedWorkspacePath,
@@ -41,8 +40,7 @@ async function createFixture(): Promise<Fixture> {
   const dataDir = await mkdtemp(join(tmpdir(), "eva-workspace-sync-test-"));
   const workspacePath = join(dataDir, "eva-agents", AGENT_ID);
   await mkdir(workspacePath, { recursive: true });
-  const db = createConnection(":memory:");
-  migrate(db);
+  const db = createMigratedConnection();
   const now = new Date();
   db.insert(authUsers)
     .values({

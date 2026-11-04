@@ -1,5 +1,6 @@
 import type { TimelineRow, TimelineRowStatus } from "@bb/server-contract";
 import { sliceUtf16Head } from "@bb/text-utils";
+import { parseSentThreadMessage } from "@bb/thread-view";
 
 export const TIMELINE_DEFERRED_CONTENT_MIN_CHARS = 1_000;
 
@@ -35,7 +36,8 @@ function deferRowContent(row: TimelineRow): TimelineRow {
       case "command": {
         if (
           row.output.length + row.command.length <=
-          TIMELINE_DEFERRED_CONTENT_MIN_CHARS
+            TIMELINE_DEFERRED_CONTENT_MIN_CHARS ||
+          parseSentThreadMessage(row) !== null
         ) {
           return row;
         }
@@ -91,37 +93,15 @@ function deferRowContent(row: TimelineRow): TimelineRow {
   return row;
 }
 
-function deferRow(row: TimelineRow): TimelineRow {
-  if (row.kind === "turn") {
-    if (row.children === null) {
-      return row;
-    }
-    const children = deferSettledTimelineContent(row.children);
-    return children === row.children ? row : { ...row, children };
-  }
-  if (row.kind === "work" && row.workKind === "delegation") {
-    if (row.childRows === null) {
-      return row;
-    }
-    if (isSettled(row) && row.childRows.length > 0) {
-      return { ...row, childRows: null };
-    }
-    const childRows = deferSettledTimelineContent(row.childRows);
-    return childRows === row.childRows ? row : { ...row, childRows };
+export function deferSettledTimelineRow(row: TimelineRow): TimelineRow {
+  if (
+    row.kind === "work" &&
+    row.workKind === "delegation" &&
+    row.childRows !== null &&
+    row.childRows.length > 0 &&
+    isSettled(row)
+  ) {
+    return { ...row, childRows: null };
   }
   return deferRowContent(row);
-}
-
-export function deferSettledTimelineContent(
-  rows: TimelineRow[],
-): TimelineRow[] {
-  let changed = false;
-  const next = rows.map((row) => {
-    const deferred = deferRow(row);
-    if (deferred !== row) {
-      changed = true;
-    }
-    return deferred;
-  });
-  return changed ? next : rows;
 }

@@ -8,7 +8,10 @@ import {
   dropIdleLifecycleIndexes,
   rewindThreadPruningWork,
   dropEvaAgentChatAndMemoryTables,
+  dropMarketplaceSourceGitSubdirectoryColumn,
+  dropThreadParentNotificationsColumn,
   dropQueuedMessageEditHeldUntilColumn,
+  rewindQueuedMessageStateMigration,
 } from "./helpers/rewind.js";
 import { defaultAppSettings } from "@bb/domain";
 import {
@@ -27,7 +30,7 @@ import {
 import {
   createMigratedConnection,
   prepareMigratedConnectionTemplate,
-} from "./helpers/migrated-connection.js";
+} from "../src/testing.js";
 
 type InsertMigrationParameters = [string, number];
 type DeleteMigrationParameters = [number];
@@ -484,6 +487,12 @@ const providerSettingsToPluginsMigrationPath = resolve(
   "drizzle",
   "0105_provider_settings_to_plugins.sql",
 );
+const showGitChangesToPluginsMigrationPath = resolve(
+  __dirname,
+  "..",
+  "drizzle",
+  "0163_git_and_pr_status_plugin_show_settings.sql",
+);
 const retireRequestedAtMigrationPath = resolve(
   __dirname,
   "..",
@@ -751,6 +760,8 @@ function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
   dropEvaAgentChatAndMemoryTables(db);
   dropPluginEnabledFollowsDefaultColumn(db);
   dropQueuedMessageEditHeldUntilColumn(db);
+  dropMarketplaceSourceGitSubdirectoryColumn(db);
+  dropThreadParentNotificationsColumn(db);
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_insert");
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_immutable");
   db.$client.exec("DROP INDEX IF EXISTS threads_lifecycle_owner_idx");
@@ -796,6 +807,8 @@ function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
 }
 
 function dropQueuedMessageAttemptColumns(db: DbConnection): void {
+  rewindQueuedMessageStateMigration(db);
+  dropThreadParentNotificationsColumn(db);
   const columns = db.$client
     .prepare<[], TableInfoRow>("PRAGMA table_info(queued_thread_messages)")
     .all();
@@ -874,6 +887,8 @@ function rewindMachineProvidersMigration(db: DbConnection): void {
   rewindThreadPruningWork(db);
   dropEvaAgentChatAndMemoryTables(db);
   dropQueuedMessageEditHeldUntilColumn(db);
+  dropMarketplaceSourceGitSubdirectoryColumn(db);
+  dropThreadParentNotificationsColumn(db);
   db.$client.exec("DROP TABLE IF EXISTS ui_preference_defaults");
   dropMiniAppSchema(db);
   dropCoreAuthFoundationSchema(db);
@@ -1812,11 +1827,12 @@ describe("migrate", () => {
 
       expect(getAppSettings(db)).toEqual({
         showKeyboardHints: false,
-        showGitChanges: true,
         steerActiveThreadOnEnter: true,
+        terminalCopyOnSelect: true,
         confirmThreadArchive: true,
         showDiagnosticEvents: true,
         keepHistoryAfterContextClear: false,
+        summarizeShellCommands: true,
         providerOrder: [],
         defaultProviderId: null,
         providerCompletedTurnDisplay: {},
@@ -1827,7 +1843,9 @@ describe("migrate", () => {
         allowFastServiceTier: true,
         telemetryEnabled: true,
         managedBranchPrefix: "bb/",
+        idleProviderSessionTimeoutMinutes: 30,
         onboardingCompletedAt: "2026-08-01T00:00:00.000Z",
+        earlyAdopter: false,
       });
       expect(
         db.$client
@@ -1929,6 +1947,67 @@ describe("migrate", () => {
           key: "subagentsDisabled",
           value: "true",
           updatedAt: 12,
+        },
+      ]);
+      expect(
+        db.$client
+          .prepare<[], { key: string }>(
+            "SELECT key FROM app_settings_values ORDER BY key",
+          )
+          .all(),
+      ).toEqual([{ key: "showKeyboardHints" }]);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("carries showGitChanges into the Git and GitHub PR Status plugins and retires the shared row", () => {
+    const db = createConnection(":memory:");
+    try {
+      db.$client.exec(`
+        CREATE TABLE app_settings_values (
+          key text PRIMARY KEY NOT NULL,
+          value text NOT NULL,
+          updated_at integer NOT NULL
+        );
+        CREATE TABLE plugin_settings (
+          plugin_id text NOT NULL,
+          key text NOT NULL,
+          value text NOT NULL,
+          updated_at integer NOT NULL,
+          PRIMARY KEY (plugin_id, key)
+        );
+        INSERT INTO app_settings_values (key, value, updated_at) VALUES
+          ('showKeyboardHints', 'false', 10),
+          ('showGitChanges', 'false', 11);
+      `);
+
+      runMigrationFile({
+        db,
+        migrationPath: showGitChangesToPluginsMigrationPath,
+      });
+
+      expect(
+        db.$client
+          .prepare<
+            [],
+            { pluginId: string; key: string; value: string; updatedAt: number }
+          >(
+            "SELECT plugin_id AS pluginId, key, value, updated_at AS updatedAt FROM plugin_settings ORDER BY plugin_id, key",
+          )
+          .all(),
+      ).toEqual([
+        {
+          pluginId: "bb--git",
+          key: "showGitChanges",
+          value: "false",
+          updatedAt: 11,
+        },
+        {
+          pluginId: "bb--github-pr-status",
+          key: "showPullRequest",
+          value: "false",
+          updatedAt: 11,
         },
       ]);
       expect(
@@ -3342,6 +3421,8 @@ describe("migrate", () => {
       rewindThreadPruningWork(db);
       dropEvaAgentChatAndMemoryTables(db);
       dropQueuedMessageEditHeldUntilColumn(db);
+      dropMarketplaceSourceGitSubdirectoryColumn(db);
+      dropThreadParentNotificationsColumn(db);
       db.$client.prepare("DROP INDEX projects_deleted_idx").run();
       db.$client.prepare("ALTER TABLE projects DROP COLUMN deleted_at").run();
       db.$client.prepare("ALTER TABLE events ADD producer_event_id text").run();

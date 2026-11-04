@@ -9,7 +9,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { createStore, Provider } from "jotai";
 import { paletteThreadLifecyclesAtom } from "@/lib/command-palette/palette-preferences";
 import { splitLayoutAtom } from "@/lib/split-layout/atoms";
@@ -42,6 +42,7 @@ import {
 } from "@/lib/plugin-thread-row-status";
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
 import { collectPluginAppRegistrations } from "@get-bb/plugin-sdk/internal/plugin-app-collector";
+import { LocationProbe } from "@/test/location-probe";
 
 beforeAll(async () => {
   await import("./ThreadSearchPaletteMode");
@@ -275,11 +276,6 @@ function Handler({ command }: { command: AppCommandId }) {
   return null;
 }
 
-function LocationProbe() {
-  const location = useLocation();
-  return <output data-testid="location">{location.pathname}</output>;
-}
-
 const threadUpdatedAt = Date.now();
 
 function makeThread(
@@ -301,6 +297,7 @@ function makeThread(
     originKind: null,
     originPluginId: null,
     visibility: "visible",
+    parentNotifications: "auto",
     archivedAt: null,
     pinnedAt: null,
     pinSortKey: null,
@@ -1351,11 +1348,12 @@ describe("CommandPalette", () => {
   });
 
   it("matches loaded titles on the first character and keeps the highlight when server rows merge in", async () => {
+    const now = Date.now();
     modeState.activeRecents = Array.from({ length: 6 }, (_, index) =>
       makeThread(`fix-${index}`, {
         title: `Fix ${index}`,
-        lastReadAt: Date.now(),
-        updatedAt: Date.now() - index,
+        lastReadAt: now,
+        updatedAt: now - index,
       }),
     );
     const { rerenderPalette } = renderPalette();
@@ -1423,11 +1421,12 @@ describe("CommandPalette", () => {
   });
 
   it("keeps a highlighted row in view when server rows push it down", async () => {
+    const now = Date.now();
     modeState.activeRecents = Array.from({ length: 6 }, (_, index) =>
       makeThread(`fix-${index}`, {
         title: `Fix ${index}`,
-        lastReadAt: Date.now(),
-        updatedAt: Date.now() - index,
+        lastReadAt: now,
+        updatedAt: now - index,
       }),
     );
     const { rerenderPalette } = renderPalette();

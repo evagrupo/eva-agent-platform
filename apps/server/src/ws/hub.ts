@@ -11,6 +11,7 @@ import {
   type ThreadChangeKind,
   type ThreadChangeMetadata,
   type ThreadEventType,
+  type ThreadTimelineSubscriptionTarget,
 } from "@bb/domain";
 import type { DbNotifier } from "@bb/db";
 import type {
@@ -26,11 +27,19 @@ import {
   terminalServerMessageSchema,
   threadOpenSignalSchema,
   threadPaneActionSignalSchema,
+  type ThreadTimelineSignal,
   type ThreadPaneAction,
   type ThreadOpenFile,
   type ThreadOpenSplit,
   type TerminalServerMessage,
 } from "@bb/server-contract";
+import { COMPRESSED_SEND } from "./compression.js";
+import {
+  WatchedTargetRegistry,
+  type WatchedTarget,
+  type WatchedTargetChange,
+  type WatchedTargetKind,
+} from "./watched-targets.js";
 
 const TERMINAL_SOCKET_HIGH_WATER_BYTES = 1024 * 1024;
 const TERMINAL_SOCKET_MAX_QUEUE_BYTES = 32 * 1024 * 1024;
@@ -42,13 +51,18 @@ const LIST_RELEVANT_THREAD_EVENT_TYPES: ReadonlySet<ThreadEventType> =
 interface HubSocket {
   close(code?: number, reason?: string): void;
   raw?: { bufferedAmount: number };
-  send(data: string): void;
+  send(data: string, options?: { compress: boolean }): void;
 }
 
 export interface ClientRealtimeAccess {
   canReadThread(threadId: string): boolean;
   canUsePlugin(pluginId: string): boolean;
   canReadTarget?: (target: RealtimeSubscriptionTarget) => boolean;
+  /**
+   * True when this client may only see the user-facing conversation of the
+   * thread (a regular user chatting with an EVA agent).
+   */
+  hidesAgentWorkDetails?: (thread: { agentId?: string | null }) => boolean;
 }
 
 interface TerminalSocketSendQueue {
@@ -62,9 +76,23 @@ export type ServerChangedMessage =
       ChangedMessage,
       { entity: "thread" | "project" | "environment" | "host" }
     > & { id: string })
-  | Extract<ChangedMessage, { entity: "system" }>;
+  | Extract<ChangedMessage, { entity: "system" | "plugin" }>;
 
 type ChangedMessageListener = (message: ServerChangedMessage) => void;
+type ThreadTimelineTagListener = (
+  target: ThreadTimelineSubscriptionTarget,
+  tag: string,
+) => void;
+
+export type ThreadTimelineSubscriberBaseline =
+  | { kind: "legacy" }
+  | { kind: "pending" }
+  | { kind: "tag"; tag: string };
+
+export interface ThreadTimelineSubscriber {
+  baseline: ThreadTimelineSubscriberBaseline;
+  socket: HubSocket;
+}
 
 interface PendingThreadListEventsAppended {
   timelineSequence: number | undefined;
@@ -135,6 +163,8 @@ function subscriptionKeysForMessage(message: ServerChangedMessage): string[] {
         subscriptionKey({ kind: "host-list" }),
         subscriptionKey({ kind: "host-detail", hostId: message.id }),
       ];
+    case "plugin":
+      return [subscriptionKey({ kind: "plugin", pluginId: message.pluginId })];
     case "system":
       return [subscriptionKey({ kind: "system" })];
   }
@@ -190,6 +220,7 @@ interface DaemonSessionCloseWaiter {
 }
 
 interface HostOnlineRpcWaiter {
+  detachAbortListener: () => void;
   reject: (reason?: Error) => void;
   resolve: (message: HostDaemonOnlineRpcResponseMessage) => void;
   sessionId: string;
@@ -217,6 +248,13 @@ export class HostOnlineRpcTimeoutError extends Error {
   }
 }
 
+export class HostOnlineRpcCancelledError extends Error {
+  constructor() {
+    super("Host RPC request was cancelled");
+    this.name = "HostOnlineRpcCancelledError";
+  }
+}
+
 export class HostOnlineRpcUnavailableError extends Error {
   constructor() {
     super("Host daemon is not connected");
@@ -225,12 +263,22 @@ export class HostOnlineRpcUnavailableError extends Error {
 }
 
 export class NotificationHub implements DbNotifier {
-  private readonly clientKeysBySocket = new Map<HubSocket, Set<string>>();
+  private readonly clientKeysBySocket = new Map<
+    HubSocket,
+    Map<string, RealtimeSubscriptionTarget>
+  >();
   private readonly clientSocketsByKey = new Map<string, Set<HubSocket>>();
   private readonly clientRealtimeAccess = new Map<
     HubSocket,
     ClientRealtimeAccess
   >();
+  private readonly hiddenClients = new Set<HubSocket>();
+  private readonly timelineTagsBySocket = new Map<
+    HubSocket,
+    Map<string, string | null>
+  >();
+  private readonly timelineTagListeners = new Set<ThreadTimelineTagListener>();
+  private readonly watchedTargets = new WatchedTargetRegistry();
   private readonly daemonSessions = new Map<
     string,
     {
@@ -290,14 +338,58 @@ export class NotificationHub implements DbNotifier {
     string,
     PendingThreadListEventsAppended
   >();
+  private clientChangeNotificationsStopped = false;
+
+  stopClientChangeNotifications(): void {
+    this.clientChangeNotificationsStopped = true;
+  }
+
+  notifyPluginChanged(pluginId: string, tags: readonly string[] | null): void {
+    this.notifyClients({
+      type: "changed",
+      entity: "plugin",
+      pluginId,
+      tags: tags === null ? null : [...tags],
+    });
+  }
 
   registerClient(socket: HubSocket, access?: ClientRealtimeAccess): void {
     if (!this.clientKeysBySocket.has(socket)) {
-      this.clientKeysBySocket.set(socket, new Set());
+      this.clientKeysBySocket.set(socket, new Map());
     }
     if (access !== undefined) {
       this.clientRealtimeAccess.set(socket, access);
     }
+  }
+
+  setClientVisible(socket: HubSocket, visible: boolean): void {
+    this.registerClient(socket);
+    if (visible !== this.hiddenClients.has(socket)) {
+      return;
+    }
+    const targets = this.clientKeysBySocket.get(socket) ?? new Map();
+    if (visible) {
+      this.hiddenClients.delete(socket);
+      this.watchedTargets.update(
+        [...targets].map(([key, target]) => ({ key, target: { ...target } })),
+        [],
+      );
+      return;
+    }
+    this.hiddenClients.add(socket);
+    this.watchedTargets.update(
+      [],
+      [...targets.keys()].filter((key) => !this.isWatched(key)),
+    );
+  }
+
+  private isWatched(key: string): boolean {
+    for (const socket of this.clientSocketsByKey.get(key) ?? []) {
+      if (!this.hiddenClients.has(socket)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   unregisterClient(socket: HubSocket): void {
@@ -307,7 +399,8 @@ export class NotificationHub implements DbNotifier {
       return;
     }
 
-    for (const key of keys) {
+    const stoppedKeys: string[] = [];
+    for (const key of keys.keys()) {
       const sockets = this.clientSocketsByKey.get(key);
       if (!sockets) {
         continue;
@@ -316,10 +409,29 @@ export class NotificationHub implements DbNotifier {
       if (sockets.size === 0) {
         this.clientSocketsByKey.delete(key);
       }
+      if (!this.isWatched(key)) {
+        stoppedKeys.push(key);
+      }
     }
 
     this.clientKeysBySocket.delete(socket);
     this.clientRealtimeAccess.delete(socket);
+    this.hiddenClients.delete(socket);
+    this.timelineTagsBySocket.delete(socket);
+    this.watchedTargets.update([], stoppedKeys);
+  }
+
+  onWatchedTargets<Kind extends WatchedTargetKind>(
+    kinds: readonly Kind[],
+    listener: (change: WatchedTargetChange<WatchedTarget<Kind>>) => void,
+  ): () => void {
+    return this.watchedTargets.listen(kinds, listener);
+  }
+
+  listWatchedTargets<Kind extends WatchedTargetKind>(
+    kind: Kind,
+  ): WatchedTarget<Kind>[] {
+    return this.watchedTargets.list(kind);
   }
 
   onChangedMessage(listener: ChangedMessageListener): () => void {
@@ -533,19 +645,38 @@ export class NotificationHub implements DbNotifier {
     this.terminalSocketSendQueues.delete(socket);
   }
 
-  subscribe(socket: HubSocket, target: RealtimeSubscriptionTarget): void {
+  subscribe(
+    socket: HubSocket,
+    target: RealtimeSubscriptionTarget,
+    timelineTag?: string | null,
+  ): void {
     this.registerClient(socket);
     const key = subscriptionKey(target);
-    this.clientKeysBySocket.get(socket)?.add(key);
+    this.clientKeysBySocket.get(socket)?.set(key, target);
+    if (target.kind === "thread-timeline" && timelineTag !== undefined) {
+      const tags = this.timelineTagsBySocket.get(socket) ?? new Map();
+      tags.set(key, timelineTag);
+      this.timelineTagsBySocket.set(socket, tags);
+    }
 
     const sockets = this.clientSocketsByKey.get(key) ?? new Set<HubSocket>();
     sockets.add(socket);
     this.clientSocketsByKey.set(key, sockets);
+    if (this.hiddenClients.has(socket)) {
+      return;
+    }
+    this.watchedTargets.update([{ key, target: { ...target } }], []);
+    if (target.kind === "thread-timeline" && typeof timelineTag === "string") {
+      for (const listener of [...this.timelineTagListeners]) {
+        listener(target, timelineTag);
+      }
+    }
   }
 
   unsubscribe(socket: HubSocket, target: RealtimeSubscriptionTarget): void {
     const key = subscriptionKey(target);
     this.clientKeysBySocket.get(socket)?.delete(key);
+    this.timelineTagsBySocket.get(socket)?.delete(key);
 
     const sockets = this.clientSocketsByKey.get(key);
     if (!sockets) {
@@ -555,6 +686,70 @@ export class NotificationHub implements DbNotifier {
     if (sockets.size === 0) {
       this.clientSocketsByKey.delete(key);
     }
+    if (!this.isWatched(key)) {
+      this.watchedTargets.update([], [key]);
+    }
+  }
+
+  onThreadTimelineTag(listener: ThreadTimelineTagListener): () => void {
+    this.timelineTagListeners.add(listener);
+    return () => {
+      this.timelineTagListeners.delete(listener);
+    };
+  }
+
+  listThreadTimelineSubscribers(
+    target: ThreadTimelineSubscriptionTarget,
+  ): ThreadTimelineSubscriber[] {
+    const key = subscriptionKey(target);
+    return [...(this.clientSocketsByKey.get(key) ?? [])].map((socket) => {
+      const tags = this.timelineTagsBySocket.get(socket);
+      if (tags === undefined || !tags.has(key)) {
+        return { baseline: { kind: "legacy" }, socket };
+      }
+      const tag = tags.get(key) ?? null;
+      return {
+        baseline: tag === null ? { kind: "pending" } : { kind: "tag", tag },
+        socket,
+      };
+    });
+  }
+
+  listThreadTimelineTags(threadId: string): Set<string> {
+    const held = new Set<string>();
+    for (const [socket, tags] of this.timelineTagsBySocket) {
+      const targets = this.clientKeysBySocket.get(socket);
+      for (const [key, tag] of tags) {
+        const target = targets?.get(key);
+        if (
+          tag !== null &&
+          target?.kind === "thread-timeline" &&
+          target.threadId === threadId
+        ) {
+          held.add(tag);
+        }
+      }
+    }
+    return held;
+  }
+
+  sendThreadTimelineSignal(
+    subscribers: readonly ThreadTimelineSubscriber[],
+    signal: ThreadTimelineSignal,
+  ): number {
+    const key = subscriptionKey(signal.target);
+    const payload = JSON.stringify(signal);
+    for (const { baseline, socket } of subscribers) {
+      if (baseline.kind !== "legacy") {
+        this.timelineTagsBySocket.get(socket)?.set(key, signal.timeline.tag);
+      }
+    }
+    this.notifyClientsByKeySet(
+      subscribers.map(({ socket }) => socket),
+      payload,
+      signal.target,
+    );
+    return payload.length;
   }
 
   recordDaemonSessionPlatform(sessionId: string, platform: HostPlatform): void {
@@ -769,6 +964,7 @@ export class NotificationHub implements DbNotifier {
   requestHostOnlineRpc(args: {
     hostId: string;
     message: HostDaemonOnlineRpcRequestMessage;
+    signal?: AbortSignal;
     timeoutMs: number;
   }): Promise<HostDaemonOnlineRpcResponseMessage> {
     const sessionId = this.daemonSessionIdsByHost.get(args.hostId);
@@ -779,23 +975,39 @@ export class NotificationHub implements DbNotifier {
     if (!session) {
       return Promise.reject(new HostOnlineRpcUnavailableError());
     }
+    const signal = args.signal;
+    if (signal?.aborted) {
+      return Promise.reject(new HostOnlineRpcCancelledError());
+    }
+    const requestId = args.message.requestId;
 
     return new Promise<HostDaemonOnlineRpcResponseMessage>(
       (resolve, reject) => {
+        const abandon = (error: Error): void => {
+          this.deleteHostOnlineRpcWaiter(requestId, waiter);
+          this.sendHostOnlineRpcCancel(sessionId, requestId);
+          reject(error);
+        };
+        const onAbort = (): void => {
+          abandon(new HostOnlineRpcCancelledError());
+        };
         const waiter: HostOnlineRpcWaiter = {
+          detachAbortListener: () => {
+            signal?.removeEventListener("abort", onAbort);
+          },
           reject,
           resolve,
           sessionId,
           timeout: setTimeout(() => {
-            this.deleteHostOnlineRpcWaiter(args.message.requestId, waiter);
-            reject(new HostOnlineRpcTimeoutError());
+            abandon(new HostOnlineRpcTimeoutError());
           }, args.timeoutMs),
         };
-        this.hostOnlineRpcWaiters.set(args.message.requestId, waiter);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        this.hostOnlineRpcWaiters.set(requestId, waiter);
         try {
           session.socket.send(JSON.stringify(args.message));
         } catch (error) {
-          this.deleteHostOnlineRpcWaiter(args.message.requestId, waiter);
+          this.deleteHostOnlineRpcWaiter(requestId, waiter);
           reject(error instanceof Error ? error : new Error(String(error)));
         }
       },
@@ -936,7 +1148,7 @@ export class NotificationHub implements DbNotifier {
     let delivered = 0;
     for (const socket of this.clientKeysBySocket.keys()) {
       if (!canReceive(socket)) continue;
-      socket.send(payload);
+      socket.send(payload, COMPRESSED_SEND);
       delivered += 1;
     }
     return delivered;
@@ -1012,8 +1224,20 @@ export class NotificationHub implements DbNotifier {
     waiter: HostOnlineRpcWaiter,
   ): void {
     clearTimeout(waiter.timeout);
+    waiter.detachAbortListener();
     if (this.hostOnlineRpcWaiters.get(requestId) === waiter) {
       this.hostOnlineRpcWaiters.delete(requestId);
+    }
+  }
+
+  private sendHostOnlineRpcCancel(sessionId: string, requestId: string): void {
+    try {
+      this.sendDaemonSessionMessage(sessionId, {
+        type: "host-rpc.cancel",
+        requestId,
+      });
+    } catch {
+      return;
     }
   }
 
@@ -1157,12 +1381,16 @@ export class NotificationHub implements DbNotifier {
         continue;
       }
       if (this.canClientReadThread(socket, threadId)) {
-        socket.send(payload);
+        socket.send(payload, COMPRESSED_SEND);
       }
     }
   }
 
   private notifyClients(message: ServerChangedMessage): void {
+    if (this.clientChangeNotificationsStopped) {
+      this.notifyChangedMessageListeners(message);
+      return;
+    }
     const sockets = new Set<HubSocket>();
     for (const key of subscriptionKeysForMessage(message)) {
       const specificSockets = this.clientSocketsByKey.get(key);
@@ -1203,7 +1431,7 @@ export class NotificationHub implements DbNotifier {
   ): void {
     for (const socket of sockets) {
       if (!this.canClientReadTarget(socket, target)) continue;
-      socket.send(payload);
+      socket.send(payload, COMPRESSED_SEND);
     }
   }
 
@@ -1217,6 +1445,25 @@ export class NotificationHub implements DbNotifier {
       return access.canReadTarget(target);
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Whether timeline pushes to this client must be reduced to the EVA
+   * user-facing conversation. Fails closed when the access check throws.
+   */
+  clientHidesAgentWorkDetails(
+    socket: HubSocket,
+    thread: { agentId?: string | null },
+  ): boolean {
+    const access = this.clientRealtimeAccess.get(socket);
+    if (access === undefined || access.hidesAgentWorkDetails === undefined) {
+      return false;
+    }
+    try {
+      return access.hidesAgentWorkDetails(thread);
+    } catch {
+      return true;
     }
   }
 
@@ -1247,7 +1494,7 @@ export class NotificationHub implements DbNotifier {
   ): void {
     for (const socket of sockets) {
       if (this.canClientReadThread(socket, threadId)) {
-        socket.send(payload);
+        socket.send(payload, COMPRESSED_SEND);
       }
     }
   }

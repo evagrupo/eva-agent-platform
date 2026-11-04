@@ -22,6 +22,7 @@ import type {
   HostDaemonBridgeLaunch,
   HostDaemonOnlineRpcResponseMessage,
 } from "@bb/host-daemon-contract";
+import { makeTempDir } from "@bb/test-helpers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { dispatchCommand } from "../../src/command-dispatch.js";
 import {
@@ -32,10 +33,9 @@ import {
 import { CommandRouter } from "../../src/command-router.js";
 import { RuntimeManager } from "../../src/runtime-manager.js";
 import {
-  cleanupTempDirs,
+  artifactBody,
   createFakeWorkspace,
   makeDispatchOptions,
-  makeTempDir,
   noopEventSink,
   unexpectedProjectAttachmentFetch,
   unexpectedProviderMaintenance,
@@ -75,7 +75,6 @@ let nextRpcRequestIdValue = 1;
 afterEach(async () => {
   vi.useRealTimers();
   await Promise.all(managers.splice(0).map((manager) => manager.shutdownAll()));
-  await cleanupTempDirs();
 });
 
 function nextClientRequestId(): ClientTurnRequestId {
@@ -188,7 +187,7 @@ async function createRaceHarness(): Promise<RaceHarness> {
         if (digest !== artifact.digest) {
           throw new Error(`unknown plugin host artifact ${digest}`);
         }
-        return artifact.bytes;
+        return artifactBody(artifact.bytes);
       },
     }),
     events,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, renderHook } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import { makeThread } from "@bb/test-helpers/domain-fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePromptMentions } from "./usePromptMentions";
@@ -81,15 +81,15 @@ beforeEach(() => {
 describe("usePromptMentions thread contexts", () => {
   it("can mention the only thread in a reused worktree while searching its storage", () => {
     const { result } = renderHook(() =>
-      usePromptMentions("proj_1", {
-        environmentId: "env_worktree",
-        threadStorageThreadId: "thr_existing",
-      }),
+      usePromptMentions(
+        {
+          projectId: "proj_1",
+          environmentId: "env_worktree",
+          threadStorageThreadId: "thr_existing",
+        },
+        { text: "Only worktree", trigger: "@" },
+      ),
     );
-
-    act(() => {
-      result.current.setQuery("Only worktree", "@");
-    });
 
     expect(result.current.results.suggestions).toEqual([
       expect.objectContaining({
@@ -107,10 +107,10 @@ describe("usePromptMentions thread contexts", () => {
 
   it("passes the selected EVA agent to core mention search", () => {
     renderHook(() =>
-      usePromptMentions("proj_1", {
-        environmentId: null,
-        agentId: "orchestrator",
-      }),
+      usePromptMentions(
+        { projectId: "proj_1", environmentId: null, agentId: "orchestrator" },
+        { text: "meta", trigger: "@" },
+      ),
     );
 
     expect(mocks.useEvaAgentMentionSearch).toHaveBeenCalledWith(
@@ -131,12 +131,15 @@ describe("usePromptMentions thread contexts", () => {
       },
     });
     const { result } = renderHook(() =>
-      usePromptMentions("proj_1", {
-        environmentId: null,
-        currentThreadId: "thr_meta",
-      }),
+      usePromptMentions(
+        {
+          projectId: "proj_1",
+          environmentId: null,
+          currentThreadId: "thr_meta",
+        },
+        { text: "", trigger: "@" },
+      ),
     );
-    act(() => result.current.setQuery("", "@"));
 
     expect(result.current.agentsOnly).toBe(true);
     expect(mocks.useEvaAgentMentionSearch).toHaveBeenLastCalledWith(
@@ -156,12 +159,15 @@ describe("usePromptMentions thread contexts", () => {
       data: makeThread({ id: "thr_admin", agentId: "admin" }),
     });
     const { result } = renderHook(() =>
-      usePromptMentions("proj_1", {
-        environmentId: null,
-        currentThreadId: "thr_admin",
-      }),
+      usePromptMentions(
+        {
+          projectId: "proj_1",
+          environmentId: null,
+          currentThreadId: "thr_admin",
+        },
+        { text: "sidebar", trigger: "@" },
+      ),
     );
-    act(() => result.current.setQuery("sidebar", "@"));
 
     expect(result.current.agentsOnly).toBe(false);
     expect(mocks.useThreadMentionCandidates).toHaveBeenLastCalledWith({

@@ -19,6 +19,7 @@ function makeThread(id = "thread-1", ownerName?: string): PluginSidebarThread {
     title: "EVA thread",
     displayTitle: "EVA thread",
     lifecycleOwnerThreadId: null,
+    parentNotifications: "auto",
     sourceThreadId: null,
     status: "idle",
     runtimeStatus: "idle",

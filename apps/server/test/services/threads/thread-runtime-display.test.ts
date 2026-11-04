@@ -7,7 +7,6 @@ import {
   appendStoredThreadEvent,
   authUsers,
   closeSession,
-  createConnection,
   createEnvironment,
   createProject,
   createQueuedThreadMessage,
@@ -15,7 +14,6 @@ import {
   hostDaemonSessions,
   listQueuedThreadMessages,
   listThreadsWithPendingInteractionState,
-  migrate,
   noopNotifier,
   openSession,
   setQueuedThreadMessageFailureReason,
@@ -23,6 +21,7 @@ import {
   type DbConnection,
   type ThreadWithPendingInteractionState,
 } from "@bb/db";
+import { createMigratedConnection } from "@bb/db/testing";
 import {
   formatClientTurnRequestIdSuffix,
   threadScope,
@@ -136,8 +135,7 @@ function turnRequestData({
 }
 
 function setup(): SetupResult {
-  const db = createConnection(":memory:");
-  migrate(db);
+  const db = createMigratedConnection();
   const hub = new NotificationHub();
   const host = upsertHost(db, noopNotifier, {
     id: "host-runtime-display",
@@ -264,7 +262,7 @@ describe("thread runtime display", () => {
       const { thread } = createThreadWithEnvironment({ db, hostId });
       const chat = { ...thread, agentId: "meta", title: "Old task title" };
       expect(
-        toThreadResponseFromThread({ db, hub }, { thread: chat }).title,
+        toThreadResponseFromThread({ db, hub, providerRegistry }, { thread: chat }).title,
       ).toBe("Meta");
       const admin = { ...thread, agentId: "admin", title: "Fix login" };
       const child = {
@@ -350,13 +348,13 @@ describe("thread runtime display", () => {
       authContext("admin"),
       "GET",
       () =>
-        toThreadResponseFromThread({ db, hub }, { thread: threadWithOwner }),
+        toThreadResponseFromThread({ db, hub, providerRegistry }, { thread: threadWithOwner }),
     );
     const userResponse = runWithCoreAuthRequest(
       authContext("user"),
       "GET",
       () =>
-        toThreadResponseFromThread({ db, hub }, { thread: threadWithOwner }),
+        toThreadResponseFromThread({ db, hub, providerRegistry }, { thread: threadWithOwner }),
     );
 
     expect(adminResponse.ownerName).toBe("Ana García");

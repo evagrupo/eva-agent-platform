@@ -65,22 +65,57 @@ const LOCAL_CORE_AUTH: CoreAuthState = {
   signIn: async () => null,
   signOut: async () => {},
 };
+import { LocationProbe } from "@/test/location-probe";
+import {
+  AppCommandProvider,
+  useAppCommandRunner,
+} from "@/components/commands/AppCommandProvider";
+import { getFixedPanelTabsStateStorageKey } from "@bb/client-core";
+import { resetFixedPanelTabsStateForTest } from "@/lib/fixed-panel-tabs";
+import { getFocusedAppPanelController } from "@/lib/app-fixed-tab-navigation";
+import { createBbDesktopApi } from "@/test/bb-desktop-test-utils";
+import type { BbDesktopCloseWindowRequestHandler } from "@bb/desktop-contract";
+
+function seedBrowseTabs(
+  tabs: readonly string[],
+  activePluginId: string | null,
+) {
+  window.localStorage.setItem(
+    "bb.plugins.workspace.tabs",
+    JSON.stringify({ tabs, activePluginId }),
+  );
+}
+
+function browseTabs(): { tabs: string[]; activePluginId: string | null } {
+  const state = JSON.parse(
+    window.localStorage.getItem(
+      getFixedPanelTabsStateStorageKey({ threadId: "plugins-browse" }),
+    ) ?? "null",
+  ) as {
+    secondary: {
+      tabs: { id: string; detailKey: string }[];
+      activeTabId: string | null;
+      isOpen: boolean;
+    };
+  } | null;
+  const tabs = state?.secondary.tabs ?? [];
+  const active = state?.secondary.isOpen
+    ? tabs.find((tab) => tab.id === state.secondary.activeTabId)
+    : undefined;
+  return {
+    tabs: tabs.map((tab) => tab.detailKey),
+    activePluginId: active?.detailKey ?? null,
+  };
+}
 
 vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-vi.mock("react-resizable-panels", async () => {
-  const { createRequire } = await import("node:module");
-  const { dirname, join } = await import("node:path");
-  const require = createRequire(import.meta.url);
-  return require(
-    join(
-      dirname(require.resolve("react-resizable-panels/package.json")),
-      "dist/react-resizable-panels.browser.cjs.js",
-    ),
-  );
-});
+vi.mock(
+  "react-resizable-panels",
+  () => import("@/test/react-resizable-panels-browser"),
+);
 
 const GITHUB_PLUGIN = makePluginListItem({
   id: "github",
@@ -152,20 +187,6 @@ function RoutedPluginsView() {
   );
 }
 
-function LocationProbe() {
-  const location = useLocation();
-  return (
-    <>
-      <output data-testid="route-path">{location.pathname}</output>
-      <output data-testid="route-search">{location.search}</output>
-    </>
-  );
-}
-
-function routeUrl(): string {
-  return `${screen.getByTestId("route-path").textContent}${screen.getByTestId("route-search").textContent}`;
-}
-
 function HistoryBackButton() {
   const navigate = useNavigate();
   return <button onClick={() => navigate(-1)}>Browser back</button>;
@@ -177,10 +198,132 @@ function renderWithQueryClient(ui: ReactNode) {
 
 afterEach(() => {
   cleanup();
-  window.localStorage.removeItem("bb.plugins.workspace.tabs");
+  window.localStorage.clear();
+  resetFixedPanelTabsStateForTest();
   resetPluginSlotStoreForTest();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  delete window.bbDesktop;
+});
+
+function ClosePluginCommand({
+  onHandled,
+}: {
+  onHandled: (handled: boolean) => void;
+}) {
+  const runner = useAppCommandRunner();
+  return (
+    <button onClick={() => onHandled(runner.dispatch("panel.close", null))}>
+      Request plugin close
+    </button>
+  );
+}
+
+describe("Plugins catalog close arbitration", () => {
+  it.each([
+    ["desktop", false],
+    ["command", false],
+    ["desktop", true],
+    ["command", true],
+  ] as const)(
+    "closes active details before window fallback via %s (compact: %s)",
+    async (entryPoint, compact) => {
+      const handlers = new Set<BbDesktopCloseWindowRequestHandler>();
+      window.bbDesktop = {
+        ...createBbDesktopApi({
+          platform: "macos",
+          version: "0.0.0-test",
+          lastCheckedAt: null,
+          latestVersion: null,
+          pendingVersion: null,
+          updateAvailable: false,
+          updateDownloaded: false,
+        }),
+        onCloseWindowRequest(handler) {
+          handlers.add(handler);
+          return () => handlers.delete(handler);
+        },
+      };
+      const entries = [
+        GITHUB_CATALOG_ENTRY,
+        {
+          ...GITHUB_CATALOG_ENTRY,
+          entryId: "automations",
+          pluginId: "automations",
+          displayName: "Automations",
+          source: "builtin:automations",
+        },
+      ];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url === "/api/v1/plugins") {
+            return Response.json({ enabled: true, plugins: [] });
+          }
+          if (url.startsWith("/api/v1/plugin-catalog/search")) {
+            return Response.json({ results: entries, collections: [] });
+          }
+          return Response.json({ error: "not found" }, { status: 404 });
+        }),
+      );
+      const store = createStore();
+      seedBrowseTabs(["github", "automations"], "automations");
+      const onHandled = vi.fn();
+      const view = renderWithQueryClient(
+        <Provider store={store}>
+          <CompactViewportOverrideProvider isCompactViewport={compact}>
+            <MemoryRouter initialEntries={["/plugins/automations"]}>
+              <AppCommandProvider>
+                <ClosePluginCommand onHandled={onHandled} />
+                <RoutedPluginsView />
+              </AppCommandProvider>
+            </MemoryRouter>
+          </CompactViewportOverrideProvider>
+        </Provider>,
+      );
+      await screen.findByRole("heading", { name: "Automations", level: 1 });
+      const requestClose = () => {
+        let handled = false;
+        act(() => {
+          if (entryPoint === "desktop") {
+            handled = [...handlers].some((handler) => handler());
+          } else {
+            fireEvent.click(
+              screen.getByRole("button", { name: "Request plugin close" }),
+            );
+            handled = onHandled.mock.lastCall?.[0] ?? false;
+          }
+        });
+        return handled;
+      };
+      expect(
+        window.localStorage.getItem("bb.plugins.workspace.tabs"),
+      ).toBeNull();
+      expect(getFocusedAppPanelController()?.getTabs()).toMatchObject({
+        open: true,
+        tabs: [
+          { detail: { kind: "plugin-details", pluginId: "github" } },
+          { detail: { kind: "plugin-details", pluginId: "automations" } },
+        ],
+      });
+      expect(requestClose()).toBe(true);
+      expect(browseTabs()).toEqual({
+        tabs: ["github"],
+        activePluginId: "github",
+      });
+      await screen.findByRole("heading", { name: "GitHub", level: 1 });
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/plugins/github",
+      );
+      expect(requestClose()).toBe(true);
+      expect(browseTabs()).toEqual({ tabs: [], activePluginId: null });
+      expect(screen.getByTestId("location").textContent).toBe("/plugins");
+      expect(requestClose()).toBe(false);
+      view.unmount();
+      expect(handlers.size).toBe(0);
+    },
+  );
 });
 
 describe("PluginDetail official catalog lifecycle", () => {
@@ -386,6 +529,7 @@ describe("PluginDetail official catalog lifecycle", () => {
       updateState: {
         ...EMPTY_PLUGIN_UPDATE_STATE,
         availableVersion: "1.5.0",
+        availableLabel: "1.5.0",
       },
     };
     render(
@@ -529,8 +673,10 @@ describe("PluginDetail official catalog lifecycle", () => {
       updateState: {
         ...EMPTY_PLUGIN_UPDATE_STATE,
         availableVersion: "1.5.0",
+        availableLabel: "1.5.0",
         lastFailure: {
           version: "1.5.0",
+          label: "1.5.0",
           at: null,
           detail: "The plugin failed to load.",
         },
@@ -543,6 +689,7 @@ describe("PluginDetail official catalog lifecycle", () => {
       updateState: {
         ...EMPTY_PLUGIN_UPDATE_STATE,
         blockedVersion: "2.0.0",
+        blockedLabel: "2.0.0",
         blockedReasons: ["Requires bb 0.20 or newer."],
       },
       expected: "Update blocked",
@@ -794,6 +941,101 @@ describe("PluginDetail official catalog lifecycle", () => {
 });
 
 describe("EVA Official plugin detail routing", () => {
+  it.each([
+    {
+      action: "Close other tabs",
+      target: "memory",
+      active: "memory",
+      remaining: ["memory"],
+      nextActive: "memory",
+    },
+    {
+      action: "Close other tabs",
+      target: "github",
+      active: "memory",
+      remaining: ["github"],
+      nextActive: "github",
+    },
+    {
+      action: "Close tabs to the right",
+      target: "automations",
+      active: "memory",
+      remaining: ["github", "automations"],
+      nextActive: "automations",
+    },
+    {
+      action: "Close tabs to the right",
+      target: "automations",
+      active: "github",
+      remaining: ["github", "automations"],
+      nextActive: "github",
+    },
+  ])(
+    "$action on $target with $active active persists every close and the surviving selection",
+    async ({ action, target, active, remaining, nextActive }) => {
+      const entries = ["github", "automations", "tasks", "memory"].map(
+        (id) => ({
+          ...GITHUB_CATALOG_ENTRY,
+          entryId: id,
+          pluginId: id,
+          displayName: id,
+          source: `builtin:${id}`,
+        }),
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url === "/api/v1/plugins") {
+            return Response.json({ enabled: true, plugins: [] });
+          }
+          if (url.startsWith("/api/v1/plugin-catalog/search")) {
+            return Response.json({ results: entries, collections: [] });
+          }
+          return Response.json({ error: "not found" }, { status: 404 });
+        }),
+      );
+      const store = createStore();
+      seedBrowseTabs(
+        entries.map((entry) => entry.entryId),
+        active,
+      );
+      const { wrapper } = createQueryClientTestHarness();
+      render(
+        <Provider store={store}>
+          <CompactViewportOverrideProvider isCompactViewport={false}>
+            <MemoryRouter initialEntries={[`/plugins/${active}`]}>
+              <RoutedPluginsView />
+            </MemoryRouter>
+          </CompactViewportOverrideProvider>
+        </Provider>,
+        { wrapper },
+      );
+
+      fireEvent.contextMenu(
+        await screen.findByRole("button", { name: target }),
+      );
+      fireEvent.click(screen.getByRole("menuitem", { name: action }));
+
+      await waitFor(() => {
+        expect(browseTabs()).toEqual({
+          tabs: remaining,
+          activePluginId: nextActive,
+        });
+        expect(screen.getByTestId("location").textContent).toBe(
+          `/plugins/${nextActive}`,
+        );
+      });
+      for (const entry of entries) {
+        expect(
+          screen.queryByRole("button", {
+            name: `Close ${entry.displayName}`,
+          }) !== null,
+        ).toBe(remaining.includes(entry.entryId));
+      }
+    },
+  );
+
   it.each([false, true])(
     "keeps official attribution and tabs through collection navigation (compact: %s)",
     async (compact) => {
@@ -883,11 +1125,7 @@ describe("EVA Official plugin detail routing", () => {
             screen.queryByRole("heading", { name: "GitHub", level: 1 }),
           ).toBeNull(),
         );
-        expect(
-          JSON.parse(
-            window.localStorage.getItem("bb.plugins.workspace.tabs") ?? "{}",
-          ).tabs,
-        ).toContain("github");
+        expect(browseTabs().tabs).toContain("github");
         fireEvent.click(
           (
             await screen.findAllByRole("button", {
@@ -930,7 +1168,7 @@ describe("EVA Official plugin detail routing", () => {
       expect(screen.getByRole("button", { name: "Close GitHub" })).toBeTruthy();
       fireEvent.click(screen.getByRole("link", { name: "Browse plugins" }));
       await waitFor(() =>
-        expect(screen.getByTestId("route-search").textContent).toBe(""),
+        expect(screen.getByTestId("location").textContent).toBe("/plugins"),
       );
       expect(
         screen.getByRole("button", { name: "Close Automations" }),
@@ -1013,7 +1251,9 @@ describe("EVA Official plugin detail routing", () => {
     );
 
     await waitFor(() => {
-      expect(routeUrl()).toBe("/plugins/canvas?q=canvas&listing=bb-community");
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/plugins/canvas?q=canvas&listing=bb-community",
+      );
     });
     await waitFor(() => {
       expect(document.querySelector("[data-plugin-summary]")?.textContent).toBe(
@@ -1031,7 +1271,9 @@ describe("EVA Official plugin detail routing", () => {
       screen.getByRole("button", { name: "View installed plugin" }),
     );
     await waitFor(() => {
-      expect(routeUrl()).toBe("/plugins/canvas?q=canvas");
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/plugins/canvas?q=canvas",
+      );
     });
     await waitFor(() => {
       expect(document.querySelector("[data-plugin-summary]")?.textContent).toBe(
@@ -1042,7 +1284,9 @@ describe("EVA Official plugin detail routing", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "View listing" }));
     await waitFor(() => {
-      expect(routeUrl()).toBe("/plugins/canvas?q=canvas&listing=bb-community");
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/plugins/canvas?q=canvas&listing=bb-community",
+      );
     });
   });
 
@@ -1368,9 +1612,8 @@ describe("EVA Official plugin detail routing", () => {
         screen.getByRole("button", { name: `Close ${pluginName}` }),
       );
       await waitFor(() => {
-        expect(screen.getByTestId("route-path").textContent).toBe("/plugins");
-        expect(screen.getByTestId("route-search").textContent).toBe(
-          installed ? "?view=installed&query=Local+GitHub" : "",
+        expect(screen.getByTestId("location").textContent).toBe(
+          installed ? "/plugins?view=installed&query=Local+GitHub" : "/plugins",
         );
         expect(document.activeElement).toBe(card);
         if (installed) expect(search).toHaveProperty("value", "Local GitHub");
@@ -1384,8 +1627,8 @@ describe("EVA Official plugin detail routing", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
       await waitFor(() => {
-        expect(screen.getByTestId("route-path").textContent).toBe(
-          "/plugins/github",
+        expect(screen.getByTestId("location").textContent).toBe(
+          installed ? "/plugins/github?view=installed" : "/plugins/github",
         );
       });
     },
@@ -1466,9 +1709,7 @@ describe("EVA Official plugin detail routing", () => {
           name: "Search installed plugins",
         }),
       ).toBeTruthy();
-      expect(screen.getByTestId("route-path").textContent).toBe(
-        path.split("?")[0],
-      );
+      expect(screen.getByTestId("location").textContent).toBe(path);
       const pluginButton = await screen.findByRole("button", {
         name: "GitHub plugin details",
       });
@@ -1482,13 +1723,10 @@ describe("EVA Official plugin detail routing", () => {
     expect(screen.getAllByText("GitHub", { selector: "h1" })).toHaveLength(1);
     fireEvent.click(relatedPluginButton);
     await waitFor(() => {
-      expect(screen.getByTestId("route-path").textContent).toBe(
-        "/plugins/automations",
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/plugins/automations?view=installed",
       );
     });
-    expect(screen.getByTestId("route-search").textContent).toBe(
-      "?view=installed",
-    );
     expect(
       await screen.findByRole("button", { name: "Close Automations" }),
     ).toBeTruthy();
@@ -1558,23 +1796,17 @@ describe("EVA Official plugin detail routing", () => {
       (await screen.findAllByRole("link", { name: "EVA Official" }))[0]!,
     );
     expect(await screen.findByRole("heading", { name: /^EVA/u })).toBeTruthy();
-    let params = new URLSearchParams(
-      screen.getByTestId("route-search").textContent ?? "",
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/plugins?category=code-and-reviews&sort=recently-added&author=11%3Abb-official%3Agithub%3Aget-bb",
     );
-    expect(params.get("author")).toBe("11:bb-official:github:get-bb");
-    expect(params.getAll("category")).toEqual(["code-and-reviews"]);
-    expect(params.get("sort")).toBe("recently-added");
 
     fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: /^EVA/u })).toBeNull();
     });
-    params = new URLSearchParams(
-      screen.getByTestId("route-search").textContent ?? "",
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/plugins?category=code-and-reviews&sort=recently-added",
     );
-    expect(params.has("author")).toBe(false);
-    expect(params.getAll("category")).toEqual(["code-and-reviews"]);
-    expect(params.get("sort")).toBe("recently-added");
 
     fireEvent.click(
       (await screen.findAllByRole("link", { name: "EVA Official" }))[0]!,
@@ -1645,14 +1877,11 @@ describe("EVA Official plugin detail routing", () => {
     const authorLinks = screen.getAllByRole("link", { name: "EVA Official" });
     fireEvent.click(authorLinks.at(-1)!);
     await waitFor(() => {
-      expect(screen.getByTestId("route-path").textContent).toBe("/plugins");
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/plugins?author=11%3Abb-official%3Agithub%3Aget-bb",
+      );
     });
     expect(await screen.findByRole("heading", { name: /^EVA/u })).toBeTruthy();
-    expect(
-      new URLSearchParams(
-        screen.getByTestId("route-search").textContent ?? "",
-      ).get("author"),
-    ).toBe("11:bb-official:github:get-bb");
   });
 });
 
@@ -1759,10 +1988,13 @@ describe("PluginDetail banner precedence", () => {
     updateState: {
       ...EMPTY_PLUGIN_UPDATE_STATE,
       availableVersion: "1.5.0",
+      availableLabel: "1.5.0",
       blockedVersion: "2.0.0",
+      blockedLabel: "2.0.0",
       blockedReasons: ["Requires a newer bb."],
       lastFailure: {
         version: "1.4.5",
+        label: "1.4.5",
         at: null,
         detail: "The plugin failed to load after the update.",
       },
@@ -2468,7 +2700,7 @@ describe("detail disable workspace cleanup", () => {
       if (fails) {
         expect(store.get(splitLayoutAtom)).toEqual(layout);
         expect(store.get(maximizedPaneIdAtom)).toBe("github");
-        expect(screen.getByTestId("route-path").textContent).toBe(
+        expect(screen.getByTestId("location").textContent).toBe(
           "/plugins/github/main",
         );
       } else {
@@ -2476,9 +2708,9 @@ describe("detail disable workspace cleanup", () => {
           content: { kind: "new-thread" },
         });
         expect(store.get(maximizedPaneIdAtom)).toBeNull();
-        expect(screen.getByTestId("route-path").textContent).toBe("/");
+        expect(screen.getByTestId("location").textContent).toBe("/");
         fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
-        expect(screen.getByTestId("route-path").textContent).toBe("/skills");
+        expect(screen.getByTestId("location").textContent).toBe("/skills");
       }
     },
   );
@@ -2570,16 +2802,16 @@ describe("plugin detail source and settings", () => {
       "value",
       "get-bb/bb",
     );
-    expect(screen.getByTestId("route-search").textContent).toBe(
-      "?view=installed&configure=github",
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/plugins/github?view=installed&configure=github",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Plugin details" }));
     expect(
       await screen.findByRole("heading", { name: "Details" }),
     ).toBeTruthy();
-    expect(screen.getByTestId("route-search").textContent).toBe(
-      "?view=installed",
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/plugins/github?view=installed",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
@@ -2661,8 +2893,8 @@ describe("plugin detail source and settings", () => {
       "value",
       "get-bb/bb",
     );
-    expect(screen.getByTestId("route-search").textContent).toBe(
-      "?view=installed&configure=github",
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/plugins/github?view=installed&configure=github",
     );
   });
 
@@ -2687,13 +2919,16 @@ describe("plugin detail source and settings", () => {
       "value",
       "get-bb/bb",
     );
-    expect(screen.getByTestId("route-path").textContent).toBe("/threads/thr_1");
-    expect(screen.getByTestId("route-search").textContent).toBe("?panel=files");
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/threads/thr_1?panel=files",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Plugin details" }));
     expect(
       await screen.findByRole("heading", { name: "Details" }),
     ).toBeTruthy();
-    expect(screen.getByTestId("route-search").textContent).toBe("?panel=files");
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/threads/thr_1?panel=files",
+    );
   });
 });
