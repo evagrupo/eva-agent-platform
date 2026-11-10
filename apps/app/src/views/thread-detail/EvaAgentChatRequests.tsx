@@ -6,6 +6,7 @@ import type { TimelineRow } from "@bb/server-contract";
 import { Icon } from "@bb/shared-ui/icon";
 import { evaAgentColor } from "@/lib/eva-agent-colors";
 import { cn } from "@bb/shared-ui/lib/utils";
+import { PROSE_COLUMN_INSET_CLASS } from "@/components/thread/timeline/MessageActionBar";
 import { ThreadTimelineRows } from "@/components/thread/timeline/ThreadTimelineRows";
 import type { ThreadTimelineLinkHandler } from "@/components/thread/timeline/types";
 import { useEvaAgentChatRequestTimeline } from "@/hooks/queries/eva-agent-chat-history-query";
@@ -132,10 +133,10 @@ export function EvaAgentChatRequestCard({
   const bodyId = `eva-request-body-${request.threadId}`;
   return (
     <div
-      className="my-2 flex w-full justify-start"
+      className={cn("my-2 flex w-full justify-start", PROSE_COLUMN_INSET_CLASS)}
       data-eva-agent-chat-request={request.threadId}
     >
-      <div className="w-full max-w-xl overflow-hidden rounded-xl border border-border-seam bg-surface-recessed/60">
+      <div className="w-full overflow-hidden rounded-2xl border border-border-seam bg-surface-recessed/60">
         <button
           type="button"
           aria-controls={openInSplit === null ? bodyId : undefined}

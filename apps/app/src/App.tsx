@@ -1,4 +1,5 @@
 import { appQueryClient } from "./lib/app-query-client";
+import { SplitLayoutAccountReset } from "@/lib/split-layout/SplitLayoutAccountReset";
 import { environmentProvidersQueryOptions } from "./hooks/queries/environment-provider-queries";
 import { machineProvidersQueryOptions } from "./hooks/queries/machine-provider-queries";
 import { PluginUpdateJobsHost } from "./components/plugin/PluginUpdateJobsHost";
@@ -688,6 +689,7 @@ export function App() {
   return (
     <CoreAuthProvider>
       <CoreLanguageMount />
+      <SplitLayoutAccountReset />
       <AppRoot />
     </CoreAuthProvider>
   );
