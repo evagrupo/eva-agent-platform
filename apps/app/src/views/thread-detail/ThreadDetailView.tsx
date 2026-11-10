@@ -398,7 +398,10 @@ function ThreadDetailViewInternal(
   } = usePaneContext();
   const navigate = useImmediateRouteNavigate();
   const coreAuth = useCoreAuth();
-  const [openAgentReport, setOpenAgentReport] = useState<string | null>(null);
+  const [openAgentReport, setOpenAgentReport] = useState<{
+    threadId: string;
+    name: string;
+  } | null>(null);
   useEffect(() => setOpenAgentReport(null), [threadId]);
   const secondaryPanelAllowed = canUseCoreCapability(
     coreAuth,
@@ -1359,19 +1362,29 @@ function ThreadDetailViewInternal(
       openWorkspaceFile,
     ],
   );
-  const handleOpenTimelineLocalFileLink = useCallback(
+  // Opens a file link from this chat, or from an earlier part of it
+  // (`sourceThreadId`), whose reports live in that part's own storage.
+  const openTimelineLocalFileLinkFrom = useCallback(
     (
+      sourceThreadId: string,
       link: ThreadTimelineLocalFileLink,
       options?: ThreadSecondaryPanelFileOpenOptions,
     ) => {
-      const report =
+      // Reports open in BB's side panel. Only people who cannot use the
+      // side panel or read files (regular users) get the in-chat reader.
+      const reportName =
+        !(secondaryPanelAllowed && filesAllowed) &&
         thread?.agentId &&
         thread.agentId !== "admin" &&
         link.openTargetId === null
-          ? agentReportName(link.path, threadStorageRootPath, threadId)
+          ? agentReportName(
+              link.path,
+              sourceThreadId === threadId ? threadStorageRootPath : null,
+              sourceThreadId,
+            )
           : null;
-      if (report !== null) {
-        setOpenAgentReport(report);
+      if (reportName !== null) {
+        setOpenAgentReport({ threadId: sourceThreadId, name: reportName });
         return true;
       }
       if (!filesAllowed) return false;
@@ -1390,6 +1403,7 @@ function ThreadDetailViewInternal(
     },
     [
       filesAllowed,
+      secondaryPanelAllowed,
       fileOpenTargets,
       handleTimelineLocalFileLinkResolution,
       thread?.environmentId,
@@ -1398,6 +1412,13 @@ function ThreadDetailViewInternal(
       threadStorageRootPath,
       workspacePreviewRootPath,
     ],
+  );
+  const handleOpenTimelineLocalFileLink = useCallback(
+    (
+      link: ThreadTimelineLocalFileLink,
+      options?: ThreadSecondaryPanelFileOpenOptions,
+    ) => openTimelineLocalFileLinkFrom(threadId, link, options),
+    [openTimelineLocalFileLinkFrom, threadId],
   );
   const handleOpenTimelineLink = useCallback<ThreadTimelineLinkHandler>(
     ({ href }) => openBrowserUrl(href),
@@ -1949,6 +1970,7 @@ function ThreadDetailViewInternal(
           <EvaAgentChatEarlierParts
             thread={thread}
             onOpenLink={handleOpenTimelineLink}
+            onOpenLocalFileLinkFrom={openTimelineLocalFileLinkFrom}
             resolveMentionLink={resolveMentionLink}
           />
         ) : undefined,
@@ -2148,8 +2170,8 @@ function ThreadDetailViewInternal(
       value={getLocalFileContextMenuItems}
     >
       <AgentReportPanel
-        threadId={thread.id}
-        name={openAgentReport}
+        threadId={openAgentReport?.threadId ?? thread.id}
+        name={openAgentReport?.name ?? null}
         onClose={() => setOpenAgentReport(null)}
       />
       <BrowserTabLifecycleObserver

@@ -2,7 +2,10 @@ import { useEffect, useMemo } from "react";
 import type { PromptMentionLinkResolver } from "@bb/client-core";
 import { ThreadTimelineRows } from "@/components/thread/timeline/ThreadTimelineRows";
 import { withoutEvaAgentChatTechnicalNotices } from "@/components/thread/timeline/eva-agent-chat-timeline";
-import type { ThreadTimelineLinkHandler } from "@/components/thread/timeline/types";
+import type {
+  ThreadTimelineLinkHandler,
+  ThreadTimelineLocalFileLinkHandler,
+} from "@/components/thread/timeline/types";
 import { useImmediateRouteNavigate } from "@/components/ui/app-route-anchor";
 import {
   useEvaAgentChatPartTimelines,
@@ -22,12 +25,18 @@ interface EvaAgentChatEarlierPartsProps {
     parentThreadId?: string | null;
   };
   onOpenLink?: ThreadTimelineLinkHandler;
+  /** Opens a file link from the earlier part `threadId`. */
+  onOpenLocalFileLinkFrom?: (
+    threadId: string,
+    ...args: Parameters<ThreadTimelineLocalFileLinkHandler>
+  ) => ReturnType<ThreadTimelineLocalFileLinkHandler>;
   resolveMentionLink?: PromptMentionLinkResolver;
 }
 
 export function EvaAgentChatEarlierParts({
   thread,
   onOpenLink,
+  onOpenLocalFileLinkFrom,
   resolveMentionLink,
 }: EvaAgentChatEarlierPartsProps) {
   const navigate = useImmediateRouteNavigate();
@@ -64,6 +73,11 @@ export function EvaAgentChatEarlierParts({
             key={threadId}
             includePluginMessageActions={false}
             onOpenLink={onOpenLink}
+            onOpenLocalFileLink={
+              onOpenLocalFileLinkFrom === undefined
+                ? undefined
+                : (...args) => onOpenLocalFileLinkFrom(threadId, ...args)
+            }
             projectId={thread.projectId}
             resolveMentionLink={resolveMentionLink}
             resolveUserAttachmentImageSrc={toUserAttachmentImageSrc}
