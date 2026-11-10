@@ -13,10 +13,13 @@ import { ApiError } from "../../errors.js";
 import { requirePublicThread } from "../../services/lib/entity-lookup.js";
 import type { AppDeps } from "../../types.js";
 import {
+  assertCoreCapability,
   getCoreAuthContext,
+  isCoreCapabilityAllowed,
   knownEvaAgentIdsForContext,
   isPluginAllowedByPolicyForAgent,
 } from "../../access-policy.js";
+import { isEvaAgentChatSidePanelThread } from "../../services/threads/eva-agent-chat-side-panel.js";
 
 type WireThreadTab = ThreadTabsWireResponse["tabs"][number];
 
@@ -110,6 +113,7 @@ export function registerThreadTabRoutes(app: Hono, deps: AppDeps): void {
 
   get(routes.tabs, (context) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
+    assertThreadSidePanelAllowed(context, thread);
     return context.json(
       toWireThreadTabsResponse(readThreadTabs(deps, thread, context)),
     );
@@ -117,6 +121,7 @@ export function registerThreadTabRoutes(app: Hono, deps: AppDeps): void {
 
   put(routes.updateTabs, (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
+    assertThreadSidePanelAllowed(context, thread);
     for (const tab of payload.tabs) {
       if (tab.kind === "plugin-panel") {
         assertThreadPluginAllowed(context, thread, tab.pluginId);
@@ -143,4 +148,17 @@ export function registerThreadTabRoutes(app: Hono, deps: AppDeps): void {
       }),
     );
   });
+}
+
+/**
+ * The side panel needs the tabs capability, except in an agent chat, where
+ * every reader may use it to read what the agent shares.
+ */
+function assertThreadSidePanelAllowed(
+  context: object,
+  thread: { agentId: string | null; parentThreadId: string | null },
+): void {
+  if (isCoreCapabilityAllowed(context, "secondaryPanelTabs")) return;
+  if (isEvaAgentChatSidePanelThread(thread)) return;
+  assertCoreCapability(context, "secondaryPanelTabs");
 }

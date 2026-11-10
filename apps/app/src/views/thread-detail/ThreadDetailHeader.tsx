@@ -1,4 +1,5 @@
 import { preloadThreadSecondaryPanel } from "@/components/secondary-panel/lazySecondaryPanelComponents";
+import { useThreadSidePanelAllowed } from "./thread-side-panel-access";
 import {
   useCallback,
   useContext,
@@ -57,7 +58,7 @@ import {
 } from "@bb/shared-ui/context-selection";
 import { usePaneContext } from "./PaneContext";
 import { PaneMaximizeButton } from "./PaneMaximizeButton";
-import { canUseCoreCapability, useCoreAuth } from "@/lib/core-auth";
+import { useCoreAuth } from "@/lib/core-auth";
 
 const THREAD_HEADER_ACTION_BUTTON_CLASS = cn(
   COARSE_POINTER_TOOLBAR_ACTION_BUTTON_CLASS,
@@ -103,10 +104,7 @@ export function ThreadDetailHeader({
   contextCardButton,
 }: ThreadDetailHeaderProps) {
   const auth = useCoreAuth();
-  const secondaryPanelAllowed = canUseCoreCapability(
-    auth,
-    "secondaryPanelTabs",
-  );
+  const secondaryPanelAllowed = useThreadSidePanelAllowed();
   const isCompactViewport = useIsCompactViewport();
   const isPointerCoarse = usePointerCoarse();
   const threadId = thread.id;

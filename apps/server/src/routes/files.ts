@@ -5,6 +5,7 @@ import {
   assertCoreCapability,
   assertResourceAccess,
   getCoreAuthContext,
+  isCoreCapabilityAllowed,
   requireAuthorizedThread,
 } from "../access-policy.js";
 import {
@@ -14,6 +15,10 @@ import {
 } from "@bb/server-contract";
 import { COMMAND_TIMEOUT_MS } from "../constants.js";
 import { ApiError } from "../errors.js";
+import {
+  isEvaAgentChatReportPath,
+  isEvaAgentChatSidePanelThread,
+} from "../services/threads/eva-agent-chat-side-panel.js";
 import { browserRequestProblem } from "../browser-request-guard.js";
 import type { AppDeps } from "../types.js";
 import type { HostDaemonRpcCommand } from "@bb/host-daemon-contract";
@@ -433,14 +438,20 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(threadRoutes.storageFile, async (context) => {
-    assertCoreCapability(context, "files");
     const thread = requireAuthorizedThread(
       deps.db,
       context,
       context.req.param("id"),
       "read",
     );
-    if (thread.environmentId !== null)
+    // A reader of an agent chat may open the reports its agent shared there,
+    // in BB's side panel, without general file access.
+    const agentChatReport =
+      !isCoreCapabilityAllowed(context, "files") &&
+      isEvaAgentChatSidePanelThread(thread) &&
+      isEvaAgentChatReportPath(context.req.param("filePath") ?? "");
+    if (!agentChatReport) assertCoreCapability(context, "files");
+    if (!agentChatReport && thread.environmentId !== null)
       assertResourceAccess(
         deps.db,
         context,

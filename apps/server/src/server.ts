@@ -80,6 +80,7 @@ import { registerProjectRoutes } from "./routes/projects.js";
 import { registerThreadSectionRoutes } from "./routes/thread-sections.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerUiPreferenceRoutes } from "./routes/ui-preferences.js";
+import { isEvaAgentChatSidePanelRequest } from "./services/threads/eva-agent-chat-side-panel.js";
 import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerThreadRoutes } from "./routes/threads/index.js";
 import { registerQueueRoutes } from "./routes/queue.js";
@@ -1261,8 +1262,17 @@ export function createApp(
       }
       return null;
     })();
+    // Agent chat side panel requests (tab state, one report file) are
+    // checked by their routes: only readable agent chats, reports only.
+    const agentChatSidePanelRequest =
+      (requiredCapability === "secondaryPanelTabs" ||
+        requiredCapability === "files") &&
+      (isCoreCapabilityAllowed(context, "threadOwnRead") ||
+        isCoreCapabilityAllowed(context, "threadAllRead")) &&
+      isEvaAgentChatSidePanelRequest(context.req.method, normalizedPath);
     if (
       requiredCapability !== null &&
+      !agentChatSidePanelRequest &&
       !(coreSidebarRequest && requiredCapability === "plugins")
     ) {
       assertCoreCapability(context, requiredCapability);

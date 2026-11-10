@@ -1,4 +1,5 @@
 import { useMemo, type ComponentProps, type ReactNode } from "react";
+import { useThreadSidePanelAllowed } from "./thread-side-panel-access";
 import { Skeleton } from "@bb/shared-ui/skeleton";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
@@ -74,10 +75,7 @@ function ThreadDetailSecondaryContentBody({
   secondaryPanel,
 }: ThreadDetailSecondaryContentProps) {
   const auth = useCoreAuth();
-  const secondaryPanelAllowed = canUseCoreCapability(
-    auth,
-    "secondaryPanelTabs",
-  );
+  const secondaryPanelAllowed = useThreadSidePanelAllowed();
   const threadInfoAllowed = canUseCoreCapability(auth, "threadInfo");
   const paneContext = useOptionalPaneContext();
   const composerHost = usePluginComposerHost();

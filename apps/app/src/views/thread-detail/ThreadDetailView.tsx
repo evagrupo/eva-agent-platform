@@ -1,5 +1,8 @@
-import { AgentReportPanel } from "./AgentReportPanel";
 import { agentReportName } from "./agent-report-link";
+import {
+  canUseThreadSidePanel,
+  ThreadSidePanelAccessProvider,
+} from "./thread-side-panel-access";
 import { getPluginPanelRoutePath } from "@/lib/route-paths";
 import { AppPanelTabsPublisher } from "@/lib/app-panel-tabs";
 import {
@@ -398,15 +401,6 @@ function ThreadDetailViewInternal(
   } = usePaneContext();
   const navigate = useImmediateRouteNavigate();
   const coreAuth = useCoreAuth();
-  const [openAgentReport, setOpenAgentReport] = useState<{
-    threadId: string;
-    name: string;
-  } | null>(null);
-  useEffect(() => setOpenAgentReport(null), [threadId]);
-  const secondaryPanelAllowed = canUseCoreCapability(
-    coreAuth,
-    "secondaryPanelTabs",
-  );
   const threadInfoAllowed = canUseCoreCapability(coreAuth, "threadInfo");
   const filesAllowed = canUseCoreCapability(coreAuth, "files");
   const terminalReadAllowed = canUseCoreCapability(coreAuth, "terminalRead");
@@ -430,6 +424,14 @@ function ThreadDetailViewInternal(
       ? "turn-answer"
       : "first-unread-row",
   );
+  const secondaryPanelAllowed = canUseThreadSidePanel(coreAuth, thread ?? null);
+  // People without general file access still read the reports an agent
+  // shares in its chat, in the side panel (the server allows only those).
+  const agentChatReportsAllowed =
+    !filesAllowed &&
+    secondaryPanelAllowed &&
+    thread !== undefined &&
+    isEvaAgentChatThread(thread);
   const environmentQuery = useEnvironment(thread?.environmentId, {
     enabled: hasThreadDetailBootstrapSettled,
     staleTime: 5_000,
@@ -558,7 +560,9 @@ function ThreadDetailViewInternal(
       threadId,
     });
   const threadStorageLocationQuery = useThreadStorageLocation(threadId, {
-    enabled: Boolean(thread?.environmentId) && filesAllowed,
+    enabled:
+      Boolean(thread?.environmentId) &&
+      (filesAllowed || agentChatReportsAllowed),
   });
   const threadStorageRootPath =
     threadStorageLocationQuery.data?.storageRootPath ?? null;
@@ -730,6 +734,14 @@ function ThreadDetailViewInternal(
       syncedOrderedSecondaryFileTabs.filter((tab) => {
         if (tab.kind === "terminal") return terminalReadAllowed;
         if (
+          tab.kind === "thread-storage-file-preview" &&
+          !filesAllowed &&
+          agentChatReportsAllowed
+        ) {
+          // Readers of an agent chat see the reports its agent shared.
+          return tab.path.startsWith("reports/");
+        }
+        if (
           tab.kind === "workspace-file-preview" ||
           tab.kind === "host-file-preview" ||
           tab.kind === "thread-storage-file-preview"
@@ -742,6 +754,7 @@ function ThreadDetailViewInternal(
         return true;
       }),
     [
+      agentChatReportsAllowed,
       coreAuth,
       filesAllowed,
       syncedOrderedSecondaryFileTabs,
@@ -1370,21 +1383,23 @@ function ThreadDetailViewInternal(
       link: ThreadTimelineLocalFileLink,
       options?: ThreadSecondaryPanelFileOpenOptions,
     ) => {
-      // Reports open in BB's side panel. Only people who cannot use the
-      // side panel or read files (regular users) get the in-chat reader.
-      const reportName =
-        !(secondaryPanelAllowed && filesAllowed) &&
-        thread?.agentId &&
-        thread.agentId !== "admin" &&
-        link.openTargetId === null
-          ? agentReportName(
-              link.path,
-              sourceThreadId === threadId ? threadStorageRootPath : null,
-              sourceThreadId,
-            )
-          : null;
-      if (reportName !== null) {
-        setOpenAgentReport({ threadId: sourceThreadId, name: reportName });
+      // Reports an agent shares open in BB's side panel. People without
+      // general file access (regular users) can open their chat's own
+      // reports there; the server allows exactly those files.
+      if (!filesAllowed) {
+        const reportName =
+          sourceThreadId === threadId &&
+          thread !== undefined &&
+          thread !== null &&
+          isEvaAgentChatThread(thread) &&
+          link.openTargetId === null
+            ? agentReportName(link.path, threadStorageRootPath, threadId)
+            : null;
+        if (reportName === null) return false;
+        openStorageFile(
+          { lineRange: link.lineRange, path: `reports/${reportName}` },
+          options,
+        );
         return true;
       }
       if (!filesAllowed) return false;
@@ -1403,11 +1418,11 @@ function ThreadDetailViewInternal(
     },
     [
       filesAllowed,
-      secondaryPanelAllowed,
       fileOpenTargets,
       handleTimelineLocalFileLinkResolution,
+      openStorageFile,
+      thread,
       thread?.environmentId,
-      thread?.agentId,
       threadId,
       threadStorageRootPath,
       workspacePreviewRootPath,
@@ -2166,14 +2181,10 @@ function ThreadDetailViewInternal(
       }),
     );
   const threadDetailContent = (
+    <ThreadSidePanelAccessProvider value={secondaryPanelAllowed}>
     <MarkdownLocalFileContextMenuContext.Provider
       value={getLocalFileContextMenuItems}
     >
-      <AgentReportPanel
-        threadId={openAgentReport?.threadId ?? thread.id}
-        name={openAgentReport?.name ?? null}
-        onClose={() => setOpenAgentReport(null)}
-      />
       <BrowserTabLifecycleObserver
         browserTabs={browserTabs}
         threadId={thread.id}
@@ -2259,6 +2270,7 @@ function ThreadDetailViewInternal(
         </AppNavigationHostProvider>
       </UrlOpenRoutingProvider>
     </MarkdownLocalFileContextMenuContext.Provider>
+    </ThreadSidePanelAccessProvider>
   );
   return (
     <>

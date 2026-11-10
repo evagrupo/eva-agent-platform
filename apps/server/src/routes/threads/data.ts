@@ -36,8 +36,10 @@ import {
   assertCoreCapability,
   assertPluginAllowedForAgent,
   assertResourceAccess,
+  isCoreCapabilityAllowed,
   requireAuthorizedThread,
 } from "../../access-policy.js";
+import { isEvaAgentChatSidePanelThread } from "../../services/threads/eva-agent-chat-side-panel.js";
 import { callHostRetryableOnlineRpc } from "../../services/hosts/online-rpc.js";
 import { requireThreadStorageTarget } from "../../services/threads/thread-storage.js";
 import { toThreadQueuedMessage } from "../../services/threads/thread-queued-messages.js";
@@ -577,7 +579,20 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.storageLocation, async (context) => {
-    requireStorageAccess(context, context.req.param("id"));
+    // Readers of an agent chat open its reports in the side panel, which
+    // needs to know where the chat's storage is.
+    const locationThread = requireAuthorizedThread(
+      deps.db,
+      context,
+      context.req.param("id"),
+      "read",
+    );
+    if (
+      isCoreCapabilityAllowed(context, "files") ||
+      !isEvaAgentChatSidePanelThread(locationThread)
+    ) {
+      requireStorageAccess(context, context.req.param("id"));
+    }
     const target = await requireThreadStorageTarget(
       deps,
       context.req.param("id"),
