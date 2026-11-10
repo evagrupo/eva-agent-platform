@@ -304,6 +304,7 @@ export interface EvaAgentChatSegmentsResult {
 
 const evaAgentChatRequestSchema = z.object({
   threadId: z.string(),
+  projectId: z.string().optional(),
   /** "outgoing": this chat's agent asked `fromAgent…` to do the work. */
   direction: z.enum(["incoming", "outgoing"]).optional(),
   fromAgentId: z.string(),

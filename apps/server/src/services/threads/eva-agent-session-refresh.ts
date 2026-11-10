@@ -57,7 +57,10 @@ export function needsEvaAgentSessionRefresh(
   thread: Pick<Thread, "id" | "agentId" | "parentThreadId" | "status">,
   input: readonly PromptInput[],
   epochMs: number = EVA_AGENT_SESSION_EPOCH_MS,
+  fromAgentThread = false,
 ): boolean {
+  // Only a person's own message refreshes a chat, not another agent's.
+  if (fromAgentThread) return false;
   if (!isEvaAgentChatThread(thread)) return false;
   if (thread.status !== "idle" && thread.status !== "error") return false;
   if (!input.some((part) => part.visibility !== "agent-only")) return false;

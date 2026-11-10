@@ -63,7 +63,15 @@ export async function acceptThreadSendRequest(
   }
   // An agent chat whose provider session predates the current tools and
   // rules gets a fresh session first; the agent rereads the conversation.
-  if (needsEvaAgentSessionRefresh(deps.db, args.thread, request.input)) {
+  if (
+    needsEvaAgentSessionRefresh(
+      deps.db,
+      args.thread,
+      request.input,
+      undefined,
+      request.senderThreadId !== undefined && request.senderThreadId !== null,
+    )
+  ) {
     const environment = await requireThreadCommandEnvironment(deps, {
       thread: args.thread,
     });

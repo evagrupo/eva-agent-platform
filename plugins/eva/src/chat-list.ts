@@ -113,3 +113,56 @@ export function isSidebarAgentChatThread(thread: {
     thread.parentThreadId === null
   );
 }
+
+/** The sidebar thread fields delegated work is read from. */
+export interface DelegatedWorkThread {
+  id: string;
+  parentThreadId: string | null;
+  status: string;
+  isArchived?: boolean;
+  experimental_agentId?: string | null;
+}
+
+export interface DelegatedWork {
+  count: number;
+  /** The asking agent's name when all running tasks come from one agent. */
+  forAgentName: string | null;
+}
+
+const RUNNING_THREAD_STATUSES = new Set(["pending", "starting", "active"]);
+
+/**
+ * Running delegated tasks per agent: child threads (a task another agent
+ * handed off) whose agent is still working, with who asked for them.
+ */
+export function delegatedWorkByAgent(
+  threads: readonly DelegatedWorkThread[],
+  agentName: (agentId: string) => string | null,
+): ReadonlyMap<string, DelegatedWork> {
+  const byId = new Map(threads.map((thread) => [thread.id, thread]));
+  const work = new Map<string, { count: number; askers: Set<string | null> }>();
+  for (const thread of threads) {
+    const agentId = thread.experimental_agentId ?? null;
+    if (agentId === null || thread.parentThreadId === null) continue;
+    if (thread.isArchived || !RUNNING_THREAD_STATUSES.has(thread.status)) {
+      continue;
+    }
+    const parentAgentId =
+      byId.get(thread.parentThreadId)?.experimental_agentId ?? null;
+    if (parentAgentId === agentId) continue;
+    const entry = work.get(agentId) ?? { count: 0, askers: new Set() };
+    entry.count += 1;
+    entry.askers.add(parentAgentId === null ? null : agentName(parentAgentId));
+    work.set(agentId, entry);
+  }
+  return new Map(
+    [...work].map(([agentId, entry]) => [
+      agentId,
+      {
+        count: entry.count,
+        forAgentName:
+          entry.askers.size === 1 ? ([...entry.askers][0] ?? null) : null,
+      },
+    ]),
+  );
+}

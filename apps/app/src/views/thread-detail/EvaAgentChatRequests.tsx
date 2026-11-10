@@ -10,6 +10,10 @@ import { ThreadTimelineRows } from "@/components/thread/timeline/ThreadTimelineR
 import type { ThreadTimelineLinkHandler } from "@/components/thread/timeline/types";
 import { useEvaAgentChatRequestTimeline } from "@/hooks/queries/eva-agent-chat-history-query";
 import { toUserAttachmentImageSrc } from "@/lib/user-attachment-images";
+import { useStore } from "jotai";
+import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
+import { useRouteNavigate } from "@/components/ui/app-route-anchor";
+import { openThreadInSplit } from "@/lib/split-layout/openThreadInSplit";
 
 const REQUEST_ROW_PREFIX = "eva-request:";
 
@@ -104,6 +108,22 @@ export function EvaAgentChatRequestCard({
   const working = request.status === "working";
   const outgoing = request.direction === "outgoing";
   const openable = request.readable !== false;
+  const navigate = useRouteNavigate();
+  const store = useStore();
+  const isCompact = useIsCompactViewport();
+  // Opens the delegated conversation (a BB child thread) next to this chat,
+  // live, where the person can also reply to that agent.
+  const openInSplit =
+    openable && request.projectId !== undefined
+      ? () =>
+          openThreadInSplit({
+            store,
+            navigate,
+            projectId: request.projectId!,
+            threadId: request.threadId,
+            isCompact,
+          })
+      : null;
   const timeline = useEvaAgentChatRequestTimeline(request.threadId, {
     enabled: expanded && openable,
     working,
@@ -118,10 +138,15 @@ export function EvaAgentChatRequestCard({
       <div className="w-full max-w-xl overflow-hidden rounded-xl border border-border-seam bg-surface-recessed/60">
         <button
           type="button"
-          aria-expanded={expanded}
-          aria-controls={bodyId}
+          aria-controls={openInSplit === null ? bodyId : undefined}
           disabled={!openable}
-          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={openInSplit === null ? expanded : undefined}
+          title={openInSplit === null ? undefined : "Open next to this chat"}
+          onClick={() =>
+            openInSplit === null
+              ? setExpanded((value) => !value)
+              : openInSplit()
+          }
           className="flex w-full cursor-pointer items-center gap-3 disabled:cursor-default disabled:hover:bg-transparent px-3 py-2.5 text-left transition-colors hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <span className="relative shrink-0">
@@ -166,7 +191,14 @@ export function EvaAgentChatRequestCard({
           >
             {working ? "Working…" : "Done"}
           </span>
-          {openable ? (
+          {openInSplit !== null ? (
+            <Icon
+              name="PanelRightOpen"
+              fallback="ChevronRight"
+              aria-hidden
+              className="size-3.5 shrink-0 text-subtle-foreground"
+            />
+          ) : openable ? (
             <Icon
               name="ChevronRight"
               aria-hidden

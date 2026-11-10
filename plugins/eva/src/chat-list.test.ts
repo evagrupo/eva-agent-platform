@@ -60,3 +60,22 @@ describe("chat list helpers", () => {
     expect(isSidebarAgentChatThread({ parentThreadId: null })).toBe(false);
   });
 });
+
+describe("delegatedWorkByAgent", () => {
+  it("counts running delegated tasks per agent with who asked", async () => {
+    const { delegatedWorkByAgent } = await import("./chat-list");
+    const threads = [
+      { id: "orch", parentThreadId: null, status: "active", experimental_agentId: "orchestrator" },
+      { id: "crm1", parentThreadId: "orch", status: "active", experimental_agentId: "crm" },
+      { id: "crm2", parentThreadId: "orch", status: "starting", experimental_agentId: "crm" },
+      { id: "people1", parentThreadId: "orch", status: "active", experimental_agentId: "people" },
+      { id: "doneTask", parentThreadId: "orch", status: "idle", experimental_agentId: "email" },
+      { id: "ownChat", parentThreadId: null, status: "active", experimental_agentId: "meta" },
+    ];
+    const work = delegatedWorkByAgent(threads, (id) => (id === "orchestrator" ? "Orquestador Maestro" : null));
+    expect(work.get("crm")).toEqual({ count: 2, forAgentName: "Orquestador Maestro" });
+    expect(work.get("people")).toEqual({ count: 1, forAgentName: "Orquestador Maestro" });
+    expect(work.has("email")).toBe(false);
+    expect(work.has("meta")).toBe(false);
+  });
+});

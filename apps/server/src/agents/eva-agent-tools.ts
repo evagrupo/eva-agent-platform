@@ -1,3 +1,4 @@
+import type { PromptInput } from "@bb/domain";
 import { getThread, type DbConnection } from "@bb/db";
 import {
   PERSONAL_PROJECT_ID,
@@ -647,7 +648,16 @@ export async function handleEvaAgentToolCall(
           : { permissionMode: execution.permissionMode }),
         origin: "app",
         title: titleFromPrompt(input.task),
-        input: [{ type: "text", text: input.task, mentions: [] }],
+        input: [
+          { type: "text", text: input.task, mentions: [] },
+          delegatedTaskContextInput({
+            parentThreadId: args.thread.id,
+            parentAgentName:
+              (args.thread.agentId
+                ? getEvaAgentForDb(deps.db, args.thread.agentId)?.displayName
+                : undefined) ?? "another agent",
+          }),
+        ],
         environment: { type: "host", workspace: { type: "personal" } },
         parentThreadId: args.thread.id,
         ownerUserId: current.authContext.userId,
@@ -759,4 +769,20 @@ export async function handleEvaAgentToolCall(
         "Unsupported EVA collaboration tool",
       );
   }
+}
+
+/**
+ * Hidden note on a delegated task: who asked and how to reach them before
+ * the work is done. The final reply goes back to the parent automatically.
+ */
+export function delegatedTaskContextInput(args: {
+  parentThreadId: string;
+  parentAgentName: string;
+}): PromptInput {
+  return {
+    type: "text",
+    text: `[eva delegated task] ${args.parentAgentName} asked you to do this from thread ${args.parentThreadId}. Your final reply is sent back to it automatically. If you need an answer or want to share important progress before you finish, message it with eva_message_agent_thread (threadId ${args.parentThreadId}). You may also ask or delegate to other agents yourself.`,
+    mentions: [],
+    visibility: "agent-only",
+  };
 }

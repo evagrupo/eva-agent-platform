@@ -14,6 +14,8 @@ export type EvaAgentChatRequestStatus = "working" | "done";
  */
 export interface EvaAgentChatIncomingRequest {
   threadId: string;
+  /** The delegated thread's project, to open it next to the chat. */
+  projectId?: string;
   /**
    * "incoming": another agent asked this chat's agent (the other agent is
    * `fromAgent…`). "outgoing": this chat's agent asked another agent (the
@@ -107,6 +109,7 @@ export function listEvaAgentChatIncomingRequests(
     if (!canRead(row)) continue;
     requests.push({
       threadId: row.id,
+      projectId: row.projectId,
       fromAgentId,
       fromAgentName: resolveAgentName(fromAgentId) ?? fromAgentId,
       summary: oneLine(row.title ?? row.titleFallback) || "A request",
@@ -156,6 +159,7 @@ export function listEvaAgentChatOutgoingRequests(
     const agent = resolveAgent(agentId);
     requests.push({
       threadId: row.id,
+      projectId: row.projectId,
       direction: "outgoing",
       readable,
       fromAgentId: agentId,

@@ -53,6 +53,8 @@ import {
   chatTimeLabel,
   sortChatAgents,
   isSidebarAgentChatThread,
+  delegatedWorkByAgent,
+  type DelegatedWork,
 } from "./src/chat-list";
 import { AgentMemories } from "./src/AgentMemories";
 
@@ -1581,6 +1583,7 @@ function SidebarAgentRow({
   chatThreadId,
   chatThread,
   preview,
+  delegated,
   activeThreadId,
   ready,
   onOpen,
@@ -1588,6 +1591,8 @@ function SidebarAgentRow({
   agent: EvaAgent;
   chatThreadId: string | null;
   chatThread?: PluginSidebarThread;
+  /** Work other agents delegated to this agent that is running now. */
+  delegated?: DelegatedWork;
   preview?: AgentChatPreview;
   activeThreadId: string | null;
   ready: boolean;
@@ -1595,8 +1600,19 @@ function SidebarAgentRow({
 }) {
   const label = agentDisplayName(agent);
   const isActive = chatThreadId !== null && chatThreadId === activeThreadId;
-  const isWorking =
+  const isChatWorking =
     chatThread?.status === "starting" || chatThread?.status === "active";
+  const isWorking = isChatWorking || delegated !== undefined;
+  // What the agent is busy with: its own chat first, else delegated work.
+  const workingLabel = isChatWorking
+    ? "Working on it…"
+    : delegated === undefined
+      ? null
+      : delegated.count > 1
+        ? `${delegated.count} tasks in progress`
+        : delegated.forAgentName
+          ? `Working for ${delegated.forAgentName}…`
+          : "Working on a task…";
   const needsAnswer = chatThread?.hasPendingInteraction === true;
   const isUnread = !isActive && chatThread?.isUnread === true;
   const previewText = chatPreviewLine(preview, agentDisplayTagline(agent));
@@ -1665,7 +1681,7 @@ function SidebarAgentRow({
                 isUnread ? "text-sidebar-foreground" : "text-muted-foreground",
               )}
             >
-              {isWorking && !needsAnswer ? "Working on it…" : previewText}
+              {workingLabel !== null && !needsAnswer ? workingLabel : previewText}
             </span>
             {isUnread ? (
               <span
@@ -1926,6 +1942,10 @@ function EVAThreadList({
   const developmentAgents = roster.agents.filter(
     (agent) => !isEvaChatAgent(agent.slug),
   );
+  const delegatedWork = delegatedWorkByAgent(threads, (agentId) => {
+    const requester = roster.agents.find((candidate) => candidate.slug === agentId);
+    return requester ? agentDisplayName(requester) : null;
+  });
   const renderChatAgent = (agent: EvaAgent) => {
     const chatThreadId = canonicalThreadIds.get(agent.slug) ?? null;
     return (
@@ -1936,6 +1956,7 @@ function EVAThreadList({
         chatThread={
           chatThreadId === null ? undefined : threadById.get(chatThreadId)
         }
+        delegated={delegatedWork.get(agent.slug)}
         preview={chatPreviews.get(agent.slug)}
         activeThreadId={activeThreadId}
         ready={agentThreadDataReady}

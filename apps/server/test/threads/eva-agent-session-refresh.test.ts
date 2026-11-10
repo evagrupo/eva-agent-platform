@@ -24,6 +24,8 @@ describe("agent chat session refresh", () => {
       });
       const chat = { ...thread, agentId: "email", parentThreadId: null, status: "idle" as const };
       expect(needsEvaAgentSessionRefresh(harness.deps.db, chat, typed, 2_000)).toBe(true);
+      // A message from another agent (a delegated child) never refreshes.
+      expect(needsEvaAgentSessionRefresh(harness.deps.db, chat, typed, 2_000, true)).toBe(false);
       expect(needsEvaAgentSessionRefresh(harness.deps.db, chat, typed, 500)).toBe(false);
       expect(needsEvaAgentSessionRefresh(harness.deps.db, chat, hidden, 2_000)).toBe(false);
       expect(needsEvaAgentSessionRefresh(harness.deps.db, { ...chat, status: "active" }, typed, 2_000)).toBe(false);
@@ -48,5 +50,15 @@ describe("agent chat session refresh", () => {
     expect(note).toMatchObject({ visibility: "agent-only" });
     expect(note.type === "text" ? note.text : "").toContain("bb thread log thr_x");
     expect(note.type === "text" ? note.text : "").toContain("no longer apply");
+  });
+
+  it("tells a delegated agent who asked and how to reach them mid-task", async () => {
+    const { delegatedTaskContextInput } = await import("../../src/agents/eva-agent-tools.js");
+    const note = delegatedTaskContextInput({ parentThreadId: "thr_parent", parentAgentName: "Orquestador Maestro" });
+    expect(note).toMatchObject({ visibility: "agent-only" });
+    const text = note.type === "text" ? note.text : "";
+    expect(text).toContain("Orquestador Maestro");
+    expect(text).toContain("eva_message_agent_thread (threadId thr_parent)");
+    expect(text).toContain("ask or delegate to other agents yourself");
   });
 });
