@@ -14,8 +14,22 @@ export type EvaAgentChatRequestStatus = "working" | "done";
  */
 export interface EvaAgentChatIncomingRequest {
   threadId: string;
+  /**
+   * "incoming": another agent asked this chat's agent (the other agent is
+   * `fromAgent…`). "outgoing": this chat's agent asked another agent (the
+   * other agent, which does the work, is `fromAgent…`).
+   */
+  direction?: "incoming" | "outgoing";
   fromAgentId: string;
   fromAgentName: string;
+  /** The other agent's icon, for its avatar. */
+  fromAgentIcon?: string | null;
+  /**
+   * False when the person may not open the delegated conversation (the
+   * other agent is outside their policy): the card shows only who is
+   * working and the status.
+   */
+  readable?: boolean;
   summary: string;
   status: EvaAgentChatRequestStatus;
   createdAt: number;
@@ -96,6 +110,60 @@ export function listEvaAgentChatIncomingRequests(
       fromAgentId,
       fromAgentName: resolveAgentName(fromAgentId) ?? fromAgentId,
       summary: oneLine(row.title ?? row.titleFallback) || "A request",
+      status: requestStatus(row.status),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    });
+  }
+  return requests.reverse();
+}
+
+/**
+ * Work this chat's agent asked other agents to do from this chat part:
+ * delegated child threads of this chat, oldest first. The app shows each as
+ * a "Working with <agent>" card with its live status.
+ */
+export function listEvaAgentChatOutgoingRequests(
+  db: DbConnection,
+  chat: ChatPart,
+  resolveAgent: (agentId: string) => { name: string; icon: string | null } | null,
+  canRead: (thread: {
+    id: string;
+    ownerUserId: string | null;
+    agentId: string | null;
+    projectId: string;
+  }) => boolean,
+): EvaAgentChatIncomingRequest[] {
+  if (chat.agentId === null) return [];
+  const rows = db
+    .select()
+    .from(threads)
+    .where(
+      and(
+        eq(threads.parentThreadId, chat.id),
+        isNotNull(threads.agentId),
+        isNull(threads.deletedAt),
+      ),
+    )
+    .orderBy(desc(threads.createdAt), desc(threads.id))
+    .limit(EVA_CHAT_MAX_INCOMING_REQUESTS)
+    .all();
+  const requests: EvaAgentChatIncomingRequest[] = [];
+  for (const row of rows) {
+    const agentId = row.agentId;
+    if (agentId === null || agentId === chat.agentId) continue;
+    const readable = canRead(row);
+    const agent = resolveAgent(agentId);
+    requests.push({
+      threadId: row.id,
+      direction: "outgoing",
+      readable,
+      fromAgentId: agentId,
+      fromAgentName: agent?.name ?? agentId,
+      fromAgentIcon: agent?.icon ?? null,
+      summary: readable
+        ? oneLine(row.title ?? row.titleFallback) || "A request"
+        : "Working on part of your request",
       status: requestStatus(row.status),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

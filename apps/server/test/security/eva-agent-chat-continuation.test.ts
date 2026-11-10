@@ -599,12 +599,13 @@ describe("EVA agent chat incoming requests", () => {
           title: "Someone else's request",
           visibility: "visible",
         });
-        createThread(harness.db, harness.hub, {
+        // Listed as outgoing: this chat's agent asked another agent.
+        const asked = createThread(harness.db, harness.hub, {
           projectId: project.id,
           ownerUserId: "chat-owner",
           agentId: "orchestrator",
           providerId: "codex",
-          status: "idle",
+          status: "active",
           parentThreadId: chatThreadId,
           title: "Request to another agent",
           visibility: "visible",
@@ -618,18 +619,33 @@ describe("EVA agent chat incoming requests", () => {
         expect(body.requests.map((request) => request.threadId)).toEqual([
           done.id,
           working.id,
+          asked.id,
         ]);
         expect(body.requests[0]).toMatchObject({
+          direction: "incoming",
           fromAgentId: "orchestrator",
           summary: "Check vacation balances",
           status: "done",
         });
+        // The owner may not use the orchestrator: they see who is working
+        // and the status, not the delegated conversation.
+        expect(body.requests[2]).toMatchObject({
+          direction: "outgoing",
+          fromAgentId: "orchestrator",
+          readable: false,
+          summary: "Working on part of your request",
+          status: "working",
+        });
         expect(typeof body.requests[0]!.fromAgentName).toBe("string");
         expect(body.requests[1]).toMatchObject({ status: "working" });
 
-        expect((await chatRequests(harness, admin, chatThreadId)).body).toEqual(
-          body,
-        );
+        const adminView = (await chatRequests(harness, admin, chatThreadId))
+          .body as { requests: Array<Record<string, unknown>> };
+        expect(adminView.requests.slice(0, 2)).toEqual(body.requests.slice(0, 2));
+        expect(adminView.requests[2]).toMatchObject({
+          readable: true,
+          summary: "Request to another agent",
+        });
         expect((await chatRequests(harness, stranger, chatThreadId)).status).toBe(
           403,
         );

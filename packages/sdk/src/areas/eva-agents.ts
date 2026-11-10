@@ -304,8 +304,13 @@ export interface EvaAgentChatSegmentsResult {
 
 const evaAgentChatRequestSchema = z.object({
   threadId: z.string(),
+  /** "outgoing": this chat's agent asked `fromAgent…` to do the work. */
+  direction: z.enum(["incoming", "outgoing"]).optional(),
   fromAgentId: z.string(),
   fromAgentName: z.string(),
+  fromAgentIcon: z.string().nullable().optional(),
+  /** False when the person may only see who is working, not the conversation. */
+  readable: z.boolean().optional(),
   summary: z.string(),
   status: z.enum(["working", "done"]),
   createdAt: z.number(),

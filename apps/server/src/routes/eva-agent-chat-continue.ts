@@ -30,7 +30,10 @@ import {
   listEarlierEvaAgentChatThreadIds,
   type EvaAgentChatThreadRow,
 } from "../agents/eva-agent-chat-continuation.js";
-import { listEvaAgentChatIncomingRequests } from "../agents/eva-agent-chat-requests.js";
+import {
+  listEvaAgentChatIncomingRequests,
+  listEvaAgentChatOutgoingRequests,
+} from "../agents/eva-agent-chat-requests.js";
 
 const AGENT_PERMISSION_MODE: PermissionMode = "full";
 
@@ -230,12 +233,32 @@ export function registerEvaAgentChatContinueRoutes(
     }
     const thread = requireAuthorizedThread(deps.db, context, threadId, "read");
     requireAgentChatThread(thread, agent.id, authContext);
+    const canRead = (candidate: Parameters<typeof canReadThread>[2]) =>
+      canReadThread(deps.db, authContext, candidate);
+    const incoming = listEvaAgentChatIncomingRequests(
+      deps.db,
+      thread,
+      (agentId) => getEvaAgentForDb(deps.db, agentId)?.displayName ?? null,
+      canRead,
+    ).map((request) => ({
+      ...request,
+      direction: "incoming" as const,
+      fromAgentIcon: getEvaAgentForDb(deps.db, request.fromAgentId)?.icon ?? null,
+    }));
+    const outgoing = listEvaAgentChatOutgoingRequests(
+      deps.db,
+      thread,
+      (agentId) => {
+        const agent = getEvaAgentForDb(deps.db, agentId);
+        return agent === null
+          ? null
+          : { name: agent.displayName, icon: agent.icon ?? null };
+      },
+      canRead,
+    );
     return context.json({
-      requests: listEvaAgentChatIncomingRequests(
-        deps.db,
-        thread,
-        (agentId) => getEvaAgentForDb(deps.db, agentId)?.displayName ?? null,
-        (candidate) => canReadThread(deps.db, authContext, candidate),
+      requests: [...incoming, ...outgoing].sort(
+        (left, right) => left.createdAt - right.createdAt,
       ),
     });
   });

@@ -698,11 +698,33 @@ describe("core auth foundation", () => {
       });
       expect(token).not.toBeNull();
       const headers = { "x-bb-agent-cli-token": token! };
+      // A specialist reads its own threads' logs (to continue its chat),
+      // but never another agent's threads.
       for (const endpoint of ["events", "timeline", "output"]) {
         expect(
           (
             await harness.app.request(
               `/api/v1/threads/${threadA.id}/${endpoint}`,
+              { headers },
+            )
+          ).status,
+        ).not.toBe(403);
+      }
+      const adminThread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        ownerUserId: "specialist-cli-owner",
+        agentId: "admin",
+        providerId: "codex",
+        status: "idle",
+        title: "Admin thread",
+        titleFallback: "Admin thread",
+        visibility: "visible",
+      });
+      for (const endpoint of ["events", "timeline", "output"]) {
+        expect(
+          (
+            await harness.app.request(
+              `/api/v1/threads/${adminThread.id}/${endpoint}`,
               { headers },
             )
           ).status,
@@ -800,6 +822,33 @@ describe("core auth foundation", () => {
       });
       expect(
         (await harness.app.request("/api/v1/access/users", { headers })).status,
+      ).toBe(403);
+      // An agent may read its own threads' logs (here a creative thread),
+      // not other agents' threads.
+      expect(
+        (
+          await harness.app.request(`/api/v1/threads/${threadA.id}/events`, {
+            headers,
+          })
+        ).status,
+      ).not.toBe(403);
+      const otherAgentThread = createThread(harness.db, harness.hub, {
+        projectId: project.id,
+        ownerUserId: "agent-cli-admin",
+        agentId: "meta",
+        providerId: "codex",
+        status: "idle",
+        title: "Meta thread",
+        titleFallback: "Meta thread",
+        visibility: "visible",
+      });
+      expect(
+        (
+          await harness.app.request(
+            `/api/v1/threads/${otherAgentThread.id}/events`,
+            { headers },
+          )
+        ).status,
       ).toBe(403);
       expect(
         (

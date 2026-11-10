@@ -4,6 +4,7 @@ import type { PromptMentionLinkResolver } from "@bb/client-core";
 import type { EvaAgentChatRequest } from "@bb/sdk/browser";
 import type { TimelineRow } from "@bb/server-contract";
 import { Icon } from "@bb/shared-ui/icon";
+import { evaAgentColor } from "@/lib/eva-agent-colors";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { ThreadTimelineRows } from "@/components/thread/timeline/ThreadTimelineRows";
 import type { ThreadTimelineLinkHandler } from "@/components/thread/timeline/types";
@@ -32,7 +33,10 @@ function requestRow(
     kind: "system",
     systemKind: "operation",
     operationKind: "generic",
-    title: `Request from ${request.fromAgentName}`,
+    title:
+      request.direction === "outgoing"
+        ? `Working with ${request.fromAgentName}`
+        : `Request from ${request.fromAgentName}`,
     detail: null,
     status: "completed",
     completedAt: request.createdAt,
@@ -98,8 +102,10 @@ export function EvaAgentChatRequestCard({
 }: EvaAgentChatRequestCardProps) {
   const [expanded, setExpanded] = useState(false);
   const working = request.status === "working";
+  const outgoing = request.direction === "outgoing";
+  const openable = request.readable !== false;
   const timeline = useEvaAgentChatRequestTimeline(request.threadId, {
-    enabled: expanded,
+    enabled: expanded && openable,
     working,
   });
   const rows = timeline.data?.rows;
@@ -114,17 +120,37 @@ export function EvaAgentChatRequestCard({
           type="button"
           aria-expanded={expanded}
           aria-controls={bodyId}
+          disabled={!openable}
           onClick={() => setExpanded((value) => !value)}
-          className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex w-full cursor-pointer items-center gap-3 disabled:cursor-default disabled:hover:bg-transparent px-3 py-2.5 text-left transition-colors hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
-          <Icon
-            name="CornerDownRight"
-            className="size-3.5 shrink-0 text-muted-foreground"
-            aria-hidden
-          />
+          <span className="relative shrink-0">
+            <span
+              aria-hidden
+              className="flex size-8 items-center justify-center rounded-full text-white"
+              style={{ backgroundColor: evaAgentColor(request.fromAgentId) }}
+            >
+              <Icon
+                name={request.fromAgentIcon ?? "Bot"}
+                fallback="Bot"
+                className="size-4"
+              />
+            </span>
+            <span
+              aria-hidden
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-surface-recessed",
+                working ? "animate-pulse bg-amber-500" : "bg-emerald-500",
+              )}
+            />
+          </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs font-medium text-foreground">
-              Request from {request.fromAgentName}
+            <span className="block truncate text-sm font-medium text-foreground">
+              {outgoing
+                ? working
+                  ? `Working with ${request.fromAgentName}`
+                  : `${request.fromAgentName} finished`
+                : `Request from ${request.fromAgentName}`}
             </span>
             <span className="block truncate text-xs text-muted-foreground">
               {request.summary}
@@ -132,20 +158,24 @@ export function EvaAgentChatRequestCard({
           </span>
           <span
             className={cn(
-              "shrink-0 text-2xs",
-              working ? "animate-shine text-muted-foreground" : "text-subtle-foreground",
+              "shrink-0 rounded-full px-2 py-0.5 text-2xs font-medium",
+              working
+                ? "animate-shine bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
             )}
           >
             {working ? "Working…" : "Done"}
           </span>
-          <Icon
-            name="ChevronRight"
-            aria-hidden
-            className={cn(
-              "size-3 shrink-0 text-subtle-foreground transition-transform duration-150",
-              expanded && "rotate-90",
-            )}
-          />
+          {openable ? (
+            <Icon
+              name="ChevronRight"
+              aria-hidden
+              className={cn(
+                "size-3 shrink-0 text-subtle-foreground transition-transform duration-150",
+                expanded && "rotate-90",
+              )}
+            />
+          ) : null}
         </button>
         {expanded ? (
           <div

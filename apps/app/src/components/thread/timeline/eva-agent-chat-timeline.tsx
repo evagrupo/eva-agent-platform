@@ -46,7 +46,10 @@ export function findEvaAgentChatFinalAnswerIds(
   return answers;
 }
 
+const CONTEXT_CLEARED_TITLE = "Context cleared";
+
 const TECHNICAL_OPERATION_KINDS = new Set([
+  "context-clear",
   "warning",
   "deprecation",
   "provider-unhandled",
@@ -62,9 +65,15 @@ export function isEvaAgentChatTechnicalNotice(row: {
   kind: string;
   systemKind?: string;
   operationKind?: string;
+  title?: string;
 }): boolean {
   if (row.kind !== "system") return false;
   if (row.systemKind === "debug" || row.systemKind === "reconnect") return true;
+  // A session refresh clears the provider context; the server labels it as
+  // a generic operation, so it is recognized by its title.
+  if (row.systemKind === "operation" && row.title === CONTEXT_CLEARED_TITLE) {
+    return true;
+  }
   return (
     row.systemKind === "operation" &&
     row.operationKind !== undefined &&
@@ -78,6 +87,7 @@ export function withoutEvaAgentChatTechnicalNotices<
     kind: string;
     systemKind?: string;
     operationKind?: string;
+    title?: string;
     children?: readonly Row[] | null;
   },
 >(rows: readonly Row[]): Row[] {

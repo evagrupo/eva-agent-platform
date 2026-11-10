@@ -12,6 +12,11 @@ import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { attemptDispatch } from "./dispatch-attempt.js";
 import { requireThreadCommandEnvironment } from "./thread-command-environment.js";
 import { sendThreadMessage } from "./thread-send.js";
+import { clearThreadContext } from "./thread-context-clear.js";
+import {
+  evaAgentSessionRefreshInput,
+  needsEvaAgentSessionRefresh,
+} from "./eva-agent-session-refresh.js";
 import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
 import { runWithTurnTrace } from "../system/turn-trace.js";
 import { assertProviderAcceptsPromptActions } from "../providers/provider-plan-command.js";
@@ -55,6 +60,18 @@ export async function acceptThreadSendRequest(
     if (request.mode === "steer") {
       throwInvalidCompactFirst("cannot steer a turn");
     }
+  }
+  // An agent chat whose provider session predates the current tools and
+  // rules gets a fresh session first; the agent rereads the conversation.
+  if (needsEvaAgentSessionRefresh(deps.db, args.thread, request.input)) {
+    const environment = await requireThreadCommandEnvironment(deps, {
+      thread: args.thread,
+    });
+    await clearThreadContext(deps, { environment, thread: args.thread });
+    request.input = [
+      evaAgentSessionRefreshInput(args.thread.id),
+      ...request.input,
+    ];
   }
   const payload: SendMessageRequest = compactFirst
     ? { ...request, mode: "queue-if-active", compactFirst }

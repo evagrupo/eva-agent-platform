@@ -1802,7 +1802,7 @@ describe("thread runtime config", () => {
         expect.arrayContaining([...EVA_AGENT_TOOL_NAMES]),
       );
       expect(runtimeConfig.instructions).toContain(
-        "The Master Orchestrator manages all agents",
+        "ask, hand off to, or delegate to any agent directly",
       );
       expect(runtimeConfig.instructions).toContain(
         "read the child's result before you report it",

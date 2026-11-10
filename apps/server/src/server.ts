@@ -325,11 +325,15 @@ export function isCoreShellPluginRequest(method: string, path: string): boolean 
   return false;
 }
 
+const AGENT_CLI_THREAD_LOG_PATH =
+  /^\/threads\/([^/]+)\/(?:events|timeline|output)$/u;
+
 function allowsAgentCliRequest(
   method: string,
   path: string,
   agentId: string,
   isAdministrator: boolean,
+  threadAgentId: (threadId: string) => string | null,
 ): boolean {
   const normalizedPath = normalizePublicApiPath(path);
   if (
@@ -350,9 +354,23 @@ function allowsAgentCliRequest(
     normalizedPath === "/threads" ||
     /^\/threads\/[^/]+$/u.test(normalizedPath) ||
     (agentId === "admin" &&
-      (/^\/threads\/[^/]+\/(?:events|timeline|output)$/u.test(normalizedPath) ||
-        /^\/environments\/[^/]+$/u.test(normalizedPath)))
+      (AGENT_CLI_THREAD_LOG_PATH.test(normalizedPath) ||
+        /^\/environments\/[^/]+$/u.test(normalizedPath))) ||
+    // Every agent may read its own threads' logs (an earlier part of its
+    // chat, or the chat it continues after a refresh or provider switch).
+    // The owner's thread access rules still apply in the route.
+    isOwnAgentThreadLog(normalizedPath, agentId, threadAgentId)
   );
+}
+
+function isOwnAgentThreadLog(
+  normalizedPath: string,
+  agentId: string,
+  threadAgentId: (threadId: string) => string | null,
+): boolean {
+  const match = AGENT_CLI_THREAD_LOG_PATH.exec(normalizedPath);
+  if (match === null) return false;
+  return threadAgentId(decodeURIComponent(match[1]!)) === agentId;
 }
 
 export interface ServerMoveAppOptions {
@@ -826,6 +844,7 @@ export function createApp(
         context.req.path,
         authContext.agentCliScope.agentId,
         authContext.role === "admin",
+        (threadId) => getThread(deps.db, threadId)?.agentId ?? null,
       )
     ) {
       return context.json(

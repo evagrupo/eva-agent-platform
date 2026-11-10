@@ -1450,7 +1450,12 @@ function ThreadDetailViewInternal(
     [thread?.agentId, thread?.parentThreadId, threadId],
   );
   const isAgentChatThread = isEvaAgentChatThread(agentChatTarget);
-  const agentChatRequests = useEvaAgentChatRequests(agentChatTarget);
+  const agentChatRequests = useEvaAgentChatRequests(agentChatTarget, {
+    chatWorking:
+      thread?.status === "active" ||
+      thread?.status === "starting" ||
+      thread?.status === "pending",
+  });
   const agentChatRequestList = useMemo(
     () => agentChatRequests.data?.requests ?? [],
     [agentChatRequests.data],
@@ -1474,7 +1479,20 @@ function ThreadDetailViewInternal(
         : {
             ...timeline,
             timelineRows: mergeEvaAgentChatRequestRows(
-              timeline.timelineRows,
+              // "Asked X for help" notes are covered by the "Working with
+              // X" cards, which also show progress.
+              agentChatRequestList.some(
+                (request) => request.direction === "outgoing",
+              )
+                ? timeline.timelineRows.filter(
+                    (row) =>
+                      !(
+                        row.id.endsWith(":handoff") &&
+                        row.kind === "system" &&
+                        row.title.startsWith("Asked ")
+                      ),
+                  )
+                : timeline.timelineRows,
               agentChatRequestList,
               {
                 chatThreadId: threadId,

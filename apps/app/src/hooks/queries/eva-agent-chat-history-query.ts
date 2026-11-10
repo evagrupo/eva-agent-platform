@@ -44,11 +44,15 @@ export function useEvaAgentChatPartTimelines(threadIds: readonly string[]) {
 }
 
 const NO_REQUESTS: EvaAgentChatRequestsResult = { requests: [] };
-const WORKING_REQUEST_REFRESH_MS = 15_000;
+const WORKING_REQUEST_REFRESH_MS = 5_000;
+const CHAT_WORKING_REFRESH_MS = 3_000;
 const IDLE_REQUEST_REFRESH_MS = 60_000;
 
 /** Requests other agents delegated to this chat's agent for its owner. */
-export function useEvaAgentChatRequests(thread: EvaAgentChatPart) {
+export function useEvaAgentChatRequests(
+  thread: EvaAgentChatPart,
+  options: { chatWorking?: boolean } = {},
+) {
   const agentId =
     isEvaAgentChatThread(thread) && thread.agentId ? thread.agentId : null;
   return useQuery<EvaAgentChatRequestsResult>({
@@ -59,10 +63,16 @@ export function useEvaAgentChatRequests(thread: EvaAgentChatPart) {
         : sdk.evaAgents.chatRequests({ agentId, threadId: thread.id, signal }),
     enabled: agentId !== null,
     staleTime: 10_000,
+    // While this chat's agent works it may ask another agent at any moment:
+    // check often so "Working with …" cards appear right away.
     refetchInterval: (query) =>
-      query.state.data?.requests.some((request) => request.status === "working")
-        ? WORKING_REQUEST_REFRESH_MS
-        : IDLE_REQUEST_REFRESH_MS,
+      options.chatWorking === true
+        ? CHAT_WORKING_REFRESH_MS
+        : query.state.data?.requests.some(
+              (request) => request.status === "working",
+            )
+          ? WORKING_REQUEST_REFRESH_MS
+          : IDLE_REQUEST_REFRESH_MS,
   });
 }
 

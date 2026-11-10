@@ -34,3 +34,16 @@ describe("withoutEvaAgentChatTechnicalNotices", () => {
     expect(kept[0]!.children!.map((row) => row.id)).toEqual(["m"]);
   });
 });
+
+describe("context cleared row", () => {
+  it("is hidden in agent chats", () => {
+    expect(
+      isEvaAgentChatTechnicalNotice({
+        kind: "system",
+        systemKind: "operation",
+        operationKind: "generic",
+        title: "Context cleared",
+      }),
+    ).toBe(true);
+  });
+});
